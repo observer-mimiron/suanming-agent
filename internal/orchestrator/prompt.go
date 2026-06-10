@@ -96,11 +96,44 @@ func currentQuestion(st *state.SessionState) string {
 	return "请先给出一段简明的命盘总评。"
 }
 
-func buildInterpretPrompt(st *state.SessionState, passages []mcp.Passage) string {
+// selectPrompt chooses a specialized prompt based on the question category
+func selectPrompt(st *state.SessionState) []byte {
+	question := currentQuestion(st)
+	var promptFile string
+
+	// Keyword-based routing to specialized prompts
+	kwMap := map[string]string{
+		"prompts/marriage.md":    "结婚|婚姻|感情|恋爱|配偶|夫妻|离婚|男友|女友|丈夫|妻子|单身|桃花|拍拖",
+		"prompts/career.md":      "事业|工作|职业|财运|工资|收入|生意|创业|老板|公司|升职|跳槽|投资",
+		"prompts/health.md":      "健康|病|疾病|手术|身体|住院|抑郁|癌症|死|伤|痛",
+		"prompts/personality.md": "性格|个性|脾气|人品|外貌|身材|长相",
+	}
+
+	for file, keywords := range kwMap {
+		for _, kw := range strings.Split(keywords, "|") {
+			if strings.Contains(question, kw) {
+				tpl, err := os.ReadFile(file)
+				if err == nil {
+					return tpl
+				}
+				break
+			}
+		}
+		if promptFile != "" {
+			break
+		}
+	}
+
+	// Fallback to generic prompt
 	tpl, err := os.ReadFile("prompts/interpret.md")
 	if err != nil {
-		tpl = []byte("你是精通八字命理的中文咨询师。请基于给定命盘和问题作答，不要暴露推理过程。")
+		return []byte("你是精通八字命理的中文咨询师。请基于给定命盘和问题作答，不要暴露推理过程。")
 	}
+	return tpl
+}
+
+func buildInterpretPrompt(st *state.SessionState, passages []mcp.Passage) string {
+	tpl := selectPrompt(st)
 	profileJSON, err := json.Marshal(st.Profile)
 	if err != nil {
 		profileJSON = []byte("{}")
