@@ -283,6 +283,19 @@ func (o *Orchestrator) handleFullReading(sw sse.Sender, st *state.SessionState) 
 		}
 	}
 
+	// Run dayun analyzer
+	if daTool, ok2 := o.tools.Get("dayun_analyzer"); ok2 {
+		daParams := map[string]any{
+			"dayun":       data["dayun"],
+			"bazi_result": st.BaziResult,
+		}
+		if daResult, daErr := daTool.Execute(daParams); daErr == nil {
+			if daMap, ok3 := daResult.(map[string]any); ok3 {
+				st.BaziResult["dayun_analyzed"] = daMap["dayun_analyzed"]
+			}
+		}
+	}
+
 	sw.Send("component", map[string]any{"type": "bazi-chart", "payload": data})
 
 	// 2. 知识检索 + LLM 解读
