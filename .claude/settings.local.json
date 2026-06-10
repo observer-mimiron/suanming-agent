@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -f /Users/wikiglobal/workSapce/suanming-agent/web/.debug/*)",
+      "Bash(curl -s -X POST http://localhost:8080/api/chat -H 'Content-Type: application/json' -d '{\"message\":\"女命，1990年5月23日 17:30，大陆\",\"session_id\":\"p1\"}')",
+      "Bash(curl -s -X POST http://localhost:8080/api/chat -H 'Content-Type: application/json' -d '{\"message\":\"我的婚姻怎么样\",\"session_id\":\"p1\"}')",
+      "Bash(curl -s -X POST http://localhost:8080/api/chat -H 'Content-Type: application/json' -d '{\"message\":\"男命，1985年6月29日 18:32，malaysia\",\"session_id\":\"p3\"}')"
+    ]
+  }
+}
