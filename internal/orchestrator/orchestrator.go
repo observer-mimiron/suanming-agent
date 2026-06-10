@@ -268,6 +268,21 @@ func (o *Orchestrator) handleFullReading(sw sse.Sender, st *state.SessionState) 
 	}
 	st.BaziResult = data
 
+	// Run yongshen analysis
+	if ysTool, ok := o.tools.Get("yongshen"); ok {
+		ysResult, ysErr := ysTool.Execute(st.Profile)
+		if ysErr == nil {
+			if ysMap, ok2 := ysResult.(map[string]any); ok2 {
+				st.BaziResult["yongshen"] = ysMap
+				sw.Send("tool_call", map[string]any{"tool": "yongshen", "params": st.Profile})
+				sw.Send("thinking", map[string]any{
+					"agent": "orchestrator",
+					"text":  fmt.Sprintf("日主%s 强弱:%s 用神:%v 忌神:%v", ysMap["day_master"], ysMap["strength"], ysMap["yong_shen"], ysMap["ji_shen"]),
+				})
+			}
+		}
+	}
+
 	sw.Send("component", map[string]any{"type": "bazi-chart", "payload": data})
 
 	// 2. 知识检索 + LLM 解读
