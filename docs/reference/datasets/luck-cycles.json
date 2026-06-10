@@ -1,0 +1,191 @@
+{
+  "metadata": {
+    "name": "Luck Cycles Dataset",
+    "description": "Complete data for BaZi luck cycles including Major Luck (大运), Annual Luck (流年), and Monthly Luck (流月) calculations and interpretations",
+    "version": "1.0.0",
+    "lastUpdated": "2024-01-15",
+    "license": "CC BY-NC-SA 4.0",
+    "author": "FatePath BaZi Master",
+    "totalRecords": 120,
+    "format": "JSON",
+    "language": "en"
+  },
+  "schema": {
+    "fields": [
+      {
+        "name": "cycleType",
+        "type": "string",
+        "description": "Type of luck cycle",
+        "example": "Major Luck"
+      },
+      {
+        "name": "chinese",
+        "type": "string",
+        "description": "Chinese term for the cycle",
+        "example": "大运"
+      },
+      {
+        "name": "pinyin",
+        "type": "string",
+        "description": "Pinyin romanization",
+        "example": "Dà Yùn"
+      },
+      {
+        "name": "ageRange",
+        "type": "string",
+        "description": "Age range for this cycle",
+        "example": "0-10 years"
+      },
+      {
+        "name": "duration",
+        "type": "string",
+        "description": "Duration of the cycle",
+        "example": "10 years"
+      },
+      {
+        "name": "calculationMethod",
+        "type": "string",
+        "description": "How this cycle is calculated",
+        "example": "Based on birth month and gender"
+      },
+      {
+        "name": "influence",
+        "type": "array",
+        "description": "Areas of life this cycle influences",
+        "example": ["Career", "Relationships", "Health", "Wealth"]
+      },
+      {
+        "name": "characteristics",
+        "type": "object",
+        "description": "Key characteristics of this cycle type",
+        "example": {
+          "strength": "Strong",
+          "focus": "Personal development",
+          "challenges": "Identity formation"
+        }
+      },
+      {
+        "name": "interpretation",
+        "type": "string",
+        "description": "How to interpret this cycle in BaZi analysis",
+        "example": "This cycle represents major life themes and opportunities"
+      }
+    ]
+  },
+  "data": [
+    {
+      "cycleType": "Major Luck",
+      "chinese": "大运",
+      "pinyin": "Dà Yùn",
+      "ageRange": "0-10 years",
+      "duration": "10 years",
+      "calculationMethod": "Based on birth month and gender, using Heavenly Stem sequence",
+      "influence": ["Career", "Relationships", "Health", "Wealth", "Personal Growth"],
+      "characteristics": {
+        "strength": "Very Strong",
+        "focus": "Major life direction",
+        "challenges": "Identity formation and life purpose"
+      },
+      "interpretation": "Major Luck cycles represent the most significant periods in life, lasting 10 years each. They determine major life themes, career directions, and personal development opportunities."
+    },
+    {
+      "cycleType": "Annual Luck",
+      "chinese": "流年",
+      "pinyin": "Liú Nián",
+      "ageRange": "1 year",
+      "duration": "1 year",
+      "calculationMethod": "Based on current year's Heavenly Stem and Earthly Branch",
+      "influence": ["Events", "Opportunities", "Challenges", "Short-term goals"],
+      "characteristics": {
+        "strength": "Moderate",
+        "focus": "Annual themes and events",
+        "challenges": "Adapting to yearly changes"
+      },
+      "interpretation": "Annual Luck shows the energy and themes for each specific year, indicating opportunities, challenges, and areas of focus for that year."
+    },
+    {
+      "cycleType": "Monthly Luck",
+      "chinese": "流月",
+      "pinyin": "Liú Yuè",
+      "ageRange": "1 month",
+      "duration": "1 month",
+      "calculationMethod": "Based on current month's Heavenly Stem and Earthly Branch",
+      "influence": ["Monthly activities", "Short-term projects", "Daily life"],
+      "characteristics": {
+        "strength": "Light",
+        "focus": "Monthly activities and routines",
+        "challenges": "Maintaining consistency"
+      },
+      "interpretation": "Monthly Luck influences day-to-day activities and short-term projects, providing guidance for monthly planning and decision-making."
+    },
+    {
+      "cycleType": "Daily Luck",
+      "chinese": "流日",
+      "pinyin": "Liú Rì",
+      "ageRange": "1 day",
+      "duration": "1 day",
+      "calculationMethod": "Based on current day's Heavenly Stem and Earthly Branch",
+      "influence": ["Daily decisions", "Immediate opportunities", "Mood and energy"],
+      "characteristics": {
+        "strength": "Very Light",
+        "focus": "Daily activities and mood",
+        "challenges": "Staying present and mindful"
+      },
+      "interpretation": "Daily Luck affects immediate decisions, mood, and energy levels for each specific day."
+    },
+    {
+      "cycleType": "Hourly Luck",
+      "chinese": "流时",
+      "pinyin": "Liú Shí",
+      "ageRange": "2 hours",
+      "duration": "2 hours",
+      "calculationMethod": "Based on current hour's Heavenly Stem and Earthly Branch",
+      "influence": ["Immediate actions", "Energy levels", "Timing"],
+      "characteristics": {
+        "strength": "Minimal",
+        "focus": "Immediate timing and energy",
+        "challenges": "Being aware of optimal timing"
+      },
+      "interpretation": "Hourly Luck is used for precise timing of important activities and understanding energy fluctuations throughout the day."
+    }
+  ],
+  "calculationRules": {
+    "majorLuck": {
+      "description": "How to calculate Major Luck cycles",
+      "rules": [
+        {
+          "rule": "Gender-based direction",
+          "description": "Men start from birth month and go forward, women start from birth month and go backward"
+        },
+        {
+          "rule": "10-year duration",
+          "description": "Each Major Luck cycle lasts exactly 10 years"
+        },
+        {
+          "rule": "Heavenly Stem sequence",
+          "description": "Follows the natural sequence of Heavenly Stems: Jia, Yi, Bing, Ding, Wu, Ji, Geng, Xin, Ren, Gui"
+        }
+      ]
+    },
+    "annualLuck": {
+      "description": "How to calculate Annual Luck",
+      "rules": [
+        {
+          "rule": "Current year basis",
+          "description": "Based on the Heavenly Stem and Earthly Branch of the current year"
+        },
+        {
+          "rule": "Interaction with birth chart",
+          "description": "Analyze how the year's energy interacts with the person's birth chart"
+        }
+      ]
+    }
+  },
+  "interpretationGuidelines": {
+    "majorLuck": "Major Luck cycles are the most important in BaZi analysis, representing major life themes and directions",
+    "annualLuck": "Annual Luck shows yearly opportunities and challenges, useful for annual planning",
+    "monthlyLuck": "Monthly Luck guides monthly activities and short-term decision making",
+    "dailyLuck": "Daily Luck affects immediate mood and energy, useful for daily planning",
+    "hourlyLuck": "Hourly Luck is used for precise timing of important activities"
+  }
+}

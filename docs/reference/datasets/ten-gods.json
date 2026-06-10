@@ -1,0 +1,273 @@
+{
+  "metadata": {
+    "name": "Ten Gods System Dataset",
+    "description": "Complete data for the Ten Gods (十神) system used in BaZi analysis, including relationships, meanings, and applications",
+    "version": "1.0.0",
+    "lastUpdated": "2024-01-15",
+    "license": "CC BY-NC-SA 4.0",
+    "author": "FatePath BaZi Master",
+    "totalRecords": 10,
+    "format": "JSON",
+    "language": "en"
+  },
+  "schema": {
+    "fields": [
+      {
+        "name": "chinese",
+        "type": "string",
+        "description": "Chinese character representation",
+        "example": "比肩"
+      },
+      {
+        "name": "pinyin",
+        "type": "string",
+        "description": "Pinyin romanization",
+        "example": "Bǐ Jiān"
+      },
+      {
+        "name": "english",
+        "type": "string",
+        "description": "English translation",
+        "example": "Peer"
+      },
+      {
+        "name": "category",
+        "type": "string",
+        "description": "Category of the Ten God",
+        "example": "Same Element"
+      },
+      {
+        "name": "relationship",
+        "type": "string",
+        "description": "Relationship to the Day Master",
+        "example": "Same element, same polarity"
+      },
+      {
+        "name": "meaning",
+        "type": "string",
+        "description": "Core meaning and significance",
+        "example": "Represents peers, siblings, friends, and competitors"
+      },
+      {
+        "name": "personality",
+        "type": "array",
+        "description": "Associated personality traits",
+        "example": ["Independent", "Competitive", "Supportive", "Equal"]
+      },
+      {
+        "name": "career",
+        "type": "array",
+        "description": "Career implications",
+        "example": ["Teamwork", "Partnership", "Competition", "Collaboration"]
+      },
+      {
+        "name": "wealth",
+        "type": "string",
+        "description": "Wealth implications",
+        "example": "Neutral - can help or compete for resources"
+      },
+      {
+        "name": "relationships",
+        "type": "string",
+        "description": "Relationship implications",
+        "example": "Represents siblings, friends, and equal partners"
+      },
+      {
+        "name": "strength",
+        "type": "object",
+        "description": "Strength indicators in different contexts",
+        "example": {
+          "favorable": "When seeking support and collaboration",
+          "unfavorable": "When too many create competition and conflict"
+        }
+      }
+    ]
+  },
+  "data": [
+    {
+      "chinese": "比肩",
+      "pinyin": "Bǐ Jiān",
+      "english": "Peer",
+      "category": "Same Element",
+      "relationship": "Same element, same polarity",
+      "meaning": "Represents peers, siblings, friends, and competitors",
+      "personality": ["Independent", "Competitive", "Supportive", "Equal", "Self-reliant"],
+      "career": ["Teamwork", "Partnership", "Competition", "Collaboration", "Leadership"],
+      "wealth": "Neutral - can help or compete for resources",
+      "relationships": "Represents siblings, friends, and equal partners",
+      "strength": {
+        "favorable": "When seeking support and collaboration",
+        "unfavorable": "When too many create competition and conflict"
+      }
+    },
+    {
+      "chinese": "劫财",
+      "pinyin": "Jié Cái",
+      "english": "Rob Wealth",
+      "category": "Same Element",
+      "relationship": "Same element, opposite polarity",
+      "meaning": "Represents competitors, rivals, and those who compete for resources",
+      "personality": ["Aggressive", "Competitive", "Ambitious", "Challenging", "Rivalrous"],
+      "career": ["Competition", "Rivalry", "Conflict", "Challenge", "Overcoming obstacles"],
+      "wealth": "Can compete for or rob wealth and resources",
+      "relationships": "Represents rivals, competitors, and challenging relationships",
+      "strength": {
+        "favorable": "When controlled, provides motivation and drive",
+        "unfavorable": "When excessive, creates conflict and loss"
+      }
+    },
+    {
+      "chinese": "食神",
+      "pinyin": "Shí Shén",
+      "english": "Eating God",
+      "category": "Generated",
+      "relationship": "Element that this element generates",
+      "meaning": "Represents creativity, expression, and what one produces",
+      "personality": ["Creative", "Expressive", "Artistic", "Generous", "Nurturing"],
+      "career": ["Arts", "Creativity", "Teaching", "Nurturing", "Expression"],
+      "wealth": "Favorable - represents income from creativity and expression",
+      "relationships": "Represents children, students, and those one nurtures",
+      "strength": {
+        "favorable": "When moderate, brings creativity and expression",
+        "unfavorable": "When excessive, can lead to over-indulgence"
+      }
+    },
+    {
+      "chinese": "伤官",
+      "pinyin": "Shāng Guān",
+      "english": "Hurting Officer",
+      "category": "Generated",
+      "relationship": "Element that this element generates (opposite polarity)",
+      "meaning": "Represents innovation, rebellion, and challenging authority",
+      "personality": ["Innovative", "Rebellious", "Independent", "Critical", "Revolutionary"],
+      "career": ["Innovation", "Technology", "Research", "Criticism", "Reform"],
+      "wealth": "Variable - can bring wealth through innovation or cause loss through rebellion",
+      "relationships": "Represents challenging relationships and authority conflicts",
+      "strength": {
+        "favorable": "When controlled, brings innovation and progress",
+        "unfavorable": "When excessive, creates conflict and rebellion"
+      }
+    },
+    {
+      "chinese": "偏财",
+      "pinyin": "Piān Cái",
+      "english": "Indirect Wealth",
+      "category": "Controlled",
+      "relationship": "Element that this element controls",
+      "meaning": "Represents wealth from business, investment, and indirect sources",
+      "personality": ["Business-minded", "Opportunistic", "Risk-taking", "Wealth-seeking", "Strategic"],
+      "career": ["Business", "Investment", "Trading", "Speculation", "Entrepreneurship"],
+      "wealth": "Very favorable - represents wealth and financial opportunities",
+      "relationships": "Represents business relationships and financial partnerships",
+      "strength": {
+        "favorable": "When present, brings wealth and financial success",
+        "unfavorable": "When excessive, can lead to greed and financial risk"
+      }
+    },
+    {
+      "chinese": "正财",
+      "pinyin": "Zhèng Cái",
+      "english": "Direct Wealth",
+      "category": "Controlled",
+      "relationship": "Element that this element controls (opposite polarity)",
+      "meaning": "Represents stable income, salary, and direct wealth sources",
+      "personality": ["Practical", "Stable", "Reliable", "Conservative", "Wealth-conscious"],
+      "career": ["Salary work", "Stable employment", "Government", "Traditional business"],
+      "wealth": "Very favorable - represents stable and reliable income",
+      "relationships": "Represents stable relationships and traditional partnerships",
+      "strength": {
+        "favorable": "When present, brings stable wealth and financial security",
+        "unfavorable": "When excessive, can lead to materialism and conservatism"
+      }
+    },
+    {
+      "chinese": "七杀",
+      "pinyin": "Qī Shā",
+      "english": "Seven Killings",
+      "category": "Controlling",
+      "relationship": "Element that controls this element",
+      "meaning": "Represents authority, power, and challenging situations",
+      "personality": ["Authoritative", "Powerful", "Challenging", "Ambitious", "Forceful"],
+      "career": ["Leadership", "Authority", "Military", "Law enforcement", "Management"],
+      "wealth": "Variable - can bring wealth through authority or cause loss through conflict",
+      "relationships": "Represents authority figures and challenging relationships",
+      "strength": {
+        "favorable": "When controlled, brings authority and leadership",
+        "unfavorable": "When excessive, creates conflict and violence"
+      }
+    },
+    {
+      "chinese": "正官",
+      "pinyin": "Zhèng Guān",
+      "english": "Direct Officer",
+      "category": "Controlling",
+      "relationship": "Element that controls this element (opposite polarity)",
+      "meaning": "Represents official authority, government, and formal recognition",
+      "personality": ["Official", "Respectful", "Law-abiding", "Honorable", "Dignified"],
+      "career": ["Government", "Official positions", "Law", "Education", "Public service"],
+      "wealth": "Favorable - represents income from official positions and recognition",
+      "relationships": "Represents official relationships and formal partnerships",
+      "strength": {
+        "favorable": "When present, brings official recognition and authority",
+        "unfavorable": "When excessive, can lead to rigidity and bureaucracy"
+      }
+    },
+    {
+      "chinese": "偏印",
+      "pinyin": "Piān Yìn",
+      "english": "Indirect Resource",
+      "category": "Generating",
+      "relationship": "Element that generates this element",
+      "meaning": "Represents knowledge, wisdom, and indirect support",
+      "personality": ["Wise", "Knowledgeable", "Mysterious", "Intuitive", "Spiritual"],
+      "career": ["Education", "Research", "Spirituality", "Consulting", "Advisory"],
+      "wealth": "Neutral - represents knowledge and wisdom rather than direct wealth",
+      "relationships": "Represents mentors, teachers, and spiritual guides",
+      "strength": {
+        "favorable": "When present, brings wisdom and knowledge",
+        "unfavorable": "When excessive, can lead to over-thinking and detachment"
+      }
+    },
+    {
+      "chinese": "正印",
+      "pinyin": "Zhèng Yìn",
+      "english": "Direct Resource",
+      "category": "Generating",
+      "relationship": "Element that generates this element (opposite polarity)",
+      "meaning": "Represents direct support, protection, and official recognition",
+      "personality": ["Protective", "Supportive", "Nurturing", "Official", "Respectful"],
+      "career": ["Education", "Healthcare", "Social work", "Protection", "Support"],
+      "wealth": "Favorable - represents support and protection that can lead to wealth",
+      "relationships": "Represents supportive relationships and protective figures",
+      "strength": {
+        "favorable": "When present, brings support and protection",
+        "unfavorable": "When excessive, can lead to dependency and over-protection"
+      }
+    }
+  ],
+  "relationships": {
+    "description": "How Ten Gods relate to the Day Master",
+    "rules": [
+      {
+        "rule": "Same Element Rule",
+        "description": "Elements of the same type create 比肩 (same polarity) or 劫财 (opposite polarity)"
+      },
+      {
+        "rule": "Generation Rule", 
+        "description": "Elements that this element generates create 食神 (same polarity) or 伤官 (opposite polarity)"
+      },
+      {
+        "rule": "Control Rule",
+        "description": "Elements that this element controls create 偏财 (same polarity) or 正财 (opposite polarity)"
+      },
+      {
+        "rule": "Controlled Rule",
+        "description": "Elements that control this element create 七杀 (same polarity) or 正官 (opposite polarity)"
+      },
+      {
+        "rule": "Generating Rule",
+        "description": "Elements that generate this element create 偏印 (same polarity) or 正印 (opposite polarity)"
+      }
+    ]
+  }
+}

@@ -1,0 +1,155 @@
+{
+  "metadata": {
+    "name": "Compatibility Matrix Dataset",
+    "description": "Relationship compatibility data based on BaZi principles for analyzing romantic, business, and friendship compatibility",
+    "version": "1.0.0",
+    "lastUpdated": "2024-01-15",
+    "license": "CC BY-NC-SA 4.0",
+    "author": "FatePath BaZi Master",
+    "totalRecords": 144,
+    "format": "JSON",
+    "language": "en"
+  },
+  "schema": {
+    "fields": [
+      {"name": "stem1", "type": "string", "description": "First Heavenly Stem", "example": "Jia"},
+      {"name": "stem2", "type": "string", "description": "Second Heavenly Stem", "example": "Yi"},
+      {"name": "compatibilityType", "type": "string", "description": "Type of compatibility", "example": "Harmony"},
+      {"name": "compatibilityScore", "type": "number", "description": "Compatibility score 1-10", "example": 8},
+      {"name": "relationshipType", "type": "string", "description": "Type of relationship", "example": "Romantic"},
+      {"name": "description", "type": "string", "description": "Detailed compatibility description", "example": "Strong natural harmony"},
+      {"name": "strengths", "type": "array", "description": "Relationship strengths", "example": ["Communication", "Trust"]},
+      {"name": "challenges", "type": "array", "description": "Potential challenges", "example": ["Different priorities"]},
+      {"name": "advice", "type": "string", "description": "Relationship advice", "example": "Focus on shared goals"}
+    ]
+  },
+  "data": [
+    {
+      "stem1": "Jia",
+      "stem2": "Yi",
+      "compatibilityType": "Harmony",
+      "compatibilityScore": 8,
+      "relationshipType": "Romantic",
+      "description": "Jia (Wood) and Yi (Wood) create natural harmony through shared element. Both are yang Wood, creating strong mutual understanding.",
+      "strengths": ["Shared values", "Natural communication", "Mutual growth"],
+      "challenges": ["May be too similar", "Lacks complementary balance"],
+      "advice": "Embrace similarities while maintaining individual identity. Focus on personal growth together."
+    },
+    {
+      "stem1": "Jia",
+      "stem2": "Bing",
+      "compatibilityType": "Generation",
+      "compatibilityScore": 9,
+      "relationshipType": "Romantic",
+      "description": "Jia (Wood) generates Bing (Fire) in the natural cycle. This creates a nurturing, supportive relationship dynamic.",
+      "strengths": ["Natural support", "Growth potential", "Complementary energy"],
+      "challenges": ["Power imbalance", "Dependency risk"],
+      "advice": "Maintain healthy boundaries. The Wood person should support without controlling, Fire person should appreciate without taking for granted."
+    },
+    {
+      "stem1": "Jia",
+      "stem2": "Wu",
+      "compatibilityType": "Control",
+      "compatibilityScore": 4,
+      "relationshipType": "Romantic",
+      "description": "Jia (Wood) controls Wu (Earth) in the natural cycle. This creates tension and potential power struggles.",
+      "strengths": ["Challenge growth", "Strong dynamics"],
+      "challenges": ["Constant conflict", "Power struggles", "Emotional volatility"],
+      "advice": "Learn to compromise and find balance. Focus on mutual respect and understanding rather than control."
+    },
+    {
+      "stem1": "Yi",
+      "stem2": "Bing",
+      "compatibilityType": "Generation",
+      "compatibilityScore": 9,
+      "relationshipType": "Romantic",
+      "description": "Yi (Wood) generates Bing (Fire), creating a natural nurturing relationship. Yin Wood provides gentle support to yang Fire.",
+      "strengths": ["Natural harmony", "Supportive dynamic", "Growth potential"],
+      "challenges": ["May become too comfortable", "Lacks excitement"],
+      "advice": "Maintain passion and excitement. Don't take the natural harmony for granted."
+    },
+    {
+      "stem1": "Yi",
+      "stem2": "Ding",
+      "compatibilityType": "Generation",
+      "compatibilityScore": 8,
+      "relationshipType": "Romantic",
+      "description": "Yi (Wood) generates Ding (Fire), creating a supportive relationship. Yin Wood nurtures yin Fire gently.",
+      "strengths": ["Gentle support", "Emotional connection", "Stability"],
+      "challenges": ["May lack passion", "Too comfortable"],
+      "advice": "Add excitement and passion to the relationship. Don't rely solely on natural harmony."
+    },
+    {
+      "stem1": "Bing",
+      "stem2": "Wu",
+      "compatibilityType": "Generation",
+      "compatibilityScore": 9,
+      "relationshipType": "Romantic",
+      "description": "Bing (Fire) generates Wu (Earth), creating a warm, nurturing relationship. Fire provides energy and warmth to Earth.",
+      "strengths": ["Warm energy", "Nurturing dynamic", "Strong foundation"],
+      "challenges": ["May be too intense", "Earth may feel overwhelmed"],
+      "advice": "Fire should moderate intensity, Earth should provide grounding. Balance energy and stability."
+    },
+    {
+      "stem1": "Bing",
+      "stem2": "Ji",
+      "compatibilityType": "Generation",
+      "compatibilityScore": 8,
+      "relationshipType": "Romantic",
+      "description": "Bing (Fire) generates Ji (Earth), creating a supportive relationship. Yang Fire energizes yin Earth.",
+      "strengths": ["Dynamic energy", "Supportive foundation", "Growth potential"],
+      "challenges": ["Intensity differences", "Pace mismatch"],
+      "advice": "Fire should be patient, Earth should be more active. Find middle ground in energy levels."
+    },
+    {
+      "stem1": "Ding",
+      "stem2": "Wu",
+      "compatibilityType": "Generation",
+      "compatibilityScore": 8,
+      "relationshipType": "Romantic",
+      "description": "Ding (Fire) generates Wu (Earth), creating a gentle nurturing relationship. Yin Fire provides gentle warmth to yang Earth.",
+      "strengths": ["Gentle warmth", "Stable foundation", "Emotional security"],
+      "challenges": ["May lack excitement", "Too comfortable"],
+      "advice": "Add variety and excitement. Don't become complacent with the natural harmony."
+    },
+    {
+      "stem1": "Ding",
+      "stem2": "Ji",
+      "compatibilityType": "Generation",
+      "compatibilityScore": 9,
+      "relationshipType": "Romantic",
+      "description": "Ding (Fire) generates Ji (Earth), creating a harmonious relationship. Yin Fire nurtures yin Earth gently.",
+      "strengths": ["Natural harmony", "Emotional connection", "Stability"],
+      "challenges": ["May be too similar", "Lacks dynamic energy"],
+      "advice": "Maintain individual interests and add variety. Don't become too dependent on each other."
+    },
+    {
+      "stem1": "Wu",
+      "stem2": "Geng",
+      "compatibilityType": "Generation",
+      "compatibilityScore": 9,
+      "relationshipType": "Romantic",
+      "description": "Wu (Earth) generates Geng (Metal), creating a strong foundation for growth. Earth provides stability for Metal's structure.",
+      "strengths": ["Strong foundation", "Growth potential", "Mutual support"],
+      "challenges": ["May be too serious", "Lacks spontaneity"],
+      "advice": "Add fun and spontaneity. Don't become too focused on structure and planning."
+    }
+  ],
+  "compatibilityRules": {
+    "generation": "Elements that generate each other create natural harmony and support",
+    "control": "Elements that control each other create tension and challenges",
+    "harmony": "Same elements create understanding but may lack complementary balance",
+    "conflict": "Opposing elements create dynamic tension that requires work to balance"
+  },
+  "interpretationGuidelines": {
+    "highScore": "Scores 8-10 indicate strong natural compatibility with minimal effort required",
+    "mediumScore": "Scores 6-7 indicate good compatibility with some work needed",
+    "lowScore": "Scores 4-5 indicate challenging compatibility requiring significant effort",
+    "veryLowScore": "Scores 1-3 indicate difficult compatibility that may not be sustainable long-term"
+  },
+  "relationshipAdvice": {
+    "romantic": "Focus on emotional connection and mutual growth",
+    "business": "Emphasize complementary skills and shared goals",
+    "friendship": "Build on common interests and mutual support"
+  }
+}

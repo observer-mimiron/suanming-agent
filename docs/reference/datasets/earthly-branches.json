@@ -1,0 +1,187 @@
+{
+  "metadata": {
+    "name": "Earthly Branches Dataset",
+    "description": "Complete data for the 12 Earthly Branches (地支) used in BaZi analysis",
+    "version": "1.0.0",
+    "lastUpdated": "2024-01-15",
+    "license": "CC BY-NC-SA 4.0",
+    "author": "FatePath BaZi Master",
+    "totalRecords": 12,
+    "format": "JSON",
+    "language": "en"
+  },
+  "schema": {
+    "fields": [
+      {
+        "name": "chinese",
+        "type": "string",
+        "description": "Chinese character representation",
+        "example": "子"
+      },
+      {
+        "name": "pinyin",
+        "type": "string",
+        "description": "Pinyin romanization",
+        "example": "Zǐ"
+      },
+      {
+        "name": "animal",
+        "type": "string",
+        "description": "Associated Chinese zodiac animal",
+        "example": "Rat"
+      },
+      {
+        "name": "time",
+        "type": "string",
+        "description": "Associated time period",
+        "example": "11PM-1AM"
+      },
+      {
+        "name": "element",
+        "type": "string",
+        "description": "Associated Five Element",
+        "example": "Water"
+      },
+      {
+        "name": "traits",
+        "type": "array",
+        "description": "Key personality traits",
+        "example": ["Intelligent", "Adaptable", "Charming"]
+      },
+      {
+        "name": "season",
+        "type": "string",
+        "description": "Associated season",
+        "example": "Winter"
+      },
+      {
+        "name": "direction",
+        "type": "string",
+        "description": "Associated direction",
+        "example": "North"
+      }
+    ]
+  },
+  "data": [
+    {
+      "chinese": "子",
+      "pinyin": "Zǐ",
+      "animal": "Rat",
+      "time": "11PM-1AM",
+      "element": "Water",
+      "traits": ["Intelligent", "Adaptable", "Charming", "Resourceful"],
+      "season": "Winter",
+      "direction": "North"
+    },
+    {
+      "chinese": "丑",
+      "pinyin": "Chǒu",
+      "animal": "Ox",
+      "time": "1AM-3AM",
+      "element": "Earth",
+      "traits": ["Reliable", "Hardworking", "Patient", "Determined"],
+      "season": "Winter",
+      "direction": "North"
+    },
+    {
+      "chinese": "寅",
+      "pinyin": "Yín",
+      "animal": "Tiger",
+      "time": "3AM-5AM",
+      "element": "Wood",
+      "traits": ["Brave", "Competitive", "Confident", "Charismatic"],
+      "season": "Spring",
+      "direction": "East"
+    },
+    {
+      "chinese": "卯",
+      "pinyin": "Mǎo",
+      "animal": "Rabbit",
+      "time": "5AM-7AM",
+      "element": "Wood",
+      "traits": ["Gentle", "Diplomatic", "Artistic", "Compassionate"],
+      "season": "Spring",
+      "direction": "East"
+    },
+    {
+      "chinese": "辰",
+      "pinyin": "Chén",
+      "animal": "Dragon",
+      "time": "7AM-9AM",
+      "element": "Earth",
+      "traits": ["Ambitious", "Creative", "Leader", "Energetic"],
+      "season": "Spring",
+      "direction": "East"
+    },
+    {
+      "chinese": "巳",
+      "pinyin": "Sì",
+      "animal": "Snake",
+      "time": "9AM-11AM",
+      "element": "Fire",
+      "traits": ["Wise", "Mysterious", "Intuitive", "Elegant"],
+      "season": "Summer",
+      "direction": "South"
+    },
+    {
+      "chinese": "午",
+      "pinyin": "Wǔ",
+      "animal": "Horse",
+      "time": "11AM-1PM",
+      "element": "Fire",
+      "traits": ["Energetic", "Independent", "Passionate", "Adventurous"],
+      "season": "Summer",
+      "direction": "South"
+    },
+    {
+      "chinese": "未",
+      "pinyin": "Wèi",
+      "animal": "Goat",
+      "time": "1PM-3PM",
+      "element": "Earth",
+      "traits": ["Creative", "Gentle", "Empathetic", "Peaceful"],
+      "season": "Summer",
+      "direction": "South"
+    },
+    {
+      "chinese": "申",
+      "pinyin": "Shēn",
+      "animal": "Monkey",
+      "time": "3PM-5PM",
+      "element": "Metal",
+      "traits": ["Clever", "Versatile", "Humorous", "Innovative"],
+      "season": "Autumn",
+      "direction": "West"
+    },
+    {
+      "chinese": "酉",
+      "pinyin": "Yǒu",
+      "animal": "Rooster",
+      "time": "5PM-7PM",
+      "element": "Metal",
+      "traits": ["Honest", "Organized", "Confident", "Hardworking"],
+      "season": "Autumn",
+      "direction": "West"
+    },
+    {
+      "chinese": "戌",
+      "pinyin": "Xū",
+      "animal": "Dog",
+      "time": "7PM-9PM",
+      "element": "Earth",
+      "traits": ["Loyal", "Responsible", "Honest", "Protective"],
+      "season": "Autumn",
+      "direction": "West"
+    },
+    {
+      "chinese": "亥",
+      "pinyin": "Hài",
+      "animal": "Pig",
+      "time": "9PM-11PM",
+      "element": "Water",
+      "traits": ["Generous", "Honest", "Optimistic", "Compassionate"],
+      "season": "Winter",
+      "direction": "North"
+    }
+  ]
+}

@@ -1,0 +1,189 @@
+{
+  "metadata": {
+    "name": "Five Elements Dataset",
+    "description": "Complete data for the Five Elements (五行) system including generation and control cycles",
+    "version": "1.0.0",
+    "lastUpdated": "2024-01-15",
+    "license": "CC BY-NC-SA 4.0",
+    "author": "FatePath BaZi Master",
+    "totalRecords": 5,
+    "format": "JSON",
+    "language": "en"
+  },
+  "schema": {
+    "fields": [
+      {
+        "name": "element",
+        "type": "string",
+        "description": "Element name",
+        "example": "Wood"
+      },
+      {
+        "name": "chinese",
+        "type": "string",
+        "description": "Chinese character",
+        "example": "木"
+      },
+      {
+        "name": "pinyin",
+        "type": "string",
+        "description": "Pinyin romanization",
+        "example": "Mù"
+      },
+      {
+        "name": "generates",
+        "type": "string",
+        "description": "Element that this element generates",
+        "example": "Fire"
+      },
+      {
+        "name": "controls",
+        "type": "string",
+        "description": "Element that this element controls",
+        "example": "Earth"
+      },
+      {
+        "name": "season",
+        "type": "string",
+        "description": "Associated season",
+        "example": "Spring"
+      },
+      {
+        "name": "direction",
+        "type": "string",
+        "description": "Associated direction",
+        "example": "East"
+      },
+      {
+        "name": "color",
+        "type": "string",
+        "description": "Associated color",
+        "example": "Green"
+      },
+      {
+        "name": "personality",
+        "type": "array",
+        "description": "Key personality traits",
+        "example": ["Growth", "Flexibility", "Vision"]
+      },
+      {
+        "name": "characteristics",
+        "type": "object",
+        "description": "Detailed characteristics",
+        "example": {
+          "nature": "Expansive",
+          "emotion": "Anger",
+          "taste": "Sour"
+        }
+      }
+    ]
+  },
+  "data": [
+    {
+      "element": "Wood",
+      "chinese": "木",
+      "pinyin": "Mù",
+      "generates": "Fire",
+      "controls": "Earth",
+      "season": "Spring",
+      "direction": "East",
+      "color": "Green",
+      "personality": ["Growth", "Flexibility", "Vision", "Expansion"],
+      "characteristics": {
+        "nature": "Expansive",
+        "emotion": "Anger",
+        "taste": "Sour",
+        "climate": "Wind",
+        "development": "Germination"
+      }
+    },
+    {
+      "element": "Fire",
+      "chinese": "火",
+      "pinyin": "Huǒ",
+      "generates": "Earth",
+      "controls": "Metal",
+      "season": "Summer",
+      "direction": "South",
+      "color": "Red",
+      "personality": ["Passion", "Energy", "Communication", "Transformation"],
+      "characteristics": {
+        "nature": "Rising",
+        "emotion": "Joy",
+        "taste": "Bitter",
+        "climate": "Heat",
+        "development": "Growth"
+      }
+    },
+    {
+      "element": "Earth",
+      "chinese": "土",
+      "pinyin": "Tǔ",
+      "generates": "Metal",
+      "controls": "Water",
+      "season": "Late Summer",
+      "direction": "Center",
+      "color": "Yellow",
+      "personality": ["Stability", "Loyalty", "Nurturing", "Balance"],
+      "characteristics": {
+        "nature": "Stable",
+        "emotion": "Worry",
+        "taste": "Sweet",
+        "climate": "Dampness",
+        "development": "Transformation"
+      }
+    },
+    {
+      "element": "Metal",
+      "chinese": "金",
+      "pinyin": "Jīn",
+      "generates": "Water",
+      "controls": "Wood",
+      "season": "Autumn",
+      "direction": "West",
+      "color": "White",
+      "personality": ["Precision", "Justice", "Organization", "Clarity"],
+      "characteristics": {
+        "nature": "Contracting",
+        "emotion": "Grief",
+        "taste": "Pungent",
+        "climate": "Dryness",
+        "development": "Harvest"
+      }
+    },
+    {
+      "element": "Water",
+      "chinese": "水",
+      "pinyin": "Shuǐ",
+      "generates": "Wood",
+      "controls": "Fire",
+      "season": "Winter",
+      "direction": "North",
+      "color": "Blue",
+      "personality": ["Wisdom", "Adaptability", "Flow", "Depth"],
+      "characteristics": {
+        "nature": "Flowing",
+        "emotion": "Fear",
+        "taste": "Salty",
+        "climate": "Cold",
+        "development": "Storage"
+      }
+    }
+  ],
+  "cycles": {
+    "generation": [
+      {"from": "Wood", "to": "Fire", "description": "Wood feeds Fire"},
+      {"from": "Fire", "to": "Earth", "description": "Fire creates Earth (ash)"},
+      {"from": "Earth", "to": "Metal", "description": "Earth bears Metal"},
+      {"from": "Metal", "to": "Water", "description": "Metal collects Water"},
+      {"from": "Water", "to": "Wood", "description": "Water nourishes Wood"}
+    ],
+    "control": [
+      {"from": "Wood", "to": "Earth", "description": "Wood breaks Earth"},
+      {"from": "Earth", "to": "Water", "description": "Earth absorbs Water"},
+      {"from": "Water", "to": "Fire", "description": "Water extinguishes Fire"},
+      {"from": "Fire", "to": "Metal", "description": "Fire melts Metal"},
+      {"from": "Metal", "to": "Wood", "description": "Metal cuts Wood"}
+    ]
+  }
+}
