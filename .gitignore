@@ -1,0 +1,14 @@
+.env
+.pid/
+dist/
+web/dist/
+node_modules/
+/tmp/
+*.log
+server
+.idea/
+.codegraph/
+eino-agent/
+.DS_Store
+.vscode/
+.gstack/
