@@ -23,33 +23,63 @@ func New(reg *tools.Registry) *Orchestrator {
 	return &Orchestrator{tools: reg}
 }
 
-func (o *Orchestrator) Run(sw *sse.Writer, sessionID, message string) error {
+func (o *Orchestrator) Run(sw sse.Sender, sessionID, message string) error {
 	st := o.loadOrCreate(sessionID)
 
-	// 1. 解析本轮输入
-	profilePatch, userQuestion := extractProfileAndQuestion(message)
-	changed := st.MergeProfile(profilePatch)
-	if userQuestion != "" {
-		st.LastUserQuestion = userQuestion
-	}
+	// 1. Use LLM to classify intent and extract profile
+	action, profilePatch, userQuestion := classifyAndExtract(message, st)
 
-	// 2. 信息不全 → 追问
-	if !st.IsProfileComplete() {
-		return o.handleAsk(sw, st)
-	}
-
-	// 3. 资料变化 → 失效旧命盘
-	if changed {
+	switch action {
+	case "new_profile":
+		// User wants a new reading — clear old data and start fresh
+		st.Profile = make(map[string]any)
 		st.BaziResult = nil
-	}
-
-	// 4. 首次排盘或重排盘
-	if st.BaziResult == nil {
+		for k, v := range profilePatch {
+			st.Profile[k] = v
+		}
+		if userQuestion != "" {
+			st.LastUserQuestion = userQuestion
+		}
 		return o.handleFullReading(sw, st)
-	}
 
-	// 5. 复用已有命盘回答追问
-	return o.handleFollowupReading(sw, st)
+	case "update_profile":
+		// User is correcting info — merge changes
+		changed := st.MergeProfile(profilePatch)
+		if userQuestion != "" {
+			st.LastUserQuestion = userQuestion
+		}
+		if changed {
+			st.BaziResult = nil
+		}
+		if !st.IsProfileComplete() {
+			return o.handleAsk(sw, st)
+		}
+		if st.BaziResult == nil {
+			return o.handleFullReading(sw, st)
+		}
+		return o.handleFollowupReading(sw, st)
+
+	case "incomplete":
+		// Profile still missing fields — merge and ask
+		st.MergeProfile(profilePatch)
+		if userQuestion != "" {
+			st.LastUserQuestion = userQuestion
+		}
+		return o.handleAsk(sw, st)
+
+	default: // "followup"
+		// User is asking about existing profile
+		if userQuestion != "" {
+			st.LastUserQuestion = userQuestion
+		}
+		if !st.IsProfileComplete() {
+			return o.handleAsk(sw, st)
+		}
+		if st.BaziResult == nil {
+			return o.handleFullReading(sw, st)
+		}
+		return o.handleFollowupReading(sw, st)
+	}
 }
 
 func (o *Orchestrator) loadOrCreate(id string) *state.SessionState {
@@ -70,6 +100,7 @@ var (
 	noonRe      = regexp.MustCompile(`中午\s*(\d{1,2})\s*点`)
 	pmRe        = regexp.MustCompile(`(?:下午|晚上)\s*(\d{1,2})\s*点`)
 	clockRe     = regexp.MustCompile(`(\d{1,2})(?::00|\s*[点时])`)
+	timeRe      = regexp.MustCompile(`(\d{1,2}):(\d{2})`)
 	genderRe    = regexp.MustCompile(`(?:性别[:：]?\s*)?(男|女)`)
 )
 
@@ -145,7 +176,7 @@ var fieldNames = map[string]string{
 	"hour": "出生时辰", "gender": "性别",
 }
 
-func (o *Orchestrator) handleAsk(sw *sse.Writer, st *state.SessionState) error {
+func (o *Orchestrator) handleAsk(sw sse.Sender, st *state.SessionState) error {
 	sw.Send("thinking", map[string]any{
 		"agent": "orchestrator", "text": "正在核实出生信息...",
 	})
@@ -161,7 +192,7 @@ func (o *Orchestrator) handleAsk(sw *sse.Writer, st *state.SessionState) error {
 	return nil
 }
 
-func (o *Orchestrator) runKnowledgeSearch(sw *sse.Writer, st *state.SessionState) []mcp.Passage {
+func (o *Orchestrator) runKnowledgeSearch(sw sse.Sender, st *state.SessionState) []mcp.Passage {
 	tool, ok := o.tools.Get("knowledge_search")
 	if !ok {
 		sw.Send("thinking", map[string]any{
@@ -198,7 +229,7 @@ func (o *Orchestrator) runKnowledgeSearch(sw *sse.Writer, st *state.SessionState
 	return passages
 }
 
-func (o *Orchestrator) streamInterpretation(sw *sse.Writer, st *state.SessionState, passages []mcp.Passage) error {
+func (o *Orchestrator) streamInterpretation(sw sse.Sender, st *state.SessionState, passages []mcp.Passage) error {
 	client := llm.NewClient()
 	systemPrompt := buildInterpretPrompt(st, passages)
 	messages := []llm.Message{
@@ -210,7 +241,7 @@ func (o *Orchestrator) streamInterpretation(sw *sse.Writer, st *state.SessionSta
 	})
 }
 
-func (o *Orchestrator) handleFullReading(sw *sse.Writer, st *state.SessionState) error {
+func (o *Orchestrator) handleFullReading(sw sse.Sender, st *state.SessionState) error {
 	sw.Send("thinking", map[string]any{
 		"agent": "orchestrator", "text": "信息齐全，开始排盘...",
 	})
@@ -250,7 +281,7 @@ func (o *Orchestrator) handleFullReading(sw *sse.Writer, st *state.SessionState)
 	return nil
 }
 
-func (o *Orchestrator) handleFollowupReading(sw *sse.Writer, st *state.SessionState) error {
+func (o *Orchestrator) handleFollowupReading(sw sse.Sender, st *state.SessionState) error {
 	sw.Send("thinking", map[string]any{
 		"agent": "orchestrator", "text": "复用已有命盘，正在检索知识库...",
 	})

@@ -12,7 +12,6 @@ func (t *BaziCalcTool) Name() string        { return "bazi_calc" }
 func (t *BaziCalcTool) Description() string { return "计算八字排盘，输入出生年月日时+性别" }
 
 func (t *BaziCalcTool) Execute(params map[string]any) (any, error) {
-	// 参数校验
 	year, ok := params["year"].(float64)
 	if !ok || year < 1900 || year > 2100 {
 		return nil, fmt.Errorf("year out of range")
@@ -40,23 +39,32 @@ func (t *BaziCalcTool) Execute(params map[string]any) (any, error) {
 	lunar := solar.GetLunar()
 	ec := lunar.GetEightChar()
 
-	// 四柱：天干 + 地支 + 十神（十神用 ShiShenGan 方法，计算天干相对日干的十神）
 	gan := []string{ec.GetYearGan(), ec.GetMonthGan(), ec.GetDayGan(), ec.GetTimeGan()}
 	zhi := []string{ec.GetYearZhi(), ec.GetMonthZhi(), ec.GetDayZhi(), ec.GetTimeZhi()}
-	shiShen := []string{ec.GetYearShiShenGan(), ec.GetMonthShiShenGan(), ec.GetDayShiShenGan(), ec.GetTimeShiShenGan()}
+	shiShenGan := []string{ec.GetYearShiShenGan(), ec.GetMonthShiShenGan(), ec.GetDayShiShenGan(), ec.GetTimeShiShenGan()}
+	naYin := []string{ec.GetYearNaYin(), ec.GetMonthNaYin(), ec.GetDayNaYin(), ec.GetTimeNaYin()}
+	xunKong := []string{ec.GetYearXunKong(), ec.GetMonthXunKong(), ec.GetDayXunKong(), ec.GetTimeXunKong()}
+	diShi := []string{ec.GetYearDiShi(), ec.GetMonthDiShi(), ec.GetDayDiShi(), ec.GetTimeDiShi()}
+	xun := []string{ec.GetYearXun(), ec.GetMonthXun(), ec.GetDayXun(), ec.GetTimeXun()}
+	hideGan := [][]string{ec.GetYearHideGan(), ec.GetMonthHideGan(), ec.GetDayHideGan(), ec.GetTimeHideGan()}
 	names := []string{"年柱", "月柱", "日柱", "时柱"}
 
-	pillars := make([]map[string]string, 4)
+	pillars := make([]map[string]any, 4)
 	for i := 0; i < 4; i++ {
-		pillars[i] = map[string]string{
-			"name":    names[i],
-			"stem":    gan[i],
-			"branch":  zhi[i],
-			"shiShen": shiShen[i],
+		pillars[i] = map[string]any{
+			"name":       names[i],
+			"stem":       gan[i],
+			"branch":     zhi[i],
+			"shiShen":    shiShenGan[i],
+			"naYin":      naYin[i],
+			"xunKong":    xunKong[i],
+			"diShi":      diShi[i],
+			"xun":        xun[i],
+			"hideGan":    hideGan[i],
 		}
 	}
 
-	// 五行：按四柱天干地支共 8 个字统计
+	// 五行统计
 	stemWuxing := map[string]string{
 		"甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
 		"己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
@@ -77,7 +85,7 @@ func (t *BaziCalcTool) Execute(params map[string]any) (any, error) {
 		}
 	}
 
-	// 大运 (1=男, 0=女)
+	// 大运
 	genderInt := 0
 	if gender == "男" {
 		genderInt = 1
@@ -93,11 +101,19 @@ func (t *BaziCalcTool) Execute(params map[string]any) (any, error) {
 	}
 
 	return map[string]any{
-		"pillars":  pillars,
-		"dayGan":   ec.GetDayGan(),
-		"wuxing":   wuxing,
-		"dayun":    dayun,
-		"gender":   gender,
-		"birthday": fmt.Sprintf("%d-%02d-%02d %02d:00", y, m, d, h),
+		"pillars":    pillars,
+		"dayGan":     ec.GetDayGan(),
+		"dayGanWuxing": ec.GetDayWuXing(),
+		"wuxing":     wuxing,
+		"dayun":      dayun,
+		"gender":     gender,
+		"birthday":   fmt.Sprintf("%d-%02d-%02d %02d:00", y, m, d, h),
+		"mingGong":   ec.GetMingGong(),
+		"mingGongNaYin": ec.GetMingGongNaYin(),
+		"shenGong":   ec.GetShenGong(),
+		"shenGongNaYin": ec.GetShenGongNaYin(),
+		"taiYuan":    ec.GetTaiYuan(),
+		"taiYuanNaYin": ec.GetTaiYuanNaYin(),
+		"lunarDate":  fmt.Sprintf("%s年%s月%s日", lunar.GetYearInGanZhi(), lunar.GetMonthInGanZhi(), lunar.GetDayInGanZhi()),
 	}, nil
 }

@@ -14,7 +14,7 @@ type KnowledgeSearchTool struct {
 func NewKnowledgeSearchTool() *KnowledgeSearchTool {
 	url := os.Getenv("KNOWLEDGE_MCP_URL")
 	if url == "" {
-		url = "http://localhost:3001"
+		url = "http://localhost:3100"
 	}
 	return &KnowledgeSearchTool{client: mcp.NewClient(url)}
 }

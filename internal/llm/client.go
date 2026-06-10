@@ -111,6 +111,60 @@ func (c *Client) ChatStream(systemPrompt string, messages []Message, onText func
 	}
 }
 
+// Chat sends a non-streaming request and returns the complete response text
+func (c *Client) Chat(systemPrompt string, messages []Message) (string, error) {
+	if c.apiKey == "" {
+		return "", fmt.Errorf("LLM_API_KEY not set")
+	}
+	body := map[string]any{
+		"model":       c.model,
+		"system":      systemPrompt,
+		"messages":    messages,
+		"stream":      false,
+		"max_tokens":  1024,
+		"thinking":    map[string]string{"type": "disabled"},
+	}
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("llm marshal: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", c.baseURL+"/messages", bytes.NewReader(jsonBody))
+	if err != nil {
+		return "", fmt.Errorf("llm request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", c.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("llm request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("llm %d (failed to read body: %v)", resp.StatusCode, err)
+		}
+		return "", fmt.Errorf("llm %d: %s", resp.StatusCode, string(b))
+	}
+
+	var result struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	if len(result.Content) > 0 {
+		return result.Content[0].Text, nil
+	}
+	return "", nil
+}
+
 func getEnv(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

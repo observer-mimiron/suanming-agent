@@ -1,61 +1,75 @@
 import { ref } from 'vue'
-import { createParser, type EventSourceMessage } from 'eventsource-parser'
 import type { ChatMessage } from '../types/chat'
 
 export function useSSE() {
   const messages = ref<ChatMessage[]>([])
   const isLoading = ref(false)
-  const sessionId = ref(localStorage.getItem('sessionId') || crypto.randomUUID())
-  localStorage.setItem('sessionId', sessionId.value)
+  const sessionId = ref(crypto.randomUUID())
 
-  async function sendMessage(content: string) {
-    messages.value.push({ id: Date.now().toString(), role: 'user', segments: [{ type: 'text', content }] })
-    const msg: ChatMessage = { id: (Date.now()+1).toString(), role: 'assistant', segments: [] }
-    messages.value.push(msg)
+  function sendMessage(content: string) {
+    const msgs = messages.value
+    msgs.push({ id: Date.now().toString(), role: 'user', segments: [{ type: 'text', content }] })
+    const assistIdx = msgs.length
+    msgs.push({ id: (Date.now()+1).toString(), role: 'assistant', segments: [] })
     isLoading.value = true
 
-    const parser = createParser({
-      onEvent: (event: EventSourceMessage) => {
-        if (event.event === 'done') { isLoading.value = false; return }
-        try {
-          const data = JSON.parse(event.data)
-          if (event.event === 'thinking') { msg.segments.push({ type:'thinking', text:data.text, agent:data.agent }) }
-          else if (event.event === 'tool_call') { msg.segments.push({ type:'tool_call', tool:data.tool, params:data.params }) }
-          else if (event.event === 'component') { msg.segments.push({ type:'component', componentType:data.type, payload:data.payload }) }
-          else if (event.event === 'error') { msg.segments.push({ type:'error', message:data.message }) }
-          else if (event.event === 'text') {
-            const last = msg.segments[msg.segments.length-1]
-            if (last?.type==='text') last.content += data.content
-            else msg.segments.push({ type:'text', content: data.content })
-          }
-        } catch { /* skip unparseable data */ }
-      }
-    })
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', '/api/chat')
+    xhr.setRequestHeader('Content-Type', 'application/json')
+    let prevLen = 0
+    let timer: ReturnType<typeof setInterval> | null = null
 
-    try {
-      const resp = await fetch('/api/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: content, session_id: sessionId.value })
-      })
-      if (!resp.ok || !resp.body) {
-        const text = await resp.text()
-        msg.segments.push({ type: 'error', message: text || '请求失败' })
+    const parseChunk = () => {
+      const raw = xhr.responseText
+      if (!raw || raw.length <= prevLen) return
+      const chunk = raw.substring(prevLen)
+      prevLen = raw.length
+
+      let currentEvent = ''
+      const lines = chunk.split('\n')
+      const target = msgs[assistIdx]
+      for (const line of lines) {
+        if (!line) continue
+        if (line.startsWith('event: ')) { currentEvent = line.slice(7).trim(); continue }
+        if (!line.startsWith('data: ')) continue
+        try {
+          const data = JSON.parse(line.slice(6))
+          if (currentEvent === 'thinking') { target.segments.push({ type:'thinking', text:data.text, agent:data.agent }) }
+          else if (currentEvent === 'tool_call') { target.segments.push({ type:'tool_call', tool:data.tool, params:data.params }) }
+          else if (currentEvent === 'component') { target.segments.push({ type:'component', componentType:data.type, payload:data.payload }) }
+          else if (currentEvent === 'error') { target.segments.push({ type:'error', message:data.message }) }
+          else if (currentEvent === 'text') {
+            const segs = target.segments
+            const lastIdx = segs.length - 1
+            if (lastIdx >= 0 && segs[lastIdx].type === 'text') {
+              segs[lastIdx] = { ...segs[lastIdx], content: segs[lastIdx].content + data.content }
+            } else {
+              segs.push({ type:'text', content: data.content })
+            }
+          }
+        } catch { /* skip */ }
+      }
+    }
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState === 2) {
+        // Start polling as soon as headers are received
+        timer = setInterval(parseChunk, 50)
+      }
+      if (xhr.readyState === 4) {
+        if (timer) { clearInterval(timer); timer = null }
+        parseChunk()
         isLoading.value = false
-        return
       }
-      const reader = resp.body.getReader()
-      const decoder = new TextDecoder()
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        parser.feed(decoder.decode(value, { stream: true }))
-      }
-      isLoading.value = false
-    } catch (err) {
-      console.error('SSE error:', err)
-      msg.segments.push({ type: 'error', message: String(err) })
+    }
+
+    xhr.onerror = () => {
+      if (timer) { clearInterval(timer); timer = null }
+      msgs[assistIdx].segments.push({ type: 'error', message: '网络请求失败' })
       isLoading.value = false
     }
+
+    xhr.send(JSON.stringify({ message: content, session_id: sessionId.value }))
   }
 
   return { messages, isLoading, sendMessage }

@@ -12,3 +12,7 @@ eino-agent/
 .DS_Store
 .vscode/
 .gstack/
+.debug/
+.claude/skills/
+yopedia/
+yopedia/

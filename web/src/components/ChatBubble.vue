@@ -6,6 +6,7 @@
       <ToolCallSegment v-else-if="seg.type==='tool_call'" :tool="seg.tool"/>
       <BaziChartCard v-else-if="seg.type==='component'&&seg.componentType==='bazi-chart'" :data="seg.payload"/>
       <KnowledgeSourceCard v-else-if="seg.type==='component'&&seg.componentType==='knowledge-sources'" :data="seg.payload"/>
+      <div v-else-if="seg.type==='error'" class="error-msg">{{ seg.message }}</div>
     </template>
   </div>
 </template>
@@ -18,4 +19,8 @@ import BaziChartCard from './BaziChartCard.vue'
 import KnowledgeSourceCard from './KnowledgeSourceCard.vue'
 defineProps<{message:ChatMessage}>()
 </script>
-<style scoped>.bubble.assistant{max-width:85%}.bubble.user{text-align:right;max-width:70%;margin-left:auto;background:var(--n-color-target);padding:12px 16px;border-radius:12px}</style>
+<style scoped>
+.bubble.assistant{max-width:85%;text-align:left}
+.bubble.user{text-align:right;max-width:70%;margin-left:auto;background:var(--n-color-target);padding:12px 16px;border-radius:12px}
+.error-msg{color:#C44B3C;padding:8px 0}
+</style>
