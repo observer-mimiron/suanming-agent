@@ -1,7 +1,7 @@
 # 命理大师 — 架构设计
 
-**版本：** v1.3  
-**日期：** 2026-06-10  
+**版本：** v1.5  
+**日期：** 2026-06-12  
 **原则：** 本文档是系统架构的单一事实来源。主线实现、实施顺序和验收标准都以此为准。
 
 ---
@@ -25,24 +25,82 @@
 
 这样做的原因是：当前八字聊天 MVP 的主业务复杂度，还不足以证明双栈主线的成本是值得的。
 
+### 1.1 Supervisor Phase 1（2026-06-12 已实现）
+
+Supervisor phase 1 已实现，核心变化：
+
+- **新增 `SupervisorDecision` 结构化路由决策**（`internal/schemas/`）
+- **新增 LLM Supervisor Client**（`internal/supervisor/`），负责语义理解、路由建议、槽位提取
+- **新增 Policy Gate**（`internal/policy/`），负责 phase-1 域白名单、并行硬禁用、低置信度强制澄清
+- **抽取 Bazi / Qimen Specialist 边界**（`internal/specialists/bazi/`、`internal/specialists/qimen/`）
+- **Orchestrator 集成**：`supervisor → policy gate → specialist dispatch → aggregate`
+- **新增路由级 trace span**：`supervisor_decision`、`policy_gate`
+- **Session 扩展**：`RoutingSnapshot`、`BaziState`、`QimenState`
+
+**当前约束：**
+- 仅 `bazi`（主域）和 `qimen`（辅助域）启用
+- 并行 fan-out 硬禁用
+- `emotion` / `career` / `general` 仅结构预留
+- 前端协议不变，核心工具不变
+
+详细设计：见 `docs/architecture/supervisor/` 系列文档。
+
+---
+
+### 1.2 Supervisor 演进方向（后续阶段）
+
+在不改变当前 v1 主线归属的前提下，后续多专业域扩展采用：
+
+- **统一入口**
+- **LLM Supervisor 做语义理解与路由建议**
+- **Go Runtime / Orchestrator 做状态、策略、执行、聚合、SSE**
+- **Specialist 做窄职责专业处理**
+
+这不是平级 swarm，也不是放弃 Go 主控，而是：
+
+```mermaid
+flowchart TD
+    U["统一对话入口"] --> S["LLM Supervisor"]
+    S --> G["Go Policy Gate / Runtime"]
+    G --> D["Domain Specialist(s)"]
+    D --> A["Aggregator"]
+    A --> O["Final Answer"]
+```
+
+当前主线边界不变：
+
+- `bazi` 仍是第一主域
+- `qimen` 是第一辅助域
+- 非命理域先做结构预留，不进入 phase 1 主线
+
+详细设计见：
+
+- [Supervisor Architecture Design](./superpowers/specs/2026-06-12-supervisor-architecture-design.md)
+- [Supervisor Architecture Pages](./architecture/supervisor/01-overview.md)
+
 ---
 
 ## 2. v1 主线架构
 
 ```text
-Vue 3
+Vue 3 (:5173)
   │
-  │ POST /api/chat
+  │ POST /api/chat  (Vite proxy → :8080)
   ▼
 Gin / Go (:8080)
-  ├── Session State Store
-  ├── Conversation State Machine
-  ├── Orchestrator
+  ├── Session State Store (data/sessions/*.json, 持久化)
+  ├── Orchestrator (主编排)
   ├── Tools
-  │    ├── bazi_calc        → lunar-go
-  │    └── knowledge_search → Project Knowledge MCP
-  ├── LLM Client            → DeepSeek v4
-  └── SSE Writer
+  │    ├── bazi_calc        → lunar-go (含晚子时 Sect=1 + 神煞)
+  │    ├── yongshen         → 日主强弱 + 用神喜忌
+  │    ├── dayun_analyzer   → 大运十神分类
+  │    ├── qimen_dunjia     → qimen-go 时家奇门
+  │    └── knowledge_search → yopedia MCP (:3100)
+  ├── LLM Clients
+  │    ├── flash (deepseek-v4-flash, temp=0.0) → 意图分类
+  │    └── pro   (deepseek-v4-pro,  temp=0.3) → 八字解读
+  ├── Tracer (trace/span → logs/traces/*.json)
+  └── SSE Writer (thinking/tool_call/component/text/error/done/trace)
 ```
 
 ### 2.1 Go 负责什么
@@ -73,28 +131,31 @@ Go 侧持有唯一会话状态：
   "session_id": "uuid",
   "profile": {
     "calendar_type": "solar",
-    "year": 1990,
-    "month": 5,
-    "day": 20,
-    "hour": 8,
+    "year": 1990, "month": 5, "day": 20,
+    "hour": 8, "minute": 0,
     "gender": "男",
-    "timezone": "Asia/Shanghai"
+    "birthplace": "北京",
+    "longitude": 116.4
   },
-  "bazi_result": {},
+  "bazi_result": {
+    "pillars": [...],
+    "dayGan": "甲",
+    "yongshen": {"day_master":"甲", "yong_shen":["水","木"], ...},
+    "dayun_analyzed": [...],
+    "shensha_summary": {...}
+  },
   "conversation_stage": "collecting | ready | completed",
-  "conversation_summary": "",
-  "last_user_question": ""
+  "last_user_question": "",
+  "needs_qimen": false,
+  "needs_knowledge": true
 }
 ```
 
 说明：
-
-- `profile` 是出生资料
-- `bazi_result` 是可复用的排盘结果
-- `conversation_stage` 用于控制追问和复用
-- `last_user_question` 是当前咨询问题的归一化结果
-- v1 默认内存存储
-- 后续可平滑替换成 SQLite / Redis
+- `profile` 含 birthplace/longitude 用于真太阳时校正，minute 精度支持晚子时
+- `bazi_result` 可复用，含用神、大运分析、神煞
+- `needs_qimen`/`needs_knowledge` 由 flash 模型分类时设定，控制追问链路
+- 会话持久化到 `data/sessions/{sessionID}.json`，重启不丢
 
 ---
 
@@ -105,18 +166,18 @@ MVP 统一收集以下字段：
 ```json
 {
   "calendar_type": "solar | lunar",
-  "year": 1990,
-  "month": 5,
-  "day": 20,
-  "hour": 8,
+  "year": 1990, "month": 5, "day": 20,
+  "hour": 8, "minute": 0,
   "gender": "男 | 女",
-  "timezone": "Asia/Shanghai"
+  "birthplace": "北京",
+  "longitude": 116.4
 }
 ```
 
 规则：
-
-- 用户明确说“农历/阴历/正月/腊月”等，再标为 `lunar`
+- 用户明确说"农历/阴历/正月/腊月"等，再标为 `lunar`
+- `birthplace` 和 `longitude` 用于真太阳时校正（东经 120° 基准，每度±4分钟）
+- 23:00 后出生自动启用晚子时处理（`Sect=1`），日柱算次日
 - 未明确说明时，默认按 `solar`
 - `hour` 必须精确到 0-23
 - “早上/晚上/子时”这类模糊表达一律追问确认
@@ -223,29 +284,53 @@ v1 不要求把 MCP 生命周期做得很重，先保证：
 
 ## 8. SSE 协议
 
-固定 6 种事件：
+SSE 事件类型：
 
-- `thinking`
-- `tool_call`
-- `component`
-- `text`
-- `error`
-- `done`
-
-语义：
-
-- `thinking`：展示结构化阶段信息，例如“正在校验出生信息”“开始排盘”
-- `tool_call`：展示工具调用开始
-- `component`：展示命盘卡片、知识引用卡片
-- `text`：展示最终流式解读
-- `error`：展示本轮错误
-- `done`：本轮结束
+| 事件 | 用途 | 示例 |
+|------|------|------|
+| `thinking` | 结构化阶段信息 | “信息齐全，开始排盘...” |
+| `tool_call` | 工具调用 | bazi_calc, yongshen, qimen_dunjia, knowledge_search |
+| `component` | 可视化卡片 | bazi-chart, qimen-chart, knowledge-sources, trace-panel |
+| `text` | 流式 LLM 解读 | 逐字输出 |
+| `error` | 错误信息 | "排盘失败: ..." |
+| `done` | 本轮结束 | — |
 
 注意：
 
 - 不展示模型原始 CoT
 - DeepSeek v4 默认关闭 `thinking` 输出，避免把 reasoning content 暴露到产品界面
 - 只展示对用户有意义的结构化推理过程
+
+---
+
+## 8.1 v1 可探测性边界（已实现阶段 0-2）
+
+v1 已具备回合级 trace 能力，但不接入外部 observability 平台。
+
+### 已实现
+
+- **`TurnTrace` 统一模型**：`internal/tracing/turn_trace.go`
+  - `1 个聊天回合 = 1 个 TurnTrace`
+  - 包含 `trace_id`、`session_id`、`turn_type`、`status`、`spans[]`
+  - span kind 参考 OpenInference：AGENT / CHAIN / TOOL / RETRIEVER / LLM
+- **文件持久化**：`DEBUG_TRACE=1` 时落盘到 `logs/traces/{date}/{trace_id}.json`
+- **前端 digest**：通过 `component` SSE 事件（`trace-panel`）推送回合摘要到前端
+- **Span 覆盖**：classify / ask / bazi_calc / yongshen / dayun_analyzer / knowledge_search / qimen_dunjia / llm_generate / fallback / degrade
+- **结构化 debug 输出**：`DEBUG_HTTP=1` 时写入 JSON Lines（`logs/debug/*.jsonl`），包含 timestamp / session_id / trace_id / event_type / payload
+
+### 配置
+
+| 变量 | 含义 | 默认值 |
+|------|------|--------|
+| `DEBUG_HTTP` | 是否落盘结构化 SSE 事件日志 | `0` |
+| `DEBUG_TRACE` | 是否落盘完整 TurnTrace | `0` |
+
+### 约束
+
+- 不展示模型原始 CoT
+- 不新增第 7 种 SSE 事件，trace 摘要通过 `component` 事件承载
+- Token usage 在流式接口中不可用，记录为 `null`
+- 外部平台接入（Langfuse / Phoenix / OTLP）属于后续增强
 
 ---
 
@@ -327,6 +412,7 @@ v2 目标：
 | ADR-3 | Go 持有唯一会话状态 | 避免双栈状态同步成本 |
 | ADR-4 | 知识检索走项目知识库 MCP | 对齐现有 skill / 知识资产 |
 | ADR-5 | 只展示结构化 reasoning flow | 不展示原始 CoT |
+| ADR-6 | v1 先建立本地回合级 trace 模型 | 统一服务 debug、UI 和未来 exporter |
 
 ---
 
