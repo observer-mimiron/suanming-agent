@@ -12,6 +12,33 @@ type Turn struct {
 // MaxRecentTurns 是 RecentTurns 保留窗口大小（约 4 轮问答）。
 const MaxRecentTurns = 8
 
+// RoutingSnapshot captures the last supervisor routing decision written into session state.
+type RoutingSnapshot struct {
+	ConversationIntent    string   `json:"conversation_intent,omitempty"`
+	PrimaryDomain         string   `json:"primary_domain,omitempty"`
+	SecondaryDomains      []string `json:"secondary_domains,omitempty"`
+	TaskIntent            string   `json:"task_intent,omitempty"`
+	AwaitingClarification bool     `json:"awaiting_clarification,omitempty"`
+	Confidence            float64  `json:"confidence,omitempty"`
+}
+
+// BaziState holds bazi-specific domain state.
+type BaziState struct {
+	ProfileComplete bool `json:"profile_complete,omitempty"`
+	ChartReady      bool `json:"chart_ready,omitempty"`
+}
+
+// QimenState holds qimen-specific domain state.
+type QimenState struct {
+	LastTimeScope string `json:"last_time_scope,omitempty"`
+}
+
+// DomainStates groups per-domain state for the session.
+type DomainStates struct {
+	Bazi  BaziState  `json:"bazi,omitempty"`
+	Qimen QimenState `json:"qimen,omitempty"`
+}
+
 type SessionState struct {
 	SessionID           string
 	Profile             map[string]any // {year,month,day,hour,gender,...}
@@ -25,6 +52,10 @@ type SessionState struct {
 	// 上下文工程第一阶段：会话内最近多轮对话 + 滚动摘要
 	RecentTurns    []Turn `json:"recent_turns,omitempty"`
 	RunningSummary string `json:"running_summary,omitempty"`
+
+	// Supervisor 架构：路由快照 + 领域状态
+	Routing      RoutingSnapshot `json:"routing,omitempty"`
+	DomainStates DomainStates    `json:"domain_states,omitempty"`
 }
 
 func NewSession(id string) *SessionState {
@@ -120,7 +151,9 @@ func (s *SessionState) Clone() *SessionState {
 		LastUserQuestion:    s.LastUserQuestion,
 		NeedsQimen:          s.NeedsQimen,
 		NeedsKnowledge:      s.NeedsKnowledge,
-		RunningSummary:      s.RunningSummary,
+			RunningSummary:      s.RunningSummary,
+			Routing:             s.Routing,
+			DomainStates:        s.DomainStates,
 	}
 	if s.Profile != nil {
 		clone.Profile = make(map[string]any, len(s.Profile))
