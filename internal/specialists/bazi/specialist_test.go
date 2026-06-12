@@ -36,7 +36,7 @@ func makeSession(profileComplete, hasChart bool) *state.SessionState {
 }
 
 func TestBaziSpecialist_IncompleteProfileReturnsClarification(t *testing.T) {
-	sp := New(nil)
+	sp := New()
 	st := makeSession(false, false)
 	route := specialists.ApprovedRoute{
 		ConversationIntent:    "consult",
@@ -59,7 +59,7 @@ func TestBaziSpecialist_IncompleteProfileReturnsClarification(t *testing.T) {
 }
 
 func TestBaziSpecialist_ReusableChartFollowup(t *testing.T) {
-	sp := New(nil)
+	sp := New()
 	st := makeSession(true, true)
 	route := specialists.ApprovedRoute{
 		ConversationIntent:    "consult",
@@ -80,7 +80,7 @@ func TestBaziSpecialist_ReusableChartFollowup(t *testing.T) {
 }
 
 func TestBaziSpecialist_NewProfileCompleteReading(t *testing.T) {
-	sp := New(nil)
+	sp := New()
 	st := makeSession(true, false)
 	route := specialists.ApprovedRoute{
 		ConversationIntent:    "consult",
