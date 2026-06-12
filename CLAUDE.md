@@ -26,7 +26,7 @@ Vue 3 → SSE → Gin (:8080) → Session State → Tools → lunar-go / MCP / C
 
 ```bash
 # 启动知识库（先启动，端口 3100）
-make yopedia-start
+make knowledge-start
 
 # Go 后端 (:8080)
 LLM_API_KEY=sk-xxx go run ./cmd/server/
@@ -39,16 +39,16 @@ cd web && npm run dev
 
 ## 知识库
 
-独立 yopedia 实例运行在端口 3100（数据目录 `yopedia/wiki/`），与 lisense 知识库（端口 3000）完全隔离。已导入 19 个页面，涵盖古籍原文、八字基础、格局用神等模块，含权威分级和交叉引用。
+独立知识库实例运行在端口 3100（数据目录 `knowledge/wiki/`），与 lisense 知识库（端口 3000）完全隔离。已导入 19 个页面，涵盖古籍原文、八字基础、格局用神等模块，含权威分级和交叉引用。
 
 | 命令 | 用途 |
 |------|------|
-| `make yopedia-start` | 启动知识库 |
-| `make yopedia-stop` | 停止知识库 |
-| `make yopedia-status` | 查看状态 |
-| `make yopedia-import` | 重新导入资料 |
+| `make knowledge-start` | 启动知识库 |
+| `make knowledge-stop` | 停止知识库 |
+| `make knowledge-status` | 查看状态 |
+| `make knowledge-import` | 重新导入资料 |
 
-Go 后端的 `knowledge_search` 工具自动连接 `KNOWLEDGE_MCP_URL`（默认 :3100），检索 yopedia 知识库返回命理资料注入到 LLM 解读中。
+Go 后端的 `knowledge_search` 工具自动连接 `KNOWLEDGE_MCP_URL`（默认 :3100），检索知识库返回命理资料注入到 LLM 解读中。
 
 ## 开发命令
 

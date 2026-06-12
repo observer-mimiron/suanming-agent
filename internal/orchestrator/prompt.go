@@ -243,9 +243,9 @@ func (o *Orchestrator) buildInterpretPrompt(st *state.SessionState, passages []m
 		baziJSON = []byte("{}")
 	}
 
-	// cleanSourceName converts a yopedia source slug to a readable book/chapter name.
+	// cleanSourceName converts a knowledge source slug to a readable book/chapter name.
 	cleanSourceName := func(raw string) string {
-		s := strings.TrimPrefix(raw, "yopedia://")
+		s := strings.TrimPrefix(raw, "knowledge://")
 		bookMap := map[string]string{
 			"ref-bazi-yuanhai":     "《渊海子平》",
 			"ref-bazi-ditiansui":   "《滴天髓》",

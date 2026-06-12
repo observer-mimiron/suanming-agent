@@ -33,33 +33,33 @@ func (c *Client) Search(query string, topK int) ([]Passage, error) {
 	}
 	resp, err := c.client.Post(c.baseURL+"/search", "application/json", bytes.NewReader(jsonBody))
 	if err != nil {
-		return c.SearchYopedia(query, topK) // fallback
+		return c.SearchKnowledge(query, topK) // fallback
 	}
 	defer resp.Body.Close()
 	var result struct {
 		Passages []Passage `json:"passages"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return c.SearchYopedia(query, topK) // fallback
+		return c.SearchKnowledge(query, topK) // fallback
 	}
 	if len(result.Passages) == 0 {
-		return c.SearchYopedia(query, topK) // fallback
+		return c.SearchKnowledge(query, topK) // fallback
 	}
 	return result.Passages, nil
 }
 
-// SearchYopedia 使用 yopedia REST API 搜索 (/api/wiki/search?q=xxx)
-func (c *Client) SearchYopedia(query string, topK int) ([]Passage, error) {
+// SearchKnowledge 使用知识库 REST API 搜索 (/api/wiki/search?q=xxx)
+func (c *Client) SearchKnowledge(query string, topK int) ([]Passage, error) {
 	searchURL := fmt.Sprintf("%s/api/wiki/search?q=%s&limit=%d",
 		c.baseURL, url.QueryEscape(query), topK)
 	resp, err := c.client.Get(searchURL)
 	if err != nil {
-		return nil, fmt.Errorf("yopedia search: %w", err)
+		return nil, fmt.Errorf("knowledge search: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("yopedia search returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("knowledge search returned %d", resp.StatusCode)
 	}
 
 	var result struct {
@@ -70,7 +70,7 @@ func (c *Client) SearchYopedia(query string, topK int) ([]Passage, error) {
 		} `json:"results"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("yopedia parse: %w", err)
+		return nil, fmt.Errorf("knowledge parse: %w", err)
 	}
 
 	var passages []Passage
@@ -81,7 +81,7 @@ func (c *Client) SearchYopedia(query string, topK int) ([]Passage, error) {
 		}
 		passages = append(passages, Passage{
 			Content: snippet,
-			Source:  fmt.Sprintf("yopedia://%s (%s)", r.Slug, r.Title),
+			Source:  fmt.Sprintf("knowledge://%s (%s)", r.Slug, r.Title),
 		})
 	}
 	if len(passages) == 0 {

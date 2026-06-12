@@ -1,0 +1,177 @@
+import { getRawDir, rawRelPath, validateSlug, ensureDirectories } from "./wiki";
+import { getStorage } from "./storage";
+
+// ---------------------------------------------------------------------------
+// Raw source storage
+// ---------------------------------------------------------------------------
+
+/** Save a raw source document and return its path. Throws on invalid id. */
+export async function saveRawSource(
+  id: string,
+  content: string,
+): Promise<string> {
+  validateSlug(id);
+  await ensureDirectories();
+  await getStorage().writeFile(rawRelPath(id + ".md"), content);
+  return `${getRawDir()}/${id}.md`;
+}
+
+/** A per-source raw id is a hex hash — path-safe by construction. */
+const RAW_ID_RE = /^[a-f0-9]+$/;
+
+/**
+ * Save the raw snapshot of ONE source of a page at `raw/<slug>/<rawId>.md`.
+ * Unlike {@link saveRawSource} (a single latest blob per slug), this keeps every
+ * source's raw separately so a page built from multiple sources can show them
+ * all. `rawId` must be a hex hash; `slug` is validated as a path segment.
+ */
+export async function saveRawSourceFor(
+  slug: string,
+  rawId: string,
+  content: string,
+): Promise<string> {
+  validateSlug(slug);
+  if (!RAW_ID_RE.test(rawId)) {
+    throw new Error("Invalid raw id: must be a hex hash");
+  }
+  await ensureDirectories();
+  await getStorage().writeFile(rawRelPath(`${slug}/${rawId}.md`), content);
+  return `${getRawDir()}/${slug}/${rawId}.md`;
+}
+
+/**
+ * Read one per-source raw snapshot written by {@link saveRawSourceFor}.
+ * Both `slug` and `rawId` are validated before any filesystem access (the slug
+ * can't contain path separators; the id is a hex hash), so traversal is
+ * impossible. Throws "not found" when the snapshot doesn't exist.
+ */
+export async function readRawSourceById(
+  slug: string,
+  rawId: string,
+): Promise<RawSourceWithContent> {
+  validateSlug(slug);
+  if (!RAW_ID_RE.test(rawId)) {
+    throw new Error(`raw source not found: ${slug}/${rawId}`);
+  }
+  const rel = rawRelPath(`${slug}/${rawId}.md`);
+  let content: string;
+  try {
+    content = await getStorage().readFile(rel);
+  } catch {
+    throw new Error(`raw source not found: ${slug}/${rawId}`);
+  }
+  let size = content.length;
+  let modified = new Date().toISOString();
+  try {
+    const stat = await getStorage().stat(rel);
+    size = stat.size;
+    modified = stat.lastModified.toISOString();
+  } catch {
+    // stat is best-effort — content already read successfully.
+  }
+  return { slug, filename: `${rawId}.md`, size, modified, content };
+}
+
+// ---------------------------------------------------------------------------
+// Raw source browsing (read-only)
+// ---------------------------------------------------------------------------
+
+/**
+ * A lightweight descriptor for a file sitting in `raw/`. `slug` is the
+ * filename with the final extension stripped, matching the identity that
+ * {@link saveRawSource} uses when it writes a file.
+ */
+export interface RawSource {
+  /** Filename without the final extension. Usable as a URL path segment. */
+  slug: string;
+  /** Original filename including extension, e.g. `llm-wiki-pattern.md`. */
+  filename: string;
+  /** Size in bytes. */
+  size: number;
+  /** Last-modified time as an ISO 8601 string. */
+  modified: string;
+}
+
+/** A raw source plus its full content. Returned by {@link readRawSource}. */
+export interface RawSourceWithContent extends RawSource {
+  content: string;
+}
+
+/**
+ * Strip the final extension from a filename. Leading dots (dotfiles) are
+ * preserved verbatim — we never treat `.hidden` as having an extension of
+ * `hidden`. Returns the input unchanged when there is no extension.
+ */
+function stripExtension(filename: string): string {
+  const lastDot = filename.lastIndexOf(".");
+  // Guard against dotfiles (`.env`) and extension-less names (`README`).
+  if (lastDot <= 0) return filename;
+  return filename.slice(0, lastDot);
+}
+
+/**
+ * List every file currently sitting in `raw/`, newest first.
+ *
+ * - Non-recursive: `raw/` is flat by convention.
+ * - Skips dotfiles and subdirectories.
+ * - Returns `[]` (rather than throwing) when `raw/` does not yet exist,
+ *   so a fresh checkout with no ingested sources renders cleanly.
+ */
+export async function listRawSources(): Promise<RawSource[]> {
+  const storage = getStorage();
+  let entries: import("./storage").FileEntry[];
+  try {
+    entries = await storage.listFiles(rawRelPath(""));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+
+  const sources: RawSource[] = [];
+  for (const entry of entries) {
+    if (entry.isDirectory) continue;
+    if (entry.name.startsWith(".")) continue;
+
+    const stat = await storage.stat(rawRelPath(entry.name));
+    sources.push({
+      slug: stripExtension(entry.name),
+      filename: entry.name,
+      size: stat.size,
+      modified: stat.lastModified.toISOString(),
+    });
+  }
+
+  // Newest first — most-recently-ingested at the top of the browser.
+  sources.sort((a, b) => (a.modified < b.modified ? 1 : -1));
+  return sources;
+}
+
+/**
+ * Read a single raw source by slug (the filename without its final
+ * extension). Returns the file's content along with the same metadata
+ * {@link listRawSources} produces.
+ *
+ * Safety model: we do NOT build a path from the slug directly. Instead we
+ * list `raw/`, match the slug against the stripped-extension form of each
+ * real entry, and only then `readFile` the matched entry. A path-traversal
+ * slug like `../../etc/passwd` can never match a file inside `raw/`, so it
+ * falls through to the "not found" throw. The `validateSlug` guard provides
+ * a second layer of defence before we ever touch the filesystem.
+ *
+ * @throws {Error} when the slug is invalid or no matching file exists.
+ */
+export async function readRawSource(
+  slug: string,
+): Promise<RawSourceWithContent> {
+  validateSlug(slug);
+
+  const sources = await listRawSources();
+  const match = sources.find((s) => s.slug === slug);
+  if (!match) {
+    throw new Error(`raw source not found: ${slug}`);
+  }
+
+  const content = await getStorage().readFile(rawRelPath(match.filename));
+
+  return { ...match, content };
+}
