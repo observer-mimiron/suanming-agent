@@ -1,94 +1,253 @@
 package orchestrator
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
+	"time"
 
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
-	"github.com/wikiglobal/suanming-agent/internal/sse"
+	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/state"
+	"github.com/wikiglobal/suanming-agent/internal/supervisor"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
+	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
 type Orchestrator struct {
-	tools    *tools.Registry
-	sessions sync.Map
+	tools      *tools.Registry
+	store      state.Store
+	locker     state.Locker
+	llm        llm.Chat
+	flash      llm.Chat
+	tracer     tracing.Tracer
+	promptMode string
+	llmModel   string
+	supervisor *supervisor.Client
 }
 
-func New(reg *tools.Registry) *Orchestrator {
-	return &Orchestrator{tools: reg}
+func New(reg *tools.Registry, llmClient llm.Chat, flashClient llm.Chat, store state.Store, locker state.Locker, tracer tracing.Tracer, promptMode string) *Orchestrator {
+	return &Orchestrator{tools: reg, llm: llmClient, flash: flashClient, store: store, locker: locker, tracer: tracer, promptMode: promptMode}
 }
 
-func (o *Orchestrator) Run(sw sse.Sender, sessionID, message string) error {
-	st := o.loadOrCreate(sessionID)
+// SetLLMModel sets the model name used in LLM span metadata.
+func (o *Orchestrator) SetLLMModel(model string) { o.llmModel = model }
 
-	// 1. Use LLM to classify intent and extract profile
-	action, profilePatch, userQuestion := classifyAndExtract(message, st)
+// SetSupervisor injects the supervisor client for phase-1 routing.
+// When nil, the orchestrator falls back to the legacy classifyAndExtract path.
+func (o *Orchestrator) SetSupervisor(sv *supervisor.Client) { o.supervisor = sv }
+
+func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, message string) error {
+	unlock := o.locker.Lock(sessionID)
+	defer unlock()
+
+	ctx, trace := o.tracer.StartTrace(ctx, "chat.turn")
+	defer trace.End()
+
+	st := o.store.LoadOrCreate(sessionID)
+	defer o.store.Save(st)
+
+	// Annotate root trace with metadata
+	if t := tracing.TraceFromContext(ctx); t != nil {
+		t.SessionID = sessionID
+		t.UserMessage = message
+	}
+
+	var action string
+	var profilePatch map[string]any
+	var userQuestion string
+	var needsQimen bool
+	var rawBazi []string
+
+	// Phase 1: use supervisor when available, fall back to legacy classify.
+	if o.supervisor != nil {
+		supSpan := tracing.SpanFromContext(ctx, "supervisor_decision", tracing.KindChain)
+		decision, err := o.supervisor.Decide(ctx, message, st)
+		if err != nil {
+			supSpan.SetAttribute("error", err.Error())
+		}
+		supSpan.SetAttribute("primary_domain", decision.PrimaryDomain)
+		supSpan.SetAttribute("task_intent", decision.TaskIntent)
+		supSpan.SetAttribute("confidence", decision.Confidence)
+		supSpan.SetAttribute("needs_clarification", decision.NeedsClarification)
+		supSpan.End()
+
+		gateSpan := tracing.SpanFromContext(ctx, "policy_gate", tracing.KindChain)
+		route := policy.Apply(decision, st)
+		gateSpan.SetAttribute("primary_domain", route.PrimaryDomain)
+		gateSpan.SetAttribute("task_intent", route.TaskIntent)
+		gateSpan.SetAttribute("needs_clarification", route.NeedsClarification)
+		gateSpan.SetAttribute("parallel_allowed", route.ParallelAllowed)
+		if len(route.SecondaryDomains) > 0 {
+			gateSpan.SetAttribute("secondary_domains", strings.Join(route.SecondaryDomains, ","))
+		}
+		gateSpan.End()
+
+		// Record routing snapshot into session state.
+		st.Routing = state.RoutingSnapshot{
+			ConversationIntent:    route.ConversationIntent,
+			PrimaryDomain:         route.PrimaryDomain,
+			SecondaryDomains:      route.SecondaryDomains,
+			TaskIntent:            route.TaskIntent,
+			AwaitingClarification: route.NeedsClarification,
+			Confidence:            decision.Confidence,
+		}
+
+		// Bridge supervisor decision to legacy action tuple for existing dispatch.
+		action, profilePatch, userQuestion, needsQimen, rawBazi = bridgeDecision(decision, message)
+		st.NeedsQimen = needsQimen
+	} else {
+		classifySpan := tracing.SpanFromContext(ctx, "classify_and_extract", tracing.KindChain)
+		action, profilePatch, userQuestion, needsQimen, rawBazi = o.classifyAndExtract(ctx, message, st)
+		st.NeedsQimen = needsQimen
+		classifySpan.SetAttribute("action", action)
+		classifySpan.SetAttribute("needs_qimen", needsQimen)
+		classifySpan.End()
+	}
+
+	var turnErr error
+	var turnType string
+	var assistantText string
+	var recordState *state.SessionState
+
+	// Reclassify spurious new_profile when session already has data.
+	if action == "new_profile" && (st.HasBaziResult() || len(st.Profile) > 0) && !containsBirthTime(message) {
+		action = "update_profile"
+	}
 
 	switch action {
+	case "bazi_input":
+		candidate := st.Clone()
+		// Merge any gender extracted from the same message (e.g. "乙巳 丁亥 甲申 甲子，女")
+		if g, ok := profilePatch["gender"]; ok {
+			candidate.Profile["gender"] = g
+		}
+		turnType = "direct_bazi"
+		assistantText, turnErr = o.handleBaziInput(ctx, sink, candidate, rawBazi)
+		if candidate.HasBaziResult() {
+			*st = *candidate
+			recordState = st
+		}
+
 	case "new_profile":
-		// User wants a new reading — clear old data and start fresh
-		st.Profile = make(map[string]any)
-		st.BaziResult = nil
+		candidate := st.Clone()
+		candidate.Profile = make(map[string]any)
+		candidate.BaziResult = nil
 		for k, v := range profilePatch {
-			st.Profile[k] = v
+			candidate.Profile[k] = v
 		}
 		if userQuestion != "" {
-			st.LastUserQuestion = userQuestion
+			candidate.LastUserQuestion = userQuestion
 		}
-		return o.handleFullReading(sw, st)
+		if !candidate.IsProfileComplete() {
+			turnType = "ask_missing_profile"
+			assistantText, turnErr = o.handleAsk(ctx, sink, candidate)
+			if !st.HasBaziResult() && len(st.Profile) == 0 {
+				*st = *candidate
+				recordState = st
+			}
+		} else {
+			turnType = "full_reading"
+			assistantText, turnErr = o.handleFullReading(ctx, sink, candidate)
+			if candidate.HasBaziResult() {
+				*st = *candidate
+				recordState = st
+			}
+		}
 
 	case "update_profile":
-		// User is correcting info — merge changes
-		changed := st.MergeProfile(profilePatch)
+		candidate := st.Clone()
+		changed := candidate.MergeProfile(profilePatch)
 		if userQuestion != "" {
-			st.LastUserQuestion = userQuestion
+			candidate.LastUserQuestion = userQuestion
 		}
-		if changed {
-			st.BaziResult = nil
+		if changed && profileChangesAffectChart(profilePatch) {
+			candidate.BaziResult = nil
 		}
-		if !st.IsProfileComplete() {
-			return o.handleAsk(sw, st)
+		if !candidate.IsProfileComplete() && !candidate.HasBaziResult() {
+			turnType = "ask_missing_profile"
+			assistantText, turnErr = o.handleAsk(ctx, sink, candidate)
+			*st = *candidate
+			recordState = st
+		} else if candidate.BaziResult == nil {
+			turnType = "full_reading"
+			assistantText, turnErr = o.handleFullReading(ctx, sink, candidate)
+			if candidate.HasBaziResult() {
+				*st = *candidate
+				recordState = st
+			}
+		} else {
+			turnType = "followup_reading"
+			assistantText, turnErr = o.handleFollowupReading(ctx, sink, candidate)
+			*st = *candidate
+			recordState = st
 		}
-		if st.BaziResult == nil {
-			return o.handleFullReading(sw, st)
-		}
-		return o.handleFollowupReading(sw, st)
 
 	case "incomplete":
-		// Profile still missing fields — merge and ask
-		st.MergeProfile(profilePatch)
+		candidate := st.Clone()
+		candidate.MergeProfile(profilePatch)
 		if userQuestion != "" {
-			st.LastUserQuestion = userQuestion
+			candidate.LastUserQuestion = userQuestion
 		}
-		return o.handleAsk(sw, st)
+		if candidate.HasBaziResult() {
+			turnType = "followup_reading"
+			assistantText, turnErr = o.handleFollowupReading(ctx, sink, candidate)
+		} else {
+			turnType = "ask_missing_profile"
+			assistantText, turnErr = o.handleAsk(ctx, sink, candidate)
+		}
+		*st = *candidate
+		recordState = st
 
 	default: // "followup"
-		// User is asking about existing profile
+		candidate := st.Clone()
 		if userQuestion != "" {
-			st.LastUserQuestion = userQuestion
+			candidate.LastUserQuestion = userQuestion
 		}
-		if !st.IsProfileComplete() {
-			return o.handleAsk(sw, st)
+		if candidate.HasBaziResult() {
+			turnType = "followup_reading"
+			assistantText, turnErr = o.handleFollowupReading(ctx, sink, candidate)
+		} else if !candidate.IsProfileComplete() {
+			turnType = "ask_missing_profile"
+			assistantText, turnErr = o.handleAsk(ctx, sink, candidate)
+		} else if candidate.BaziResult == nil {
+			turnType = "full_reading"
+			assistantText, turnErr = o.handleFullReading(ctx, sink, candidate)
+			if candidate.HasBaziResult() {
+				*st = *candidate
+			}
+		} else {
+			turnType = "followup_reading"
+			assistantText, turnErr = o.handleFollowupReading(ctx, sink, candidate)
 		}
-		if st.BaziResult == nil {
-			return o.handleFullReading(sw, st)
+		if turnType == "followup_reading" || turnType == "ask_missing_profile" {
+			*st = *candidate
+			recordState = st
 		}
-		return o.handleFollowupReading(sw, st)
+		if turnType == "full_reading" && candidate.HasBaziResult() {
+			recordState = st
+		}
 	}
-}
 
-func (o *Orchestrator) loadOrCreate(id string) *state.SessionState {
-	if v, ok := o.sessions.Load(id); ok {
-		return v.(*state.SessionState)
+	if recordState != nil {
+		o.recordTurnAndMaintainContext(ctx, recordState, message, assistantText)
 	}
-	s := state.NewSession(id)
-	o.sessions.Store(id, s)
-	return s
+
+	// Set turn type and status on trace
+	if t := tracing.TraceFromContext(ctx); t != nil {
+		t.TurnType = turnType
+	}
+	if turnErr != nil {
+		trace.SetStatus("error")
+	}
+
+	// Emit trace digest before done
+	o.emitTraceDigest(ctx, sink, turnType)
+	sink.Emit(ctx, Event{Type: "done", Data: map[string]any{}})
+	return turnErr
 }
 
 var (
@@ -104,7 +263,6 @@ var (
 	genderRe    = regexp.MustCompile(`(?:性别[:：]?\s*)?(男|女)`)
 )
 
-// extractProfileAndQuestion 提取出生资料，并把剩余文本视为用户真正的问题
 func extractProfileAndQuestion(msg string) (profilePatch map[string]any, question string) {
 	normalized := strings.TrimSpace(msg)
 	residual := normalized
@@ -130,6 +288,7 @@ func extractProfileAndQuestion(msg string) (profilePatch map[string]any, questio
 	extractInt(monthRe, "month", 1, 12)
 	extractInt(dayRe, "day", 1, 31)
 
+	hourFound := false
 	hourPatterns := []struct {
 		re   *regexp.Regexp
 		base int
@@ -155,8 +314,20 @@ func extractProfileAndQuestion(msg string) (profilePatch map[string]any, questio
 		if val >= 0 && val <= 23 {
 			patch["hour"] = float64(val)
 			residual = strings.Replace(residual, matches[0], "", 1)
+			hourFound = true
 		}
 		break
+	}
+	if !hourFound {
+		if matches := timeRe.FindStringSubmatch(normalized); len(matches) == 3 {
+			h, _ := strconv.Atoi(matches[1])
+			m, _ := strconv.Atoi(matches[2])
+			if h >= 0 && h <= 23 && m >= 0 && m <= 59 {
+				patch["hour"] = float64(h)
+				patch["minute"] = float64(m)
+				residual = strings.Replace(residual, matches[0], "", 1)
+			}
+		}
 	}
 
 	if matches := genderRe.FindStringSubmatch(normalized); len(matches) == 2 {
@@ -173,152 +344,394 @@ func extractProfileAndQuestion(msg string) (profilePatch map[string]any, questio
 
 var fieldNames = map[string]string{
 	"year": "出生年份", "month": "出生月份", "day": "出生日期",
-	"hour": "出生时辰", "gender": "性别",
+	"hour": "出生时辰", "gender": "性别", "birthplace": "出生地（城市）",
 }
 
-func (o *Orchestrator) handleAsk(sw sse.Sender, st *state.SessionState) error {
-	sw.Send("thinking", map[string]any{
+// chartFields are the profile keys that affect the bazi chart calculation.
+// Changes to these fields invalidate any cached BaziResult.
+var chartFields = map[string]bool{"year": true, "month": true, "day": true, "hour": true}
+
+// containsBirthTime checks whether a message contains birth time information
+// (year + month + day pattern), as opposed to just metadata like gender.
+var birthTimeRe = regexp.MustCompile(`\d{4}\s*年.*\d{1,2}\s*月|\d{4}[-/]\d{1,2}|农历|阴历|正月|腊月`)
+
+func containsBirthTime(msg string) bool {
+	return birthTimeRe.MatchString(msg)
+}
+
+// profileChangesAffectChart reports whether any profile patch key would change
+// the eight-character chart. Gender, birthplace, calendar_type changes alone
+// should NOT invalidate an existing BaziResult.
+// Only returns true when a chart-affecting field has a meaningful non-zero value.
+func profileChangesAffectChart(patch map[string]any) bool {
+	for k, v := range patch {
+		if !chartFields[k] {
+			continue
+		}
+		switch val := v.(type) {
+		case float64:
+			if val > 0 {
+				return true
+			}
+		case int:
+			if val > 0 {
+				return true
+			}
+		case string:
+			if val != "" {
+				return true
+			}
+		default:
+			if v != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (o *Orchestrator) handleBaziInput(ctx context.Context, sink EventSink, st *state.SessionState, rawBazi []string) (string, error) {
+	parseSpan := tracing.SpanFromContext(ctx, "parse_direct_bazi", tracing.KindChain)
+	sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
+		"agent": "orchestrator", "text": "识别到直接输入的四柱八字，开始分析...",
+	}})
+
+	pillarNames := []string{"年柱", "月柱", "日柱", "时柱"}
+	pillars := make([]map[string]any, 4)
+	for i := 0; i < 4; i++ {
+		s := rawBazi[i]
+		pillars[i] = map[string]any{
+			"name":   pillarNames[i],
+			"stem":   string([]rune(s)[0:1]),
+			"branch": string([]rune(s)[1:2]),
+		}
+	}
+	data := map[string]any{
+		"pillars": pillars,
+		"dayGan":  string([]rune(rawBazi[2])[0:1]),
+	}
+	st.BaziResult = data
+	parseSpan.End()
+
+	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
+		"type": "bazi-chart", "payload": data,
+	}})
+
+	// Gender is not encoded in the eight characters — prompt if missing.
+	if _, hasGender := st.Profile["gender"]; !hasGender {
+		sink.Emit(ctx, Event{Type: "text", Data: map[string]any{
+			"content": "⚠️ 八字本身不含性别信息。请问这个八字是男命还是女命？（男女命的大运顺逆、婚姻用神均不同）",
+		}})
+	}
+
+	passages := o.runKnowledgeSearch(ctx, sink, st)
+	fullText, err := o.streamInterpretation(ctx, sink, st, passages, nil)
+	if err != nil {
+		sink.Emit(ctx, Event{Type: "error", Data: map[string]any{"message": "解读失败: " + err.Error()}})
+		return fullText, err
+	}
+	return fullText, nil
+}
+
+func (o *Orchestrator) handleAsk(ctx context.Context, sink EventSink, st *state.SessionState) (string, error) {
+	askSpan := tracing.SpanFromContext(ctx, "ask_missing_profile", tracing.KindChain)
+	defer askSpan.End()
+
+	sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
 		"agent": "orchestrator", "text": "正在核实出生信息...",
-	})
+	}})
 	missing := st.MissingFields()
+	askSpan.SetAttribute("missing_fields", missing)
+
 	names := make([]string, len(missing))
 	for i, f := range missing {
-		names[i] = fieldNames[f]
+		if n, ok := fieldNames[f]; ok {
+			names[i] = n
+		} else {
+			names[i] = f
+		}
 	}
-	sw.Send("text", map[string]any{
-		"content": fmt.Sprintf("请告诉我你的%s", strings.Join(names, "、")),
-	})
-	sw.Send("done", map[string]any{})
-	return nil
+	var prompt string
+	if len(names) == 0 {
+		prompt = "请告诉我你的出生信息（至少需要年份、月份、日期、时辰和性别），例如：1990年5月20日早上8点，男"
+	} else {
+		prompt = fmt.Sprintf("请告诉我你的%s", strings.Join(names, "、"))
+	}
+	sink.Emit(ctx, Event{Type: "text", Data: map[string]any{"content": prompt}})
+	return prompt, nil
 }
 
-func (o *Orchestrator) runKnowledgeSearch(sw sse.Sender, st *state.SessionState) []mcp.Passage {
+func (o *Orchestrator) runKnowledgeSearch(ctx context.Context, sink EventSink, st *state.SessionState) []mcp.Passage {
+	ksSpan := tracing.SpanFromContext(ctx, "knowledge_search", tracing.KindRetriever)
+	defer ksSpan.End()
+
 	tool, ok := o.tools.Get("knowledge_search")
 	if !ok {
-		sw.Send("thinking", map[string]any{
+		ksSpan.SetStatus("degraded")
+		ksSpan.SetAttribute("degrade_reason", "tool_not_registered")
+		sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
 			"agent": "orchestrator", "text": "知识检索未注册，跳过引用检索。",
-		})
+		}})
 		return []mcp.Passage{}
 	}
 
-	query := buildKnowledgeQuery(st)
-	sw.Send("tool_call", map[string]any{
+	query := o.buildKnowledgeQuery(ctx, st)
+	ksSpan.SetAttribute("query", query)
+	sink.Emit(ctx, Event{Type: "tool_call", Data: map[string]any{
 		"tool":   "knowledge_search",
-		"params": map[string]any{"query": query, "topK": 3},
-	})
+		"params": map[string]any{"query": query, "topK": 5},
+	}})
 
-	result, err := tool.Execute(map[string]any{"query": query, "topK": 3})
+	result, err := tool.Execute(ctx, map[string]any{"query": query, "topK": 5})
 	if err != nil {
-		sw.Send("thinking", map[string]any{
+		ksSpan.SetStatus("degraded")
+		ksSpan.SetAttribute("degrade_reason", "exec_error")
+		ksSpan.RecordError(err)
+		sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
 			"agent": "orchestrator", "text": "知识检索失败，继续直接解读命盘。",
-		})
+		}})
 		return []mcp.Passage{}
 	}
 
 	payload, ok := result.(map[string]any)
 	if !ok {
+		ksSpan.SetStatus("degraded")
+		ksSpan.SetAttribute("degrade_reason", "result_type_invalid")
 		return []mcp.Passage{}
 	}
 	passages, _ := payload["passages"].([]mcp.Passage)
+	ksSpan.SetAttribute("hits", len(passages))
+	if len(passages) == 0 {
+		ksSpan.SetStatus("degraded")
+		ksSpan.SetAttribute("degrade_reason", "no_results")
+	}
 	if len(passages) > 0 {
-		sw.Send("component", map[string]any{
+		sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
 			"type":    "knowledge-sources",
 			"payload": passages,
-		})
+		}})
 	}
 	return passages
 }
 
-func (o *Orchestrator) streamInterpretation(sw sse.Sender, st *state.SessionState, passages []mcp.Passage) error {
-	client := llm.NewClient()
-	systemPrompt := buildInterpretPrompt(st, passages)
+func (o *Orchestrator) streamInterpretation(ctx context.Context, sink EventSink, st *state.SessionState, passages []mcp.Passage, extra map[string]any) (string, error) {
+	llmSpan := tracing.SpanFromContext(ctx, "llm_generate", tracing.KindLLM)
+	if o.llmModel != "" {
+		llmSpan.SetAttribute("model", o.llmModel)
+	}
+	llmSpan.SetAttribute("output_tokens", nil) // unavailable in streaming mode
+
+	systemPrompt := o.buildInterpretPrompt(st, passages, extra)
 	messages := []llm.Message{
 		{Role: "user", Content: currentQuestion(st)},
 	}
 
-	return client.ChatStream(systemPrompt, messages, func(chunk string) {
-		sw.Send("text", map[string]any{"content": chunk})
+	var tail strings.Builder
+	var fullText strings.Builder
+	blocked := false
+
+	err := o.llm.Stream(ctx, systemPrompt, messages, func(chunk string) {
+		if blocked {
+			return
+		}
+		tail.WriteString(chunk)
+		t := tail.String()
+		if len(t) > 40 {
+			t = t[len(t)-40:]
+		}
+		if strings.Contains(t, "仅供") || strings.Contains(t, "AI生成") || strings.Contains(t, "玄学算命") || strings.Contains(t, "以上内容由") {
+			blocked = true
+			return
+		}
+		fullText.WriteString(chunk)
+		sink.Emit(ctx, Event{Type: "text", Data: map[string]any{"content": chunk}})
 	})
+
+	if err != nil {
+		llmSpan.RecordError(err)
+	}
+	llmSpan.End()
+	return fullText.String(), err
 }
 
-func (o *Orchestrator) handleFullReading(sw sse.Sender, st *state.SessionState) error {
-	sw.Send("thinking", map[string]any{
+func (o *Orchestrator) handleFullReading(ctx context.Context, sink EventSink, st *state.SessionState) (string, error) {
+	sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
 		"agent": "orchestrator", "text": "信息齐全，开始排盘...",
-	})
+	}})
 
-	// 1. bazi_calc
+	// bazi_calc
+	baziSpan := tracing.SpanFromContext(ctx, "bazi_calc", tracing.KindTool)
 	tool, ok := o.tools.Get("bazi_calc")
 	if !ok {
-		sw.Send("error", map[string]any{"message": "tool bazi_calc not registered"})
-		sw.Send("done", map[string]any{})
-		return fmt.Errorf("bazi_calc not registered")
+		baziSpan.RecordError(fmt.Errorf("not registered"))
+		baziSpan.End()
+		sink.Emit(ctx, Event{Type: "error", Data: map[string]any{"message": "tool bazi_calc not registered"}})
+		return "", fmt.Errorf("bazi_calc not registered")
 	}
-	sw.Send("tool_call", map[string]any{"tool": "bazi_calc", "params": st.Profile})
-	result, err := tool.Execute(st.Profile)
+	sink.Emit(ctx, Event{Type: "tool_call", Data: map[string]any{"tool": "bazi_calc", "params": st.Profile}})
+	result, err := tool.Execute(ctx, st.Profile)
 	if err != nil {
-		sw.Send("error", map[string]any{"message": "排盘失败: " + err.Error()})
-		sw.Send("done", map[string]any{})
-		return err
+		baziSpan.RecordError(err)
+		baziSpan.End()
+		sink.Emit(ctx, Event{Type: "error", Data: map[string]any{"message": "排盘失败: " + err.Error()}})
+		return "", err
 	}
 	data, ok := result.(map[string]any)
 	if !ok {
-		sw.Send("error", map[string]any{"message": "排盘结果格式错误"})
-		sw.Send("done", map[string]any{})
-		return fmt.Errorf("bazi_calc result type invalid")
+		baziSpan.RecordError(fmt.Errorf("result type invalid"))
+		baziSpan.End()
+		sink.Emit(ctx, Event{Type: "error", Data: map[string]any{"message": "排盘结果格式错误"}})
+		return "", fmt.Errorf("bazi_calc result type invalid")
 	}
 	st.BaziResult = data
+	baziSpan.End()
 
-	// Run yongshen analysis
+	// yongshen (optional)
 	if ysTool, ok := o.tools.Get("yongshen"); ok {
-		ysResult, ysErr := ysTool.Execute(st.Profile)
-		if ysErr == nil {
+		func() {
+			ysSpan := tracing.SpanFromContext(ctx, "yongshen", tracing.KindTool)
+			defer ysSpan.End()
+			ysResult, ysErr := ysTool.Execute(ctx, st.Profile)
+			if ysErr != nil {
+				ysSpan.RecordError(ysErr)
+				return
+			}
 			if ysMap, ok2 := ysResult.(map[string]any); ok2 {
 				st.BaziResult["yongshen"] = ysMap
-				sw.Send("tool_call", map[string]any{"tool": "yongshen", "params": st.Profile})
-				sw.Send("thinking", map[string]any{
+				ysSpan.SetAttribute("day_master", ysMap["day_master"])
+				ysSpan.SetAttribute("strength", ysMap["strength"])
+				sink.Emit(ctx, Event{Type: "tool_call", Data: map[string]any{"tool": "yongshen", "params": st.Profile}})
+				sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
 					"agent": "orchestrator",
 					"text":  fmt.Sprintf("日主%s 强弱:%s 用神:%v 忌神:%v", ysMap["day_master"], ysMap["strength"], ysMap["yong_shen"], ysMap["ji_shen"]),
-				})
+				}})
 			}
-		}
+		}()
 	}
 
-	// Run dayun analyzer
+	// dayun_analyzer (optional)
 	if daTool, ok2 := o.tools.Get("dayun_analyzer"); ok2 {
-		daParams := map[string]any{
-			"dayun":       data["dayun"],
-			"bazi_result": st.BaziResult,
-		}
-		if daResult, daErr := daTool.Execute(daParams); daErr == nil {
-			if daMap, ok3 := daResult.(map[string]any); ok3 {
-				st.BaziResult["dayun_analyzed"] = daMap["dayun_analyzed"]
+		func() {
+			daSpan := tracing.SpanFromContext(ctx, "dayun_analyzer", tracing.KindTool)
+			defer daSpan.End()
+			daParams := map[string]any{
+				"dayun":       data["dayun"],
+				"bazi_result": st.BaziResult,
 			}
-		}
+			if daResult, daErr := daTool.Execute(ctx, daParams); daErr == nil {
+				if daMap, ok3 := daResult.(map[string]any); ok3 {
+					st.BaziResult["dayun_analyzed"] = daMap["dayun_analyzed"]
+				}
+			} else {
+				daSpan.RecordError(daErr)
+			}
+		}()
 	}
 
-	sw.Send("component", map[string]any{"type": "bazi-chart", "payload": data})
+	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{"type": "bazi-chart", "payload": data}})
 
-	// 2. 知识检索 + LLM 解读
-	passages := o.runKnowledgeSearch(sw, st)
-	if err := o.streamInterpretation(sw, st, passages); err != nil {
-		sw.Send("error", map[string]any{"message": "LLM 解读失败: " + err.Error()})
-		sw.Send("done", map[string]any{})
-		return err
+	passages := o.runKnowledgeSearch(ctx, sink, st)
+	fullText, err := o.streamInterpretation(ctx, sink, st, passages, nil)
+	if err != nil {
+		sink.Emit(ctx, Event{Type: "error", Data: map[string]any{"message": "LLM 解读失败: " + err.Error()}})
+		return fullText, err
 	}
-	sw.Send("done", map[string]any{})
-	return nil
+	return fullText, nil
 }
 
-func (o *Orchestrator) handleFollowupReading(sw sse.Sender, st *state.SessionState) error {
-	sw.Send("thinking", map[string]any{
-		"agent": "orchestrator", "text": "复用已有命盘，正在检索知识库...",
-	})
-	passages := o.runKnowledgeSearch(sw, st)
-	if err := o.streamInterpretation(sw, st, passages); err != nil {
-		sw.Send("error", map[string]any{"message": "LLM 解读失败: " + err.Error()})
-		sw.Send("done", map[string]any{})
-		return err
+func (o *Orchestrator) handleFollowupReading(ctx context.Context, sink EventSink, st *state.SessionState) (string, error) {
+	sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
+		"agent": "orchestrator", "text": "复用已有命盘...",
+	}})
+
+	// reuse_bazi span
+	reuseSpan := tracing.SpanFromContext(ctx, "reuse_bazi_result", tracing.KindChain)
+	reuseSpan.SetAttribute("bazi_reused", true)
+	reuseSpan.End()
+
+	var extraPromptData map[string]any
+	if st.NeedsQimen {
+		if qimenTool, ok := o.tools.Get("qimen_dunjia"); ok {
+			func() {
+				qmSpan := tracing.SpanFromContext(ctx, "qimen_dunjia", tracing.KindTool)
+				defer qmSpan.End()
+
+				now := resolveQimenTime(time.Now())
+				qimenParams := tools.ResolveQimenTime(now)
+				sink.Emit(ctx, Event{Type: "tool_call", Data: map[string]any{
+					"tool": "qimen_dunjia", "params": qimenParams,
+				}})
+				qimenResult, qimenErr := qimenTool.Execute(ctx, qimenParams)
+				if qimenErr == nil {
+					if qm, ok2 := qimenResult.(map[string]any); ok2 {
+						sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
+							"type": "qimen-chart", "payload": qm,
+						}})
+						extraPromptData = qm
+					}
+				} else {
+					qmSpan.SetStatus("fallback")
+					qmSpan.RecordError(qimenErr)
+					sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
+						"agent": "orchestrator", "text": "奇门排盘失败，改按八字继续分析。",
+					}})
+				}
+			}()
+		}
 	}
-	sw.Send("done", map[string]any{})
-	return nil
+
+	var passages []mcp.Passage
+	// Always run knowledge search on followup — the query builder already
+	// targets the chart + question, and even "simple" questions benefit from
+	// domain references (marriage patterns, career profiles, year-event cases).
+	passages = o.runKnowledgeSearch(ctx, sink, st)
+	fullText, err := o.streamInterpretation(ctx, sink, st, passages, extraPromptData)
+	if err != nil {
+		sink.Emit(ctx, Event{Type: "error", Data: map[string]any{"message": "LLM 解读失败: " + err.Error()}})
+		return fullText, err
+	}
+	return fullText, nil
+}
+
+// emitTraceDigest builds a user-facing digest from the TurnTrace and sends it via component SSE.
+func (o *Orchestrator) emitTraceDigest(ctx context.Context, sink EventSink, turnType string) {
+	t := tracing.TraceFromContext(ctx)
+	if t == nil {
+		return
+	}
+
+	if t.TurnType == "" {
+		t.TurnType = turnType
+	}
+
+	digest := t.BuildDigest()
+	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
+		"type":    "trace-panel",
+		"payload": digest,
+	}})
+}
+
+// recordTurnAndMaintainContext records user and assistant turns, then trims
+// the turn window and updates the running summary when the window overflows.
+func (o *Orchestrator) recordTurnAndMaintainContext(ctx context.Context, st *state.SessionState, userMsg, assistantMsg string) {
+	if userMsg != "" {
+		st.RecordTurn("user", userMsg)
+	}
+	if assistantMsg != "" {
+		st.RecordTurn("assistant", assistantMsg)
+	}
+	overflow := st.TrimTurns()
+	if len(overflow) == 0 {
+		return
+	}
+	if o.flash == nil {
+		st.RecentTurns = append(overflow, st.RecentTurns...)
+		return
+	}
+	summary, ok := o.summarizeTurns(ctx, st.RunningSummary, overflow)
+	if !ok {
+		st.RecentTurns = append(overflow, st.RecentTurns...)
+		return
+	}
+	st.RunningSummary = summary
 }
