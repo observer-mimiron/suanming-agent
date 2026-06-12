@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
 	bazi "github.com/wikiglobal/suanming-agent/internal/specialists/bazi"
 	qimen "github.com/wikiglobal/suanming-agent/internal/specialists/qimen"
+	ziwei "github.com/wikiglobal/suanming-agent/internal/specialists/ziwei"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
@@ -47,6 +49,10 @@ func (c *streamClient) Stream(ctx context.Context, systemPrompt string, messages
 	return nil
 }
 
+func (c *streamClient) GenerateWithTool(_ context.Context, _ string, _ []llm.Message, _ llm.ToolDef) (map[string]any, llm.TokenUsage, error) {
+	return nil, llm.TokenUsage{}, fmt.Errorf("structured output not used in orchestrator tests")
+}
+
 // recordingSink captures emitted events for inspection.
 type recordingSink struct {
 	events []Event
@@ -68,6 +74,22 @@ func (s *recordingSink) lastComponentType() string {
 		}
 	}
 	return ""
+}
+
+type fakeDomainHandler struct {
+	name   string
+	calls  int
+	runFn  func(ctx context.Context, st *state.SessionState, route specialists.ApprovedRoute, sink specialists.EventSink) (schemas.DomainResult, error)
+}
+
+func (h *fakeDomainHandler) Name() string { return h.name }
+
+func (h *fakeDomainHandler) Run(ctx context.Context, st *state.SessionState, route specialists.ApprovedRoute, sink specialists.EventSink) (schemas.DomainResult, error) {
+	h.calls++
+	if h.runFn != nil {
+		return h.runFn(ctx, st, route, sink)
+	}
+	return schemas.DomainResult{Domain: h.name, Final: false}, nil
 }
 
 func TestRun_ErrorTurn_PropagatesToTrace(t *testing.T) {
@@ -551,6 +573,617 @@ func TestRun_UnsupportedSecondaryDomainDropped(t *testing.T) {
 	}
 }
 
+// mockSupervisor implements the Supervisor interface for testing route-driven dispatch.
+type mockSupervisor struct {
+	decision schemas.SupervisorDecision
+	err      error
+}
+
+func (m *mockSupervisor) Decide(_ context.Context, _ string, _ *state.SessionState) (schemas.SupervisorDecision, error) {
+	return m.decision, m.err
+}
+
+// --- Phase 1.5 route-driven execution tests ---
+
+func TestExecuteRoute_ClarificationDrivesRuntime(t *testing.T) {
+	// Verify that NeedsClarification=true directly drives runtime to clarification
+	// handler WITHOUT going through legacy action="incomplete".
+	st := state.NewSession("test-clarify-route")
+	// Intentionally: no profile, no chart.
+
+	route := policy.ApprovedRoute{
+		ConversationIntent:    "consult",
+		PrimaryDomain:         "bazi",
+		TaskIntent:            "interpret_chart",
+		NeedsClarification:    true,
+		ClarificationQuestion: "请提供出生信息",
+		Slots:                 schemas.DecisionSlots{},
+	}
+
+	flashClient := &llm.NoopClient{}
+	orch := New(tools.NewRegistry(), flashClient, flashClient, state.NewMemoryStore(),
+		state.NewMemoryLocker(), tracing.NewRealTracer(nil), "soft")
+	sink := &recordingSink{}
+
+	turnType, _, err := orch.executeRoute(context.Background(), sink, st, route, nil, "", nil)
+	if err != nil {
+		t.Fatalf("executeRoute with clarification returned error: %v", err)
+	}
+	if turnType != "ask_missing_profile" {
+		t.Fatalf("clarification route should produce ask_missing_profile, got %q", turnType)
+	}
+
+	// Verify the sink contains the approved clarification text.
+	foundAsk := false
+	for _, evt := range sink.events {
+		if evt.Type != "text" {
+			continue
+		}
+		if m, ok := evt.Data.(map[string]any); ok {
+			if content, ok2 := m["content"].(string); ok2 && content == route.ClarificationQuestion {
+				foundAsk = true
+				break
+			}
+		}
+	}
+	if !foundAsk {
+		t.Fatal("clarification route should emit approved clarification text, but no matching text found in events")
+	}
+}
+
+func TestExecuteRoute_LowConfidenceClarificationDoesNotAnswerDirectly(t *testing.T) {
+	// Existing chart + NeedsClarification should emit the approved clarification
+	// question instead of jumping into followup reading.
+	st := state.NewSession("test-low-confidence-clarify")
+	st.Profile = map[string]any{
+		"year": 1990.0, "month": 5.0, "day": 20.0,
+		"hour": 8.0, "gender": "男", "birthplace": "北京",
+	}
+	st.BaziResult = map[string]any{"dayGan": "甲"}
+
+	route := policy.ApprovedRoute{
+		ConversationIntent:    "consult",
+		PrimaryDomain:         "bazi",
+		TaskIntent:            "followup",
+		NeedsClarification:    true,
+		ClarificationQuestion: "请确认一下您更想问整体运势，还是具体想问事业/感情？",
+	}
+
+	flashClient := &llm.NoopClient{}
+	orch := New(tools.NewRegistry(), flashClient, flashClient, state.NewMemoryStore(),
+		state.NewMemoryLocker(), tracing.NewRealTracer(nil), "soft")
+	sink := &recordingSink{}
+
+	turnType, assistantText, err := orch.executeRoute(context.Background(), sink, st, route, nil, "我最近怎么样", nil)
+	if err != nil {
+		t.Fatalf("executeRoute with low-confidence clarification returned error: %v", err)
+	}
+	if turnType != "clarification" {
+		t.Fatalf("clarification route should produce clarification turn type, got %q", turnType)
+	}
+	if assistantText != route.ClarificationQuestion {
+		t.Fatalf("assistantText = %q, want %q", assistantText, route.ClarificationQuestion)
+	}
+
+	foundClarification := false
+	for _, evt := range sink.events {
+		if evt.Type != "text" {
+			continue
+		}
+		if m, ok := evt.Data.(map[string]any); ok {
+			if content, ok2 := m["content"].(string); ok2 && content == route.ClarificationQuestion {
+				foundClarification = true
+			}
+			if content, ok2 := m["content"].(string); ok2 && strings.Contains(content, "基于您的命盘") {
+				t.Fatal("clarification route should not emit followup answer text")
+			}
+		}
+	}
+	if !foundClarification {
+		t.Fatal("clarification route should emit the approved clarification question")
+	}
+}
+
+func TestExecuteRoute_AmendProfilePreservesExistingData(t *testing.T) {
+	// Verify that amend_profile does NOT wipe existing profile/chart.
+	st := state.NewSession("test-amend-preserve")
+	st.Profile = map[string]any{
+		"year": 1990.0, "month": 5.0, "day": 20.0,
+		"hour": 8.0, "gender": "男", "birthplace": "北京",
+	}
+	st.BaziResult = map[string]any{"dayGan": "甲", "pillars": []map[string]any{
+		{"stem": "乙", "branch": "巳"},
+		{"stem": "丁", "branch": "亥"},
+		{"stem": "甲", "branch": "申"},
+		{"stem": "甲", "branch": "子"},
+	}}
+
+	route := policy.ApprovedRoute{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "bazi",
+		TaskIntent:         "amend_profile",
+		Slots: schemas.DecisionSlots{
+			Profile: map[string]any{"gender": "女"},
+		},
+	}
+
+	flashClient := &llm.NoopClient{}
+	store := state.NewMemoryStore()
+	store.Save(st)
+	orch := New(tools.NewRegistry(), flashClient, flashClient, store,
+		state.NewMemoryLocker(), tracing.NewRealTracer(nil), "soft")
+	sink := &recordingSink{}
+
+	_, _, err := orch.executeRoute(context.Background(), sink, st, route,
+		map[string]any{"gender": "女"}, "", nil)
+	if err != nil {
+		t.Fatalf("executeRoute with amend_profile returned error: %v", err)
+	}
+
+	// Existing chart must be preserved.
+	if !st.HasBaziResult() {
+		t.Fatal("amend_profile wiped existing BaziResult")
+	}
+	if st.BaziResult["dayGan"] != "甲" {
+		t.Fatalf("amend_profile corrupted existing chart: dayGan=%v", st.BaziResult["dayGan"])
+	}
+	// Profile should be updated with the new gender.
+	if st.Profile["gender"] != "女" {
+		t.Fatalf("amend_profile did not apply gender update: gender=%v", st.Profile["gender"])
+	}
+	// Original fields should still be there.
+	if st.Profile["year"] != 1990.0 {
+		t.Fatal("amend_profile wiped existing profile fields")
+	}
+}
+
+func TestExecuteRoute_TimingFollowupEnablesQimen(t *testing.T) {
+	// Verify that timing_followup directly enables qimen supplement.
+	st := state.NewSession("test-timing-qimen")
+	st.BaziResult = map[string]any{"dayGan": "甲"}
+
+	route := policy.ApprovedRoute{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "bazi",
+		TaskIntent:         "timing_followup",
+		PolicyHints:        schemas.PolicyHints{NeedsQimen: true},
+		Slots:              schemas.DecisionSlots{QuestionText: "最近运势如何"},
+	}
+
+	flashClient := &llm.NoopClient{}
+	orch := New(tools.NewRegistry(), flashClient, flashClient, state.NewMemoryStore(),
+		state.NewMemoryLocker(), tracing.NewRealTracer(nil), "soft")
+	sink := &recordingSink{}
+
+	turnType, _, err := orch.executeRoute(context.Background(), sink, st, route,
+		nil, "最近运势如何", nil)
+	if err != nil {
+		t.Fatalf("executeRoute with timing_followup returned error: %v", err)
+	}
+
+	// timing_followup should route to followup_reading with qimen enabled.
+	if turnType != "followup_reading" {
+		t.Fatalf("timing_followup should produce followup_reading, got %q", turnType)
+	}
+	// needsQimen=true should have been passed through to the handler.
+	// We verify indirectly: st.NeedsQimen should be true (set by the route path).
+	if !st.NeedsQimen {
+		t.Fatal("timing_followup route should set NeedsQimen=true on session")
+	}
+}
+
+func TestExecuteRoute_DispatchByTaskIntentNotActionString(t *testing.T) {
+	// Verify that the dispatch keys off route.TaskIntent, not a legacy action string.
+	// The same session state with different TaskIntents should produce different turnTypes.
+
+	flashClient := &llm.NoopClient{}
+	store := state.NewMemoryStore()
+
+	tests := []struct {
+		name         string
+		taskIntent   string
+		needsClarify bool
+		hasChart     bool
+		hasProfile   bool
+		wantTurnType string
+	}{
+		{
+			name:         "clarification forces ask",
+			taskIntent:   "interpret_chart",
+			needsClarify: true,
+			hasChart:     false,
+			hasProfile:   false,
+			wantTurnType: "ask_missing_profile",
+		},
+		{
+			name:         "direct_bazi with valid pillars",
+			taskIntent:   "direct_bazi",
+			needsClarify: false,
+			hasChart:     false,
+			hasProfile:   false,
+			wantTurnType: "direct_bazi",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := state.NewSession("test-dispatch-" + tt.name)
+			if tt.hasChart {
+				st.BaziResult = map[string]any{"dayGan": "甲"}
+			}
+			if tt.hasProfile {
+				st.Profile = map[string]any{
+					"year": 1990.0, "month": 5.0, "day": 20.0,
+					"hour": 8.0, "gender": "男",
+				}
+			}
+
+			route := policy.ApprovedRoute{
+				TaskIntent:         tt.taskIntent,
+				NeedsClarification: tt.needsClarify,
+				Slots:              schemas.DecisionSlots{},
+			}
+
+			orch := New(tools.NewRegistry(), flashClient, flashClient, store,
+				state.NewMemoryLocker(), tracing.NewRealTracer(nil), "soft")
+			sink := &recordingSink{}
+
+			var rawBazi []string
+			if tt.taskIntent == "direct_bazi" {
+				rawBazi = []string{"乙巳", "丁亥", "甲申", "甲子"}
+			}
+
+			turnType, _, err := orch.executeRoute(context.Background(), sink, st, route,
+				nil, "", rawBazi)
+			if err != nil {
+				t.Fatalf("executeRoute error: %v", err)
+			}
+			if turnType != tt.wantTurnType {
+				t.Errorf("TaskIntent=%q needsClarify=%v: got turnType=%q, want %q",
+					tt.taskIntent, tt.needsClarify, turnType, tt.wantTurnType)
+			}
+		})
+	}
+}
+
+func TestRun_SupervisorPathBaziMainlineRegression(t *testing.T) {
+	// Full integration: supervisor path with complete profile → bazi mainline.
+	// Verifies existing bazi behavior doesn't regress with route-driven dispatch.
+
+	st := state.NewSession("test-bazi-regression")
+	st.MergeProfile(map[string]any{
+		"year": 1990.0, "month": 5.0, "day": 20.0,
+		"hour": 8.0, "gender": "男", "birthplace": "北京",
+	})
+
+	reg := tools.NewRegistry()
+	reg.Register(&fakeTool{
+		name: "bazi_calc",
+		executeFn: func(_ context.Context, params map[string]any) (any, error) {
+			return map[string]any{
+				"dayGan": "甲",
+				"pillars": []map[string]any{
+					{"stem": "庚", "branch": "午"},
+					{"stem": "壬", "branch": "午"},
+					{"stem": "甲", "branch": "申"},
+					{"stem": "戊", "branch": "辰"},
+				},
+			}, nil
+		},
+	})
+
+	answerer := &streamClient{
+		streamFn: func(_ context.Context, _ string, _ []llm.Message, onChunk func(string)) error {
+			onChunk("命理分析结果")
+			return nil
+		},
+	}
+
+	store := state.NewMemoryStore()
+	store.Save(st)
+
+	orch := New(reg, answerer, answerer, store, state.NewMemoryLocker(),
+		tracing.NewRealTracer(nil), "soft")
+	orch.SetSupervisor(&mockSupervisor{
+		decision: schemas.SupervisorDecision{
+			ConversationIntent: "consult",
+			PrimaryDomain:      "bazi",
+			TaskIntent:         "collect_profile",
+			Confidence:         0.9,
+			Slots: schemas.DecisionSlots{
+				Profile: map[string]any{
+					"year": 1990.0, "month": 5.0, "day": 20.0,
+					"hour": 8.0, "gender": "男", "birthplace": "北京",
+				},
+			},
+		},
+	})
+	orch.SetSpecialists(bazi.New(), qimen.New(), ziwei.New())
+
+	sink := &recordingSink{}
+	err := orch.Run(context.Background(), sink, "test-bazi-regression",
+		"1990年5月20日早上8点 男 北京")
+
+	if err != nil {
+		t.Fatalf("bazi mainline regression: Run() returned error: %v", err)
+	}
+
+	// Verify bazi chart was computed and stored.
+	got := store.LoadOrCreate("test-bazi-regression")
+	if !got.HasBaziResult() {
+		t.Fatal("bazi mainline regression: BaziResult not set after full reading")
+	}
+	if got.BaziResult["dayGan"] != "甲" {
+		t.Fatalf("bazi mainline regression: dayGan=%v, want 甲", got.BaziResult["dayGan"])
+	}
+
+	// Verify trace-panel was emitted.
+	if sink.lastComponentType() != "trace-panel" {
+		t.Error("bazi mainline regression: trace-panel not emitted")
+	}
+
+	// Verify LLM response was streamed.
+	foundAnalysis := false
+	for _, evt := range sink.events {
+		if evt.Type == "text" {
+			if m, ok := evt.Data.(map[string]any); ok {
+				if c, ok2 := m["content"].(string); ok2 && strings.Contains(c, "命理分析") {
+					foundAnalysis = true
+					break
+				}
+			}
+		}
+	}
+	if !foundAnalysis {
+		t.Error("bazi mainline regression: analysis text not streamed")
+	}
+}
+
+// --- Qimen primary lane tests ---
+
+func TestExecuteRoute_QimenPrimaryLaneInvokesQimenRegardlessOfSupplementFlag(t *testing.T) {
+	// When PrimaryDomain="qimen" + timing_followup, the qimen primary lane
+	// must invoke qimen_dunjia even when the legacy needsQimen flag is false.
+	// This proves qimen tool invocation is driven by primary domain semantics,
+	// not by the NeedsQimen supplement gate.
+
+	st := state.NewSession("test-qimen-primary-lane")
+	st.BaziResult = map[string]any{"dayGan": "甲", "pillars": []map[string]any{
+		{"stem": "庚", "branch": "午"},
+		{"stem": "壬", "branch": "午"},
+		{"stem": "甲", "branch": "申"},
+		{"stem": "戊", "branch": "辰"},
+	}}
+
+	var qimenCalled bool
+	reg := tools.NewRegistry()
+	reg.Register(&fakeTool{
+		name: "qimen_dunjia",
+		executeFn: func(_ context.Context, params map[string]any) (any, error) {
+			qimenCalled = true
+			return map[string]any{
+				"pan_type": "时家奇门",
+				"ju_text":  "阳遁三局",
+				"cells":    []map[string]any{},
+			}, nil
+		},
+	})
+
+	answerer := &streamClient{
+		streamFn: func(_ context.Context, _ string, _ []llm.Message, onChunk func(string)) error {
+			onChunk("奇门分析结果")
+			return nil
+		},
+	}
+
+	store := state.NewMemoryStore()
+	store.Save(st)
+
+	orch := New(reg, answerer, answerer, store, state.NewMemoryLocker(),
+		tracing.NewRealTracer(nil), "soft")
+	sink := &recordingSink{}
+
+	route := policy.ApprovedRoute{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "qimen",
+		TaskIntent:         "timing_followup",
+		Slots: schemas.DecisionSlots{
+			QuestionText: "最近适合换工作吗",
+			TimeScope:    "recent",
+		},
+	}
+
+	// Pass needsQimen=false — in the old code executeFollowupRoute would skip qimen.
+	// The qimen primary lane must invoke qimen based on PrimaryDomain, not the flag.
+	turnType, _, err := orch.executeRoute(context.Background(), sink, st, route,
+		nil, "最近适合换工作吗", nil)
+	if err != nil {
+		t.Fatalf("executeRoute qimen primary lane: error: %v", err)
+	}
+	if turnType != "qimen_primary_reading" {
+		t.Fatalf("qimen primary lane: turnType = %q, want qimen_primary_reading", turnType)
+	}
+	if !qimenCalled {
+		t.Fatal("qimen primary lane: qimen_dunjia was NOT invoked — PrimaryDomain=qimen should drive qimen tool invocation")
+	}
+
+	// Verify SSE events.
+	foundToolCall := false
+	foundQimenChart := false
+	for _, evt := range sink.events {
+		if evt.Type == "tool_call" {
+			if m, ok := evt.Data.(map[string]any); ok {
+				if t, ok2 := m["tool"].(string); ok2 && t == "qimen_dunjia" {
+					foundToolCall = true
+				}
+			}
+		}
+		if evt.Type == "component" {
+			if m, ok := evt.Data.(map[string]any); ok {
+				if t, ok2 := m["type"].(string); ok2 && t == "qimen-chart" {
+					foundQimenChart = true
+				}
+			}
+		}
+	}
+	if !foundToolCall {
+		t.Fatal("qimen primary lane: tool_call event for qimen_dunjia not found")
+	}
+	if !foundQimenChart {
+		t.Fatal("qimen primary lane: component event for qimen-chart not found")
+	}
+}
+
+func TestRun_SupervisorPathQimenPrimaryTimingMainline(t *testing.T) {
+	// Full integration: supervisor → policy gate → qimen primary specialist
+	// → qimen primary lane executes qimen_dunjia and produces qimen-chart.
+	// Verifies the complete path from supervisor decision to SSE output.
+
+	store := state.NewMemoryStore()
+	st := store.LoadOrCreate("test-qimen-mainline")
+	st.Profile = map[string]any{
+		"year": 1990.0, "month": 5.0, "day": 20.0,
+		"hour": 8.0, "gender": "男", "birthplace": "北京",
+	}
+	st.BaziResult = map[string]any{
+		"dayGan": "甲",
+		"pillars": []map[string]any{
+			{"stem": "庚", "branch": "午"},
+			{"stem": "壬", "branch": "午"},
+			{"stem": "甲", "branch": "申"},
+			{"stem": "戊", "branch": "辰"},
+		},
+	}
+
+	var qimenCalled bool
+	reg := tools.NewRegistry()
+	reg.Register(&fakeTool{
+		name: "qimen_dunjia",
+		executeFn: func(_ context.Context, params map[string]any) (any, error) {
+			qimenCalled = true
+			return map[string]any{
+				"pan_type":      "时家奇门",
+				"ju_text":       "阳遁三局",
+				"question_time": "2026-06-12T10:00:00+08:00",
+				"cells":         []map[string]any{},
+			}, nil
+		},
+	})
+
+	answerer := &streamClient{
+		streamFn: func(_ context.Context, _ string, _ []llm.Message, onChunk func(string)) error {
+			onChunk("结合奇门盘分析，当前时机...")
+			return nil
+		},
+	}
+
+	orch := New(reg, answerer, answerer, store, state.NewMemoryLocker(),
+		tracing.NewRealTracer(nil), "soft")
+	orch.SetSupervisor(&mockSupervisor{
+		decision: schemas.SupervisorDecision{
+			ConversationIntent: "consult",
+			PrimaryDomain:      "qimen",
+			TaskIntent:         "timing_followup",
+			Confidence:         0.92,
+			PolicyHints:        schemas.PolicyHints{NeedsQimen: true},
+			Slots: schemas.DecisionSlots{
+				QuestionText: "最近适合换工作吗",
+				TimeScope:    "recent",
+			},
+		},
+	})
+	orch.SetSpecialists(bazi.New(), qimen.New(), ziwei.New())
+
+	sink := &recordingSink{}
+	err := orch.Run(context.Background(), sink, "test-qimen-mainline",
+		"最近适合换工作吗")
+	if err != nil {
+		t.Fatalf("qimen primary mainline: Run() error: %v", err)
+	}
+
+	// qimen_dunjia must be invoked as primary tool.
+	if !qimenCalled {
+		t.Fatal("qimen primary mainline: qimen_dunjia was never invoked")
+	}
+
+	// Verify SSE events.
+	foundToolCall := false
+	foundQimenChart := false
+	foundAnalysis := false
+	for _, evt := range sink.events {
+		if evt.Type == "tool_call" {
+			if m, ok := evt.Data.(map[string]any); ok {
+				if t, ok2 := m["tool"].(string); ok2 && t == "qimen_dunjia" {
+					foundToolCall = true
+				}
+			}
+		}
+		if evt.Type == "component" {
+			if m, ok := evt.Data.(map[string]any); ok {
+				if t, ok2 := m["type"].(string); ok2 && t == "qimen-chart" {
+					foundQimenChart = true
+				}
+			}
+		}
+		if evt.Type == "text" {
+			if m, ok := evt.Data.(map[string]any); ok {
+				if c, ok2 := m["content"].(string); ok2 && strings.Contains(c, "奇门") {
+					foundAnalysis = true
+				}
+			}
+		}
+	}
+	if !foundToolCall {
+		t.Fatal("qimen primary mainline: tool_call event for qimen_dunjia not found")
+	}
+	if !foundQimenChart {
+		t.Fatal("qimen primary mainline: component event for qimen-chart not found")
+	}
+	if !foundAnalysis {
+		t.Error("qimen primary mainline: analysis text not streamed")
+	}
+}
+
+func TestRun_SupervisorPathDispatchesPrimaryQimenSpecialist(t *testing.T) {
+	store := state.NewMemoryStore()
+	st := store.LoadOrCreate("qimen-primary-dispatch")
+	st.Profile = map[string]any{
+		"year": 1990.0, "month": 5.0, "day": 20.0,
+		"hour": 8.0, "gender": "男", "birthplace": "北京",
+	}
+	st.BaziResult = map[string]any{"dayGan": "甲"}
+
+	orch := New(tools.NewRegistry(), &llm.NoopClient{}, &llm.NoopClient{}, store, state.NewMemoryLocker(), tracing.NewRealTracer(nil), "soft")
+	orch.SetSupervisor(&mockSupervisor{
+		decision: schemas.SupervisorDecision{
+			ConversationIntent: "consult",
+			PrimaryDomain:      "qimen",
+			TaskIntent:         "timing_followup",
+			Confidence:         0.92,
+			PolicyHints:        schemas.PolicyHints{NeedsQimen: true},
+			Slots: schemas.DecisionSlots{
+				QuestionText: "我最近适合换工作吗",
+				TimeScope:    "recent",
+			},
+		},
+	})
+
+	baziSp := &fakeDomainHandler{name: "bazi"}
+	qimenSp := &fakeDomainHandler{name: "qimen"}
+	ziweiSp := &fakeDomainHandler{name: "ziwei"}
+	orch.SetSpecialists(baziSp, qimenSp, ziweiSp)
+
+	if err := orch.Run(context.Background(), &recordingSink{}, "qimen-primary-dispatch", "我最近适合换工作吗"); err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if qimenSp.calls != 1 {
+		t.Fatalf("qimen specialist calls = %d, want 1", qimenSp.calls)
+	}
+	if baziSp.calls != 0 {
+		t.Fatalf("bazi specialist calls = %d, want 0 when primary domain is qimen", baziSp.calls)
+	}
+}
+
 func TestStreamInterpretation_DoesNotStoreFilteredDisclaimerText(t *testing.T) {
 	answerer := &streamClient{
 		streamFn: func(_ context.Context, _ string, _ []llm.Message, onChunk func(string)) error {
@@ -565,7 +1198,7 @@ func TestStreamInterpretation_DoesNotStoreFilteredDisclaimerText(t *testing.T) {
 	st.LastUserQuestion = "今年如何"
 	st.BaziResult = map[string]any{"dayGan": "甲"}
 
-	got, err := orch.streamInterpretation(context.Background(), &recordingSink{}, st, nil, nil)
+	got, err := orch.streamInterpretation(context.Background(), &recordingSink{}, st, nil, nil, false)
 	if err != nil {
 		t.Fatalf("streamInterpretation returned error: %v", err)
 	}
@@ -574,5 +1207,149 @@ func TestStreamInterpretation_DoesNotStoreFilteredDisclaimerText(t *testing.T) {
 	}
 	if got != "这是正常分析。" {
 		t.Fatalf("unexpected stored assistant text: %q", got)
+	}
+}
+
+// --- Qimen standalone answer tests ---
+
+func TestExecuteRoute_QimenPrimaryNoChartAnswersDirectly(t *testing.T) {
+	// When qimen is primary and no bazi chart exists, the qimen primary lane
+	// should answer directly based on the qimen chart — NOT ask for birth info.
+
+	st := state.NewSession("test-qimen-no-chart-answer")
+	// Intentionally: no BaziResult, no profile.
+
+	route := policy.ApprovedRoute{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "qimen",
+		TaskIntent:         "timing_followup",
+		Slots: schemas.DecisionSlots{
+			QuestionText: "最近适合换工作吗",
+			TimeScope:    "recent",
+		},
+	}
+
+	var qimenCalled bool
+	reg := tools.NewRegistry()
+	reg.Register(&fakeTool{
+		name: "qimen_dunjia",
+		executeFn: func(_ context.Context, params map[string]any) (any, error) {
+			qimenCalled = true
+			return map[string]any{
+				"pan_type":   "时家奇门",
+				"ju_text":    "阳遁三局",
+				"value_star": "天辅星",
+				"value_door": "开门",
+				"cells":      []map[string]any{},
+			}, nil
+		},
+	})
+
+	answerer := &streamClient{
+		streamFn: func(_ context.Context, _ string, _ []llm.Message, onChunk func(string)) error {
+			onChunk("当前时机分析：值符天辅星落...")
+			return nil
+		},
+	}
+
+	store := state.NewMemoryStore()
+	store.Save(st)
+
+	orch := New(reg, answerer, answerer, store, state.NewMemoryLocker(),
+		tracing.NewRealTracer(nil), "soft")
+	sink := &recordingSink{}
+
+	turnType, _, err := orch.executeRoute(context.Background(), sink, st, route,
+		nil, "最近适合换工作吗", nil)
+	if err != nil {
+		t.Fatalf("qimen no-chart answer: executeRoute error: %v", err)
+	}
+
+	// Must NOT degenerate to ask_missing_profile.
+	if turnType == "ask_missing_profile" {
+		t.Fatal("qimen no-chart answer: should answer directly, not ask for birth info")
+	}
+	if turnType != "qimen_primary_reading" {
+		t.Fatalf("qimen no-chart answer: turnType = %q, want qimen_primary_reading", turnType)
+	}
+	if !qimenCalled {
+		t.Fatal("qimen no-chart answer: qimen_dunjia was not invoked")
+	}
+
+	// Verify no "请告诉我你的出生" text.
+	for _, evt := range sink.events {
+		if evt.Type == "text" {
+			if m, ok := evt.Data.(map[string]any); ok {
+				if c, ok2 := m["content"].(string); ok2 {
+					if strings.Contains(c, "请告诉我你的出生") {
+						t.Fatal("qimen no-chart answer: should not ask for birth info")
+					}
+				}
+			}
+		}
+	}
+
+	// Verify qimen-chart was emitted.
+	foundChart := false
+	foundAnswer := false
+	for _, evt := range sink.events {
+		if evt.Type == "component" {
+			if m, ok := evt.Data.(map[string]any); ok {
+				if t, ok2 := m["type"].(string); ok2 && t == "qimen-chart" {
+					foundChart = true
+				}
+			}
+		}
+		if evt.Type == "text" {
+			if m, ok := evt.Data.(map[string]any); ok {
+				if c, ok2 := m["content"].(string); ok2 && c != "" {
+					foundAnswer = true
+				}
+			}
+		}
+	}
+	if !foundChart {
+		t.Fatal("qimen no-chart answer: qimen-chart component not emitted")
+	}
+	if !foundAnswer {
+		t.Fatal("qimen no-chart answer: no answer text emitted")
+	}
+}
+
+func TestBuildQimenKnowledgeQuery(t *testing.T) {
+	// Verify that buildQimenKnowledgeQuery uses qimen-specific terms
+	// from the qimen chart data, not bazi day-master terms.
+
+	st := state.NewSession("test-qimen-search-query")
+	st.LastUserQuestion = "最近适合换工作吗"
+
+	qimenData := map[string]any{
+		"value_star": "天辅星",
+		"value_door": "开门",
+		"ju_text":    "阳遁三局",
+	}
+
+	orch := New(tools.NewRegistry(), &llm.NoopClient{}, &llm.NoopClient{},
+		state.NewMemoryStore(), state.NewMemoryLocker(), tracing.NewRealTracer(nil), "soft")
+
+	query := orch.buildQimenKnowledgeQuery(st.LastUserQuestion, qimenData)
+
+	if query == "" {
+		t.Fatal("buildQimenKnowledgeQuery: returned empty query")
+	}
+	if !strings.Contains(query, "奇门遁甲") {
+		t.Error("buildQimenKnowledgeQuery: should contain 奇门遁甲")
+	}
+	if !strings.Contains(query, "天辅星") {
+		t.Error("buildQimenKnowledgeQuery: should contain value_star 天辅星")
+	}
+	if !strings.Contains(query, "开门") {
+		t.Error("buildQimenKnowledgeQuery: should contain value_door 开门")
+	}
+	if !strings.Contains(query, "阳遁三局") {
+		t.Error("buildQimenKnowledgeQuery: should contain ju_text 阳遁三局")
+	}
+	if !strings.Contains(query, "最近适合换工作吗") {
+		t.Error("buildQimenKnowledgeQuery: should contain user question")
 	}
 }

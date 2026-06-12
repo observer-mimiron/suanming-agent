@@ -6,9 +6,9 @@
 
 ## 当前状态
 
-**阶段：** v1.4 Supervisor Phase 1 已实现  
+**阶段：** v1.5 Supervisor Phase 1.5 收口 + qimen 独立回答能力  
 **最后更新：** 2026-06-12  
-**状态：** Supervisor phase 1 已合入：`SupervisorDecision` + Policy Gate + Bazi/Qimen Specialist 边界 + Orchestrator 集成，40 个后端测试通过，server 编译通过
+**状态：** Phase 1.5 收口完成 + qimen primary lane 闭环 + qimen 独立回答（无八字时直接用奇门盘回答，不追问出生信息）。50 个后端测试通过，server 编译通过
 
 ## 已完成功能
 
@@ -69,6 +69,20 @@
 - **测试覆盖：** 40 个测试覆盖 7 个包（supervisor/policy/state/bazi/qimen/orchestrator/tracing），server 编译通过
 - **约束遵守：** 无并行 fan-out、无非命理域启用、前端/核心工具未改动
 
+### Supervisor Phase 1.5 收口改造（2026-06-12）
+- **`ApprovedRoute` 成为主控输入：** `executeRoute()` 直接消费 `ApprovedRoute` 做分支，不再先转 legacy `action` 再由旧 `switch` 驱动
+- **`bridgeDecision` 缩减为 slot 提取：** 移除 `action` 返回值和 `NeedsClarification→"incomplete"`、`TaskIntent→action` 映射逻辑，只做 `(patch, question, needsQimen, rawBazi)` 提取
+- **5 个 route handler 方法：** `executeClarificationRoute` / `executeCollectProfileRoute` / `executeAmendProfileRoute` / `executeDirectBaziRoute` / `executeFollowupRoute`，各自封装状态设置 + handler 调用 + 条件持久化
+- **`Supervisor` 接口解耦：** orchestrator 定义本地 `Supervisor` interface，不再依赖 `*supervisor.Client` 具体类型，支持 mock 测试
+- **Legacy 路径隔离：** 无 supervisor 时保留完整 `classifyAndExtract → switch action` 回退，不受 route-driven 改动影响
+- **测试补齐：** 新增 5 个 route-driven 测试（clarification / amend_profile 保留 / timing_followup qimen / TaskIntent 分发 / bazi 主线回归），总测试数 47
+- **qimen primary lane 测试补齐：** 新增 2 个 qimen 主域 runtime lane 测试（`TestExecuteRoute_QimenPrimaryLaneInvokesQimenRegardlessOfSupplementFlag` + `TestRun_SupervisorPathQimenPrimaryTimingMainline`），总测试数 48
+- **约束遵守：** 不改 `internal/tools/`、不改前端协议、不改 specialist 接口签名、不改 `classifyAndExtract`
+- **Phase 1.5 澄清路由修正：** `executeRoute()` 现在会真正消费 `ApprovedRoute.ClarificationQuestion`；低置信度或策略强制澄清时，不再直接复用已有命盘进入 followup answer
+- **Phase 1.5 主域分派修正：** `Run()` 中的 specialist dispatch 不再写死先调 `baziSp`；现在会按 `ApprovedRoute.PrimaryDomain` 选择主 specialist，`qimen` 主域路由不再被悄悄降格成 `bazi` 预检查
+- **Phase 1.5 qimen 主域 runtime lane 闭环：** 新增 `executeQimenPrimaryRoute()`，当 `PrimaryDomain=qimen` 且 `TaskIntent in {timing_followup, cross_domain_consult}` 时，qimen_dunjia 作为 mainline 显式步骤执行（非 secondary supplement），无条件触发 tool_call + qimen-chart component + 流式回答。支持复用已有 BaziResult 为背景上下文，但不依赖 bazi chart 存在为前提。qimen tool 缺失或失败时优雅降级不 panic
+- **Phase 1.5 qimen 独立回答能力：** 新增 `prompts/qimen.md` 奇门专用 system prompt（无八字时使用）；新增 `buildQimenKnowledgeQuery()` 奇门知识检索（值符星/值使门/局数）；`executeQimenPrimaryRoute` 无八字无 profile 时不再追问出生信息，直接基于奇门盘生成回答。`streamInterpretation`/`buildInterpretPrompt`/`selectPrompt`/`runKnowledgeSearch` 签名扩展 `qimenPrimary`/`qimenData` 参数，不改架构
+
 ## 关键文件
 
 | 文件 | 用途 |
@@ -77,8 +91,11 @@
 | `internal/tools/qimen.go` | 奇门遁甲 Tool |
 | `internal/tools/bazi_calc.go` | 八字排盘（含晚子时+太阳时校正+神煞集成） |
 | `internal/tools/yongshen.go` | 用神分析（含晚子时+分钟精度太阳时） |
-| `internal/orchestrator/extract.go` | LLM 意图分类 + 信息提取 |
-| `internal/orchestrator/orchestrator.go` | 主编排（bazi_input/免责过滤/条件知识检索/大运分析） |
+| `internal/orchestrator/extract.go` | LLM 意图分类 + 信息提取 + `bridgeDecision`（slot 提取，不再返回 action） |
+| `internal/orchestrator/orchestrator.go` | 主编排（Run / handler 方法 / 免责过滤 / 条件知识检索 / 大运分析） |
+| `internal/orchestrator/route_handlers.go` | Route-driven dispatch（`executeRoute` + 7 个 route handler 方法） |
+| `internal/orchestrator/orchestrator_test.go` | 编排器测试（50 个测试含 route-driven / legacy / qimen primary / qimen 独立回答 / 回归） |
+| `prompts/qimen.md` | 奇门遁甲专用 system prompt（无八字时使用） |
 | `internal/orchestrator/timing.go` | 奇门时间处理 |
 | `internal/orchestrator/prompt.go` | 知识检索 query 构建 + prompt 渲染 |
 | `internal/tracing/turn_trace.go` | TurnTrace/TraceSpan 数据模型 + BuildDigest |
@@ -144,6 +161,10 @@ cd web && npm run build        # 生产构建
 - [ ] 上下文工程第二阶段：跨会话用户档案 / 主题线程 / 建议记录（参考 `docs/learning/long-term-consulting-evolution.md` V1.5 → V2）
 - [ ] 可观测性：结构化 trace 日志（计划 `docs/learning/13-observability-and-trace-ui-plan.md`）
 - [x] Supervisor phase 1：引入 `SupervisorDecision` / policy gate / `bazi` 与 `qimen` specialist 骨架（2026-06-12 已完成）
+- [x] Supervisor phase 1.5 收口：route-driven dispatch / `ApprovedRoute` 主控 / `bridgeDecision` 缩减（2026-06-12 已完成）
+- [x] Supervisor phase 1.5 qimen 主域 runtime lane：`executeQimenPrimaryRoute()` 使 qimen_dunjia 成为 mainline 显式步骤（2026-06-12 已完成）
+- [x] Supervisor phase 1.5 qimen 独立回答能力：`prompts/qimen.md` + 奇门知识检索 + 无八字直接回答（2026-06-12 已完成）
+- [ ] 清理 legacy switch 与 route handler 之间的逻辑重复（后续 phase 2 移除 legacy path）
 - [ ] 测试集回归（晚子时修复后重跑）
 - [ ] Makefile `dev-restart-backend` 修复
 - [ ] 前端 E2E 测试（当前无 E2E 覆盖）
@@ -154,6 +175,11 @@ cd web && npm run build        # 生产构建
 - 2026-06-12：后续统一入口多专业域扩展采用 Supervisor 架构，但最终控制权仍归 Go runtime。LLM 负责语义理解和路由建议，Go 负责状态、策略、执行、聚合与 SSE。
 - 2026-06-12：phase 1 不做自由 swarm 或平级多 agent 协作，采用 `single supervisor + bounded specialists + optional parallel fan-out`。
 - 2026-06-12：Supervisor phase 1 实现完成。通过 `SetSupervisor()` 注入 orchestrator，supervisor 不可用时保留 legacy classify 回退路径。新增 40 个测试覆盖 7 个包。Server 编译通过。Phase 2 待启动。
+- 2026-06-12：澄清不再只是路由标签。`NeedsClarification=true` 且已有命盘/完整资料时，runtime 会优先发出 `ClarificationQuestion`，而不是直接开始 followup 解读。
+- 2026-06-12：`PrimaryDomain` 开始真正参与 runtime 的 specialist dispatch。phase 1 仍保持 `bazi` 为主执行链、`qimen` 为 timing specialist，但主域校验已不再被 `baziSp` 写死拦截。
+- 2026-06-12：Phase 1.5 收口完成。`ApprovedRoute` 成为 runtime 主控输入，`executeRoute()` 直接按 `TaskIntent` + `NeedsClarification` 分发，不再经过 `action` 字符串转换。`bridgeDecision()` 缩减为纯 slot 提取函数。47 个测试通过，server/frontend 编译通过。
+- 2026-06-12：qimen 主域 runtime lane 最小闭环打通。`PrimaryDomain=qimen` 不再是只停留在 specialist pre-check 层的路由标签。当 `PrimaryDomain=qimen` + `timing_followup/cross_domain_consult` 时，`executeQimenPrimaryRoute()` 显式执行 qimen_dunjia → tool_call → qimen-chart → 流式回答。可复用已有 BaziResult 为背景但不依赖其存在。qimen tool 失败时优雅降级不 panic。仍然保留的过渡态限制：qimen 主域不改变回答生成链路（仍走 `streamInterpretation`），不做独立 qimen prompt contract，不做 qimen-only 独立回答（仍然需要 bazi 背景或 profile 补全）。
+- 2026-06-12：qimen 独立回答能力补全。新增 `prompts/qimen.md`（奇门专用 system prompt）和 `buildQimenKnowledgeQuery()`（奇门知识检索）。`executeQimenPrimaryRoute` 无八字无 profile 分支改为直接基于奇门盘生成回答，不再追问出生信息。`streamInterpretation`/`buildInterpretPrompt`/`selectPrompt`/`runKnowledgeSearch` 签名扩展 `qimenPrimary`/`qimenData` 参数，不改架构、不改 specialist 接口。transition 期限制：奇门知识检索尚未接入 `runKnowledgeSearch` 主链（`buildQimenKnowledgeQuery` 已实现但仅测试覆盖），搜索策略在有 BaziResult 时仍走八字向检索。
 
 ### 上下文工程后续衔接说明
 当前第一阶段（会话内）已搭好 `RecentTurns` + `RunningSummary` 的数据结构和接入链路。

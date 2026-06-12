@@ -111,6 +111,84 @@ func TestParseDecision_InvalidConfidence(t *testing.T) {
 	}
 }
 
+func TestParseAndValidate_CollectProfileWithoutProfileData(t *testing.T) {
+	raw := `{
+		"conversation_intent": "consult",
+		"primary_domain": "bazi",
+		"task_intent": "collect_profile",
+		"confidence": 0.9,
+		"slots": {
+			"profile": {},
+			"question_text": ""
+		}
+	}`
+
+	_, err := parseAndValidate(raw)
+	if err == nil {
+		t.Fatal("collect_profile with empty profile must return error")
+	}
+}
+
+func TestParseAndValidate_CollectProfileWithProfileData(t *testing.T) {
+	raw := `{
+		"conversation_intent": "consult",
+		"primary_domain": "bazi",
+		"task_intent": "collect_profile",
+		"confidence": 0.9,
+		"slots": {
+			"profile": {"year": 1990, "month": 5, "day": 20, "hour": 8, "gender": "男", "birthplace": "北京"},
+			"question_text": ""
+		}
+	}`
+
+	d, err := parseAndValidate(raw)
+	if err != nil {
+		t.Fatalf("collect_profile with profile data should pass: %v", err)
+	}
+	if d.TaskIntent != "collect_profile" {
+		t.Fatalf("TaskIntent: got %q, want collect_profile", d.TaskIntent)
+	}
+}
+
+func TestParseAndValidate_TimingFollowupWithoutQuestionText(t *testing.T) {
+	raw := `{
+		"conversation_intent": "consult",
+		"primary_domain": "qimen",
+		"task_intent": "timing_followup",
+		"confidence": 0.9,
+		"slots": {
+			"profile": {},
+			"question_text": ""
+		}
+	}`
+
+	_, err := parseAndValidate(raw)
+	if err == nil {
+		t.Fatal("timing_followup with empty question_text must return error")
+	}
+}
+
+func TestParseAndValidate_ValidNonCollectProfilePasses(t *testing.T) {
+	raw := `{
+		"conversation_intent": "consult",
+		"primary_domain": "bazi",
+		"task_intent": "interpret_chart",
+		"confidence": 0.95,
+		"slots": {
+			"profile": {},
+			"question_text": "我的财运如何"
+		}
+	}`
+
+	d, err := parseAndValidate(raw)
+	if err != nil {
+		t.Fatalf("interpret_chart with empty profile should pass (profile not needed): %v", err)
+	}
+	if d.TaskIntent != "interpret_chart" {
+		t.Fatalf("TaskIntent: got %q, want interpret_chart", d.TaskIntent)
+	}
+}
+
 func TestParseDecision_QimenSecondaryDomain(t *testing.T) {
 	raw := `{
 		"conversation_intent": "consult",

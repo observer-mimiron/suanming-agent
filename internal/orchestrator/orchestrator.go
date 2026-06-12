@@ -11,12 +11,19 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
+	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
 	"github.com/wikiglobal/suanming-agent/internal/state"
-	"github.com/wikiglobal/suanming-agent/internal/supervisor"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
+	qimenTools "github.com/wikiglobal/suanming-agent/internal/tools/qimen"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
+
+// Supervisor is the interface for LLM-driven routing decisions.
+// The sole implementation is supervisor.Client; tests use a mock.
+type Supervisor interface {
+	Decide(ctx context.Context, msg string, st *state.SessionState) (schemas.SupervisorDecision, error)
+}
 
 // specialistEventSink adapts the orchestrator EventSink interface to the
 // specialists.EventSink function type used by DomainHandler.
@@ -35,9 +42,10 @@ type Orchestrator struct {
 	tracer     tracing.Tracer
 	promptMode string
 	llmModel   string
-	supervisor *supervisor.Client
+	supervisor Supervisor
 	baziSp     specialists.DomainHandler
 	qimenSp    specialists.DomainHandler
+	ziweiSp    specialists.DomainHandler
 }
 
 func New(reg *tools.Registry, llmClient llm.Chat, flashClient llm.Chat, store state.Store, locker state.Locker, tracer tracing.Tracer, promptMode string) *Orchestrator {
@@ -49,12 +57,13 @@ func (o *Orchestrator) SetLLMModel(model string) { o.llmModel = model }
 
 // SetSupervisor injects the supervisor client for phase-1 routing.
 // When nil, the orchestrator falls back to the legacy classifyAndExtract path.
-func (o *Orchestrator) SetSupervisor(sv *supervisor.Client) { o.supervisor = sv }
+func (o *Orchestrator) SetSupervisor(sv Supervisor) { o.supervisor = sv }
 
-// SetSpecialists injects the bazi and qimen domain specialists.
-func (o *Orchestrator) SetSpecialists(baziSp, qimenSp specialists.DomainHandler) {
+// SetSpecialists injects the bazi, qimen, and ziwei domain specialists.
+func (o *Orchestrator) SetSpecialists(baziSp, qimenSp, ziweiSp specialists.DomainHandler) {
 	o.baziSp = baziSp
 	o.qimenSp = qimenSp
+	o.ziweiSp = ziweiSp
 }
 
 func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, message string) error {
@@ -114,11 +123,37 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 			Confidence:            decision.Confidence,
 		}
 
+		// ─── 确定性状态修正：LLM 负责内容分类，Go 负责状态判定 ───
+		//
+		// 行业实践 (Pattern 1: Routing): LLM 回答 "这条消息包含什么内容"
+		// (collect_profile / followup)，代码回答 "当前状态下应该走哪个分支"
+		// (amend_profile / fortune_followup)。LLM 不擅长跨轮状态比对，
+		// 反复 prompt 调优也修不稳——确定性代码一行就够了。
+		//
+		// 规则 A: 会话已有资料 + LLM 判为 collect_profile → 纠正为 amend_profile
+		//   场景: T1 存了 year=1990，T2 用户说 "5月20日早上8点，男，北京"
+		//   场景: T1 排了盘，T2 用户说 "不对，我是女的" 或 "改成1991年"
+		if route.TaskIntent == "collect_profile" && len(st.Profile) > 0 {
+			route.TaskIntent = "amend_profile"
+			route.PolicyHints.CanReuseSessionProfile = true
+			if st.HasBaziResult() {
+				route.PolicyHints.CanReuseCachedResult = true
+			}
+		}
+
+		// 规则 B: 会话已有命盘 + 用户纯追问（无新出生时间）→ fortune_followup
+		//   场景: T1 排了盘，T2 用户说 "今年运势怎么样" / "那明年呢" / "我适合做什么工作"
+		if route.TaskIntent == "collect_profile" && st.HasBaziResult() && !containsBirthTime(message) {
+			route.TaskIntent = "fortune_followup"
+			route.PolicyHints.CanReuseCachedResult = true
+			route.PolicyHints.CanReuseSessionProfile = true
+		}
+
 		// Capture the approved route for specialist dispatch below.
 		approvedRoute = route
 
-		// Bridge policy-approved route to legacy action tuple for existing dispatch.
-		action, profilePatch, userQuestion, needsQimen, rawBazi = bridgeDecision(route, message)
+		// Extract execution slots from the policy-approved route.
+		profilePatch, userQuestion, needsQimen, rawBazi = bridgeDecision(route, message)
 		st.NeedsQimen = needsQimen
 	} else {
 		classifySpan := tracing.SpanFromContext(ctx, "classify_and_extract", tracing.KindChain)
@@ -135,9 +170,9 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 	var recordState *state.SessionState
 
 	// Phase 1 specialist dispatch: when supervisor path is active and specialists
-	// are wired, validate the route through the domain specialist before execution.
+	// are wired, validate the route through the primary domain specialist before execution.
 	var specialistFinal bool
-	if o.supervisor != nil && o.baziSp != nil {
+	if o.supervisor != nil && (o.baziSp != nil || o.qimenSp != nil) {
 		dispSpan := tracing.SpanFromContext(ctx, "domain_dispatch", tracing.KindChain)
 		spRoute := specialists.ApprovedRoute{
 			ConversationIntent:    st.Routing.ConversationIntent,
@@ -150,11 +185,35 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 			Slots:                 approvedRoute.Slots,
 			PolicyHints:           approvedRoute.PolicyHints,
 		}
-		spResult, spErr := o.baziSp.Run(ctx, st, spRoute, specialistEventSink(sink))
-		dispSpan.SetAttribute("primary_domain", spResult.Domain)
-		dispSpan.SetAttribute("final", spResult.Final)
-		if spErr != nil {
-			dispSpan.SetAttribute("error", spErr.Error())
+		primarySp := o.baziSp
+		switch approvedRoute.PrimaryDomain {
+		case "qimen":
+			if o.qimenSp != nil {
+				primarySp = o.qimenSp
+			}
+		case "ziwei":
+			if o.ziweiSp != nil {
+				primarySp = o.ziweiSp
+			}
+		case "bazi":
+			if o.baziSp == nil && o.qimenSp != nil {
+				primarySp = o.qimenSp
+			}
+		default:
+			if primarySp == nil {
+				primarySp = o.qimenSp
+			}
+		}
+
+		var spResult schemas.DomainResult
+		var spErr error
+		if primarySp != nil {
+			spResult, spErr = primarySp.Run(ctx, st, spRoute, specialistEventSink(sink))
+			dispSpan.SetAttribute("primary_domain", spResult.Domain)
+			dispSpan.SetAttribute("final", spResult.Final)
+			if spErr != nil {
+				dispSpan.SetAttribute("error", spErr.Error())
+			}
 		}
 		dispSpan.End()
 
@@ -167,27 +226,45 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 			specialistFinal = true
 		}
 
-		// If qimen is in secondary domains, dispatch to qimen specialist for supplement.
-		if !specialistFinal && o.qimenSp != nil && len(st.Routing.SecondaryDomains) > 0 {
+		// Secondary domain dispatch: qimen / ziwei as supplemental context.
+		if !specialistFinal && len(st.Routing.SecondaryDomains) > 0 {
 			for _, d := range st.Routing.SecondaryDomains {
-				if d == "qimen" {
-					qimenSpResult, _ := o.qimenSp.Run(ctx, st, spRoute, specialistEventSink(sink))
-					if qimenSpResult.Domain == "qimen" && !qimenSpResult.Final {
-						st.NeedsQimen = true
+				switch d {
+				case "qimen":
+					if o.qimenSp != nil {
+						qimenSpResult, _ := o.qimenSp.Run(ctx, st, spRoute, specialistEventSink(sink))
+						if qimenSpResult.Domain == "qimen" && !qimenSpResult.Final {
+							st.NeedsQimen = true
+						}
 					}
-					break
+				case "ziwei":
+					if o.ziweiSp != nil {
+						ziweiSpResult, _ := o.ziweiSp.Run(ctx, st, spRoute, specialistEventSink(sink))
+						if ziweiSpResult.Domain == "ziwei" && !ziweiSpResult.Final {
+							st.DomainStates.ZiWei.ChartReady = true
+						}
+					}
 				}
 			}
 		}
 	}
 
-	// Reclassify spurious new_profile when session already has data.
-	if action == "new_profile" && (st.HasBaziResult() || len(st.Profile) > 0) && !containsBirthTime(message) {
-		action = "update_profile"
-	}
+	// Route-driven execution (phase 1.5): dispatch directly from ApprovedRoute.
+	// The route has already been validated by policy gate and specialist.
+	if o.supervisor != nil {
+		if !specialistFinal {
+			turnType, assistantText, turnErr = o.executeRoute(ctx, sink, st, approvedRoute, profilePatch, userQuestion, rawBazi)
+			recordState = st
+		}
+	} else {
+		// Legacy path: classify → action string → switch.
+		// Reclassify spurious new_profile when session already has data.
+		if action == "new_profile" && (st.HasBaziResult() || len(st.Profile) > 0) && !containsBirthTime(message) {
+			action = "update_profile"
+		}
 
-	if !specialistFinal {
-	switch action {
+		if !specialistFinal {
+		switch action {
 	case "bazi_input":
 		candidate := st.Clone()
 		// Merge any gender extracted from the same message (e.g. "乙巳 丁亥 甲申 甲子，女")
@@ -300,7 +377,8 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 			recordState = st
 		}
 	}
-	} // end if !specialistFinal
+	} // end if !specialistFinal (legacy)
+	} // end else (legacy path)
 
 if recordState != nil {
 		o.recordTurnAndMaintainContext(ctx, recordState, message, assistantText)
@@ -494,8 +572,8 @@ func (o *Orchestrator) handleBaziInput(ctx context.Context, sink EventSink, st *
 		}})
 	}
 
-	passages := o.runKnowledgeSearch(ctx, sink, st)
-	fullText, err := o.streamInterpretation(ctx, sink, st, passages, nil)
+	passages := o.runKnowledgeSearch(ctx, sink, st, nil)
+	fullText, err := o.streamInterpretation(ctx, sink, st, passages, nil, false)
 	if err != nil {
 		sink.Emit(ctx, Event{Type: "error", Data: map[string]any{"message": "解读失败: " + err.Error()}})
 		return fullText, err
@@ -531,7 +609,7 @@ func (o *Orchestrator) handleAsk(ctx context.Context, sink EventSink, st *state.
 	return prompt, nil
 }
 
-func (o *Orchestrator) runKnowledgeSearch(ctx context.Context, sink EventSink, st *state.SessionState) []mcp.Passage {
+func (o *Orchestrator) runKnowledgeSearch(ctx context.Context, sink EventSink, st *state.SessionState, qimenData map[string]any) []mcp.Passage {
 	ksSpan := tracing.SpanFromContext(ctx, "knowledge_search", tracing.KindRetriever)
 	defer ksSpan.End()
 
@@ -545,7 +623,7 @@ func (o *Orchestrator) runKnowledgeSearch(ctx context.Context, sink EventSink, s
 		return []mcp.Passage{}
 	}
 
-	query := o.buildKnowledgeQuery(ctx, st)
+	query := o.buildKnowledgeQuery(ctx, st, qimenData)
 	ksSpan.SetAttribute("query", query)
 	sink.Emit(ctx, Event{Type: "tool_call", Data: map[string]any{
 		"tool":   "knowledge_search",
@@ -584,14 +662,14 @@ func (o *Orchestrator) runKnowledgeSearch(ctx context.Context, sink EventSink, s
 	return passages
 }
 
-func (o *Orchestrator) streamInterpretation(ctx context.Context, sink EventSink, st *state.SessionState, passages []mcp.Passage, extra map[string]any) (string, error) {
+func (o *Orchestrator) streamInterpretation(ctx context.Context, sink EventSink, st *state.SessionState, passages []mcp.Passage, extra map[string]any, qimenPrimary bool) (string, error) {
 	llmSpan := tracing.SpanFromContext(ctx, "llm_generate", tracing.KindLLM)
 	if o.llmModel != "" {
 		llmSpan.SetAttribute("model", o.llmModel)
 	}
 	llmSpan.SetAttribute("output_tokens", nil) // unavailable in streaming mode
 
-	systemPrompt := o.buildInterpretPrompt(st, passages, extra)
+	systemPrompt := o.buildInterpretPrompt(st, passages, extra, qimenPrimary)
 	messages := []llm.Message{
 		{Role: "user", Content: currentQuestion(st)},
 	}
@@ -700,8 +778,8 @@ func (o *Orchestrator) handleFullReading(ctx context.Context, sink EventSink, st
 
 	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{"type": "bazi-chart", "payload": data}})
 
-	passages := o.runKnowledgeSearch(ctx, sink, st)
-	fullText, err := o.streamInterpretation(ctx, sink, st, passages, nil)
+	passages := o.runKnowledgeSearch(ctx, sink, st, nil)
+	fullText, err := o.streamInterpretation(ctx, sink, st, passages, nil, false)
 	if err != nil {
 		sink.Emit(ctx, Event{Type: "error", Data: map[string]any{"message": "LLM 解读失败: " + err.Error()}})
 		return fullText, err
@@ -727,7 +805,7 @@ func (o *Orchestrator) handleFollowupReading(ctx context.Context, sink EventSink
 				defer qmSpan.End()
 
 				now := resolveQimenTime(time.Now())
-				qimenParams := tools.ResolveQimenTime(now)
+				qimenParams := qimenTools.ResolveTime(now)
 				sink.Emit(ctx, Event{Type: "tool_call", Data: map[string]any{
 					"tool": "qimen_dunjia", "params": qimenParams,
 				}})
@@ -754,8 +832,8 @@ func (o *Orchestrator) handleFollowupReading(ctx context.Context, sink EventSink
 	// Always run knowledge search on followup — the query builder already
 	// targets the chart + question, and even "simple" questions benefit from
 	// domain references (marriage patterns, career profiles, year-event cases).
-	passages = o.runKnowledgeSearch(ctx, sink, st)
-	fullText, err := o.streamInterpretation(ctx, sink, st, passages, extraPromptData)
+	passages = o.runKnowledgeSearch(ctx, sink, st, nil)
+	fullText, err := o.streamInterpretation(ctx, sink, st, passages, extraPromptData, false)
 	if err != nil {
 		sink.Emit(ctx, Event{Type: "error", Data: map[string]any{"message": "LLM 解读失败: " + err.Error()}})
 		return fullText, err
