@@ -1,18 +1,21 @@
 # 命理大师
 
-AI 八字命理咨询聊天应用。自然语言输入出生信息，系统排盘后结合知识库给出针对性解答。
+AI 八字命理咨询聊天应用。自然语言输入出生信息，系统排盘后结合知识库给出针对性解答。支持八字命理与奇门遁甲双领域咨询。
 
-**v1 主线：Go/Eino 单栈。** LangGraph 对照版延后到 v2。
+**v1 主线：原生 Go 实现。** 不依赖 LangGraph、Eino 等 Agent 框架。路由决策采用行业标准 Pattern 1 (Routing)：LLM 分类 + Go 确定性状态机（Code for control, Model for understanding）。
 
 ---
 
 ## 架构
 
 ```
-Vue 3 → SSE → Gin (:8080) → Session State → Tools → lunar-go / MCP / Claude
+Vue 3 → SSE → Gin (:8080) → Supervisor → Policy Gate → State Correction → Specialist → Tools
+                                      ↑
+                              确定性 Go 代码修正 LLM 路由
+                              (amend_profile / fortune_followup)
 ```
 
-Go 单一后端，管理会话状态、工具执行、SSE 流式推送。详见 [docs/architecture.md](docs/architecture.md)。
+Go 单一后端。Supervisor 路由、Policy Gate 校验、确定性状态修正、Specialist 分发、SSE 推送全部手写 Go 代码，无 Agent 框架依赖。详见 [docs/architecture.md](docs/architecture.md)。
 
 ---
 
@@ -22,10 +25,11 @@ Go 单一后端，管理会话状态、工具执行、SSE 流式推送。详见 
 |---|------|
 | 前端 | Vue 3 + Naive UI + Vite |
 | HTTP | Gin |
-| Agent | Eino Tool System |
+| Agent 路由 | 原生 Go（LLM 分类 + 确定性状态机） |
 | 八字 | [lunar-go](https://github.com/6tail/lunar-go) |
-| 知识检索 | 项目知识库 MCP |
-| LLM | Claude API |
+| 奇门 | [qimen-go](https://github.com/deminzhang/qimen-go) |
+| 知识检索 | 项目知识库 MCP (yopedia) |
+| LLM | Claude API / DeepSeek |
 | 流式 | SSE |
 
 ---
@@ -33,11 +37,12 @@ Go 单一后端，管理会话状态、工具执行、SSE 流式推送。详见 
 ## 快速开始
 
 ```bash
-# Go 后端
-LLM_API_KEY=sk-xxx go run ./cmd/server/
+# 一键启动
+make dev
 
-# 前端
-cd web && npm install && npm run dev
+# 或分步
+make yopedia-start     # 知识库 (:3100)
+make dev               # 后端 (:8080) + 前端 (:5173)
 ```
 
 浏览器打开 `http://localhost:5173`
@@ -50,12 +55,12 @@ cd web && npm install && npm run dev
 |------|------|
 | [docs/product.md](docs/product.md) | 产品定义 |
 | [docs/architecture.md](docs/architecture.md) | 架构设计 |
-| [docs/v1/](docs/v1/) | v1 技术方案、验收标准、实施计划 |
-| [docs/v2/](docs/v2/) | v2 LangGraph 对照版 |
-| [docs/learning/](docs/learning/) | Agent 学习路线与素材 |
+| [docs/architecture/supervisor/](docs/architecture/supervisor/) | Supervisor 架构分页设计 |
+| [docs/learning/](docs/learning/) | Agent 学习路线 |
+| [PROGRESS.md](PROGRESS.md) | 项目进度（上下文恢复文件） |
 
 ---
 
 ## 项目状态
 
-**阶段：** 设计完成，待实施
+**阶段：** v1.5 Supervisor Phase 1.5 收口 + qimen 独立回答能力
