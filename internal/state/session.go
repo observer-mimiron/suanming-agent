@@ -1,5 +1,17 @@
 package state
 
+import "time"
+
+// Turn 表示一轮对话中的一条消息（用户或助手）。
+type Turn struct {
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	Timestamp string `json:"timestamp"`
+}
+
+// MaxRecentTurns 是 RecentTurns 保留窗口大小（约 4 轮问答）。
+const MaxRecentTurns = 8
+
 type SessionState struct {
 	SessionID           string
 	Profile             map[string]any // {year,month,day,hour,gender,...}
@@ -7,6 +19,12 @@ type SessionState struct {
 	ConversationStage   string         // "collecting" | "ready" | "completed"
 	ConversationSummary string
 	LastUserQuestion    string
+	NeedsQimen     bool // set by classifyAndExtract, consumed by handleFollowupReading
+	NeedsKnowledge bool // set by classifyAndExtract: whether to run knowledge search
+
+	// 上下文工程第一阶段：会话内最近多轮对话 + 滚动摘要
+	RecentTurns    []Turn `json:"recent_turns,omitempty"`
+	RunningSummary string `json:"running_summary,omitempty"`
 }
 
 func NewSession(id string) *SessionState {
@@ -14,10 +32,11 @@ func NewSession(id string) *SessionState {
 		SessionID:         id,
 		Profile:           make(map[string]any),
 		ConversationStage: "collecting",
+		RecentTurns:       make([]Turn, 0),
 	}
 }
 
-var requiredFields = []string{"year", "month", "day", "hour", "gender"}
+var requiredFields = []string{"year", "month", "day", "hour", "gender", "birthplace"}
 
 func (s *SessionState) MissingFields() []string {
 	var missing []string
@@ -33,6 +52,11 @@ func (s *SessionState) IsProfileComplete() bool {
 	return len(s.MissingFields()) == 0
 }
 
+// HasBaziResult reports whether the session already has a reusable chart context.
+func (s *SessionState) HasBaziResult() bool {
+	return s != nil && len(s.BaziResult) > 0
+}
+
 func (s *SessionState) MergeProfile(patch map[string]any) bool {
 	changed := false
 	for k, v := range patch {
@@ -42,4 +66,81 @@ func (s *SessionState) MergeProfile(patch map[string]any) bool {
 		}
 	}
 	return changed
+}
+
+// RecordTurn appends a new turn to the recent history.
+func (s *SessionState) RecordTurn(role, content string) {
+	s.RecentTurns = append(s.RecentTurns, Turn{
+		Role:      role,
+		Content:   content,
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
+}
+
+// TrimTurns removes turns beyond MaxRecentTurns and returns the overflow.
+// Caller is responsible for summarizing the returned turns into RunningSummary.
+func (s *SessionState) TrimTurns() []Turn {
+	if len(s.RecentTurns) <= MaxRecentTurns {
+		return nil
+	}
+	excess := len(s.RecentTurns) - MaxRecentTurns
+	overflow := make([]Turn, excess)
+	copy(overflow, s.RecentTurns[:excess])
+	s.RecentTurns = append([]Turn{}, s.RecentTurns[excess:]...)
+	return overflow
+}
+
+// ActivePrimaryDomain returns the currently active primary domain.
+// Defaults to "bazi" if not explicitly set.
+func (s *SessionState) ActivePrimaryDomain() string {
+	if s.ConversationStage == "qimen" {
+		return "qimen"
+	}
+	return "bazi"
+}
+
+// SetActivePrimaryDomain records the active primary domain for the session.
+func (s *SessionState) SetActivePrimaryDomain(domain string) {
+	if domain == "qimen" {
+		s.ConversationStage = "qimen"
+		return
+	}
+	s.ConversationStage = "ready"
+}
+
+// Clone returns a detached copy that can be mutated without affecting the session in store.
+func (s *SessionState) Clone() *SessionState {
+	if s == nil {
+		return nil
+	}
+	clone := &SessionState{
+		SessionID:           s.SessionID,
+		ConversationStage:   s.ConversationStage,
+		ConversationSummary: s.ConversationSummary,
+		LastUserQuestion:    s.LastUserQuestion,
+		NeedsQimen:          s.NeedsQimen,
+		NeedsKnowledge:      s.NeedsKnowledge,
+		RunningSummary:      s.RunningSummary,
+	}
+	if s.Profile != nil {
+		clone.Profile = make(map[string]any, len(s.Profile))
+		for k, v := range s.Profile {
+			clone.Profile[k] = v
+		}
+	} else {
+		clone.Profile = make(map[string]any)
+	}
+	if s.BaziResult != nil {
+		clone.BaziResult = make(map[string]any, len(s.BaziResult))
+		for k, v := range s.BaziResult {
+			clone.BaziResult[k] = v
+		}
+	}
+	if len(s.RecentTurns) > 0 {
+		clone.RecentTurns = make([]Turn, len(s.RecentTurns))
+		copy(clone.RecentTurns, s.RecentTurns)
+	} else {
+		clone.RecentTurns = make([]Turn, 0)
+	}
+	return clone
 }
