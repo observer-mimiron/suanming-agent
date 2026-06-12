@@ -1,10 +1,6 @@
 package supervisor
 
-import (
-	"testing"
-
-	"github.com/wikiglobal/suanming-agent/internal/schemas"
-)
+import "testing"
 
 func TestParseDecision_ValidJSON(t *testing.T) {
 	raw := `{
@@ -133,8 +129,3 @@ func TestParseDecision_QimenSecondaryDomain(t *testing.T) {
 	}
 }
 
-// stub parseDecision for TDD — Task 5 will implement the real version.
-func parseDecision(raw string) schemas.SupervisorDecision {
-	// Stub returns zero value; tests expect this to fail.
-	return schemas.SupervisorDecision{}
-}

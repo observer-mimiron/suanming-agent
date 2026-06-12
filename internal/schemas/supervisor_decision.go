@@ -40,6 +40,9 @@ func (d *SupervisorDecision) Normalize() {
 	if d.PrimaryDomain == "" {
 		d.PrimaryDomain = "bazi"
 	}
+	if d.TaskIntent == "" {
+		d.TaskIntent = "collect_profile"
+	}
 	if d.Confidence < 0 {
 		d.Confidence = 0
 	}
