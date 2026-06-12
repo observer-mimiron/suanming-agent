@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/wikiglobal/suanming-agent/internal/llm"
-	"github.com/wikiglobal/suanming-agent/internal/schemas"
+	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
 
@@ -169,28 +169,33 @@ func extractBaziPillars(msg string) []string {
 	return matches[:4]
 }
 
-// bridgeDecision converts a SupervisorDecision into the legacy action-based routing tuple.
-// This is a compatibility bridge used during phase 1 to connect the new supervisor with
-// the existing orchestrator dispatch. It will be removed when the orchestrator is fully
-// rewired in Task 14.
-func bridgeDecision(d schemas.SupervisorDecision, msg string) (action string, patch map[string]any, question string, needsQimen bool, rawBazi []string) {
-	patch = d.Slots.Profile
+// bridgeDecision converts a policy-approved route into the legacy action-based routing tuple.
+// It must receive the ApprovedRoute (post-policy-gate), not the raw SupervisorDecision,
+// so that low-confidence clarification, domain downgrades, and other policy overrides
+// are enforced in the live turn flow.
+func bridgeDecision(route policy.ApprovedRoute, msg string) (action string, patch map[string]any, question string, needsQimen bool, rawBazi []string) {
+	patch = route.Slots.Profile
 	if patch == nil {
 		patch = map[string]any{}
 	}
-	question = d.Slots.QuestionText
+	question = route.Slots.QuestionText
 	if question == "" {
 		question = msg
 	}
-	needsQimen = d.PolicyHints.NeedsQimen
+	needsQimen = route.PolicyHints.NeedsQimen
 
-	switch d.TaskIntent {
-	case "collect_profile", "amend_profile":
-		if d.NeedsClarification {
-			action = "incomplete"
-		} else {
-			action = "new_profile"
-		}
+	// If the policy gate forced clarification, short-circuit to incomplete.
+	if route.NeedsClarification {
+		return "incomplete", patch, question, needsQimen, rawBazi
+	}
+
+	switch route.TaskIntent {
+	case "collect_profile":
+		action = "new_profile"
+	case "amend_profile":
+		// amend_profile must NOT map to new_profile — new_profile wipes
+		// existing Profile and BaziResult, destroying previously collected data.
+		action = "update_profile"
 	case "direct_bazi":
 		action = "bazi_input"
 		rawBazi = extractBaziPillars(msg)
@@ -200,11 +205,7 @@ func bridgeDecision(d schemas.SupervisorDecision, msg string) (action string, pa
 		action = "followup"
 		needsQimen = true
 	default:
-		if d.NeedsClarification {
-			action = "incomplete"
-		} else {
-			action = "followup"
-		}
+		action = "followup"
 	}
 
 	return action, patch, question, needsQimen, rawBazi

@@ -7,6 +7,8 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
 	"github.com/wikiglobal/suanming-agent/internal/orchestrator"
+	"github.com/wikiglobal/suanming-agent/internal/specialists/bazi"
+	qimenSp "github.com/wikiglobal/suanming-agent/internal/specialists/qimen"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/supervisor"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
@@ -64,6 +66,9 @@ func BuildContainer() *Container {
 	// Supervisor client — uses flash model for routing decisions.
 	supervisorClient := supervisor.NewClient(flashClient)
 	orch.SetSupervisor(supervisorClient)
+
+	// Domain specialists — wired into orchestrator for phase-1 dispatch.
+	orch.SetSpecialists(bazi.New(), qimenSp.New())
 
 	// Handler
 	debugDir := "logs/debug"

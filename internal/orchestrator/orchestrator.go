@@ -11,11 +11,20 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
+	"github.com/wikiglobal/suanming-agent/internal/specialists"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/supervisor"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
+
+// specialistEventSink adapts the orchestrator EventSink interface to the
+// specialists.EventSink function type used by DomainHandler.
+func specialistEventSink(sink EventSink) specialists.EventSink {
+	return func(ctx context.Context, evt specialists.Event) error {
+		return sink.Emit(ctx, Event{Type: evt.Type, Data: evt.Data})
+	}
+}
 
 type Orchestrator struct {
 	tools      *tools.Registry
@@ -27,6 +36,8 @@ type Orchestrator struct {
 	promptMode string
 	llmModel   string
 	supervisor *supervisor.Client
+	baziSp     specialists.DomainHandler
+	qimenSp    specialists.DomainHandler
 }
 
 func New(reg *tools.Registry, llmClient llm.Chat, flashClient llm.Chat, store state.Store, locker state.Locker, tracer tracing.Tracer, promptMode string) *Orchestrator {
@@ -39,6 +50,12 @@ func (o *Orchestrator) SetLLMModel(model string) { o.llmModel = model }
 // SetSupervisor injects the supervisor client for phase-1 routing.
 // When nil, the orchestrator falls back to the legacy classifyAndExtract path.
 func (o *Orchestrator) SetSupervisor(sv *supervisor.Client) { o.supervisor = sv }
+
+// SetSpecialists injects the bazi and qimen domain specialists.
+func (o *Orchestrator) SetSpecialists(baziSp, qimenSp specialists.DomainHandler) {
+	o.baziSp = baziSp
+	o.qimenSp = qimenSp
+}
 
 func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, message string) error {
 	unlock := o.locker.Lock(sessionID)
@@ -61,6 +78,7 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 	var userQuestion string
 	var needsQimen bool
 	var rawBazi []string
+	var approvedRoute policy.ApprovedRoute
 
 	// Phase 1: use supervisor when available, fall back to legacy classify.
 	if o.supervisor != nil {
@@ -96,8 +114,11 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 			Confidence:            decision.Confidence,
 		}
 
-		// Bridge supervisor decision to legacy action tuple for existing dispatch.
-		action, profilePatch, userQuestion, needsQimen, rawBazi = bridgeDecision(decision, message)
+		// Capture the approved route for specialist dispatch below.
+		approvedRoute = route
+
+		// Bridge policy-approved route to legacy action tuple for existing dispatch.
+		action, profilePatch, userQuestion, needsQimen, rawBazi = bridgeDecision(route, message)
 		st.NeedsQimen = needsQimen
 	} else {
 		classifySpan := tracing.SpanFromContext(ctx, "classify_and_extract", tracing.KindChain)
@@ -113,11 +134,59 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 	var assistantText string
 	var recordState *state.SessionState
 
+	// Phase 1 specialist dispatch: when supervisor path is active and specialists
+	// are wired, validate the route through the domain specialist before execution.
+	var specialistFinal bool
+	if o.supervisor != nil && o.baziSp != nil {
+		dispSpan := tracing.SpanFromContext(ctx, "domain_dispatch", tracing.KindChain)
+		spRoute := specialists.ApprovedRoute{
+			ConversationIntent:    st.Routing.ConversationIntent,
+			PrimaryDomain:         st.Routing.PrimaryDomain,
+			SecondaryDomains:      st.Routing.SecondaryDomains,
+			TaskIntent:            st.Routing.TaskIntent,
+			NeedsClarification:    st.Routing.AwaitingClarification,
+			ClarificationQuestion: approvedRoute.ClarificationQuestion,
+			ParallelAllowed:       false,
+			Slots:                 approvedRoute.Slots,
+			PolicyHints:           approvedRoute.PolicyHints,
+		}
+		spResult, spErr := o.baziSp.Run(ctx, st, spRoute, specialistEventSink(sink))
+		dispSpan.SetAttribute("primary_domain", spResult.Domain)
+		dispSpan.SetAttribute("final", spResult.Final)
+		if spErr != nil {
+			dispSpan.SetAttribute("error", spErr.Error())
+		}
+		dispSpan.End()
+
+		// If specialist returned a final answer (e.g., clarification), short-circuit.
+		if spResult.Final {
+			sink.Emit(ctx, Event{Type: "text", Data: map[string]any{"content": spResult.Summary}})
+			assistantText = spResult.Summary
+			turnType = "ask_missing_profile"
+			recordState = st
+			specialistFinal = true
+		}
+
+		// If qimen is in secondary domains, dispatch to qimen specialist for supplement.
+		if !specialistFinal && o.qimenSp != nil && len(st.Routing.SecondaryDomains) > 0 {
+			for _, d := range st.Routing.SecondaryDomains {
+				if d == "qimen" {
+					qimenSpResult, _ := o.qimenSp.Run(ctx, st, spRoute, specialistEventSink(sink))
+					if qimenSpResult.Domain == "qimen" && !qimenSpResult.Final {
+						st.NeedsQimen = true
+					}
+					break
+				}
+			}
+		}
+	}
+
 	// Reclassify spurious new_profile when session already has data.
 	if action == "new_profile" && (st.HasBaziResult() || len(st.Profile) > 0) && !containsBirthTime(message) {
 		action = "update_profile"
 	}
 
+	if !specialistFinal {
 	switch action {
 	case "bazi_input":
 		candidate := st.Clone()
@@ -231,8 +300,9 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 			recordState = st
 		}
 	}
+	} // end if !specialistFinal
 
-	if recordState != nil {
+if recordState != nil {
 		o.recordTurnAndMaintainContext(ctx, recordState, message, assistantText)
 	}
 
