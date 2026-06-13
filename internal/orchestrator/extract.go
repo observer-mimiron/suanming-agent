@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
@@ -50,6 +51,9 @@ func (o *Orchestrator) classifyAndExtract(ctx context.Context, msg string, st *s
 - calendar_type: "solar"(公历) 或 "lunar"(农历)
 - birthplace: 出生城市/地区（如"北京"、"广东"、"美国纽约"）。如用户提及则提取，否则留空
 - longitude: 出生地经度，数字。如果用户明确说了地点，尝试估算。中国主要城市参考：北京116.4, 上海121.5, 广州113.3, 成都104.1, 乌鲁木齐87.6, 哈尔滨126.6。海外城市需用户明确说明。不填时默认120.0（不做太阳时校正）
+
+## 当前日期
+今天是 ` + time.Now().Format("2006-01-02") + `（请以此日期判断"今天""今年""本月"等时间词）
 
 ## 当前已有资料
 ` + string(profileJSON) + `
@@ -193,14 +197,15 @@ func bridgeDecision(route policy.ApprovedRoute, msg string) (action string, patc
 	case "collect_profile":
 		action = "new_profile"
 	case "amend_profile":
-		// amend_profile must NOT map to new_profile — new_profile wipes
-		// existing Profile and BaziResult, destroying previously collected data.
 		action = "update_profile"
 	case "direct_bazi":
 		action = "bazi_input"
 		rawBazi = extractBaziPillars(msg)
-	case "interpret_chart", "fortune_followup":
+	case "interpret_chart":
 		action = "followup"
+	case "fortune_followup":
+		action = "followup"
+		needsQimen = true
 	case "timing_followup", "cross_domain_consult":
 		action = "followup"
 		needsQimen = true

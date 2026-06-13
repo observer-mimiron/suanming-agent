@@ -9,6 +9,7 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/orchestrator"
 	"github.com/wikiglobal/suanming-agent/internal/specialists/bazi"
 	qimenSp "github.com/wikiglobal/suanming-agent/internal/specialists/qimen"
+	"github.com/wikiglobal/suanming-agent/internal/specialists/ziwei"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/supervisor"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
@@ -68,7 +69,7 @@ func BuildContainer() *Container {
 	orch.SetSupervisor(supervisorClient)
 
 	// Domain specialists — wired into orchestrator for phase-1 dispatch.
-	orch.SetSpecialists(bazi.New(), qimenSp.New())
+	orch.SetSpecialists(bazi.New(), qimenSp.New(), ziwei.New())
 
 	// Handler
 	debugDir := "logs/debug"

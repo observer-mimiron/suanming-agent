@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/6tail/lunar-go/calendar"
@@ -11,7 +12,7 @@ type BaziCalcTool struct{}
 func (t *BaziCalcTool) Name() string        { return "bazi_calc" }
 func (t *BaziCalcTool) Description() string { return "计算八字排盘，输入出生年月日时+性别" }
 
-func (t *BaziCalcTool) Execute(params map[string]any) (any, error) {
+func (t *BaziCalcTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	year, ok := params["year"].(float64)
 	if !ok || year < 1900 || year > 2100 {
 		return nil, fmt.Errorf("year out of range")

@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,26 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+// TokenUsage reports token consumption for a single LLM call.
+type TokenUsage struct {
+	Input  int `json:"input"`
+	Output int `json:"output"`
+}
+
+// ToolDef describes a tool available to the model for structured output.
+type ToolDef struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	InputSchema any    `json:"input_schema"`
+}
+
+// Chat is the interface all LLM clients must implement.
+type Chat interface {
+	Stream(ctx context.Context, systemPrompt string, messages []Message, onText func(string)) error
+	Generate(ctx context.Context, systemPrompt string, messages []Message) (string, TokenUsage, error)
+	GenerateWithTool(ctx context.Context, systemPrompt string, messages []Message, tool ToolDef) (map[string]any, TokenUsage, error)
+}
+
 type Client struct {
 	baseURL string
 	apiKey  string
@@ -25,15 +46,24 @@ type Client struct {
 	client  *http.Client
 }
 
-func NewClient() *Client {
-	apiKey := os.Getenv("LLM_API_KEY")
+func NewClient(apiKey, baseURL, model string, temperature float64) *Client {
+	if apiKey == "" {
+		apiKey = os.Getenv("LLM_API_KEY")
+	}
+	if baseURL == "" {
+		baseURL = getEnv("LLM_BASE_URL", "https://api.deepseek.com/anthropic")
+	}
+	if model == "" {
+		model = getEnv("LLM_MODEL", "deepseek-v4-pro")
+	}
 	if apiKey == "" {
 		log.Println("WARNING: LLM_API_KEY not set — LLM calls will fail")
 	}
+	_ = temperature // reserved for future use
 	return &Client{
-		baseURL: getEnv("LLM_BASE_URL", "https://api.deepseek.com/anthropic"),
+		baseURL: baseURL,
 		apiKey:  apiKey,
-		model:   getEnv("LLM_MODEL", "deepseek-v4-pro"),
+		model:   model,
 		client:  &http.Client{Timeout: 120 * time.Second},
 	}
 }
@@ -163,6 +193,30 @@ func (c *Client) Chat(systemPrompt string, messages []Message) (string, error) {
 		return result.Content[0].Text, nil
 	}
 	return "", nil
+}
+
+// Stream adapter for Chat interface.
+func (c *Client) Stream(_ context.Context, systemPrompt string, messages []Message, onText func(string)) error {
+	return c.ChatStream(systemPrompt, messages, onText)
+}
+
+// Generate adapter for Chat interface.
+func (c *Client) Generate(_ context.Context, systemPrompt string, messages []Message) (string, TokenUsage, error) {
+	text, err := c.Chat(systemPrompt, messages)
+	return text, TokenUsage{}, err
+}
+
+// GenerateWithTool adapter for Chat interface.
+func (c *Client) GenerateWithTool(_ context.Context, systemPrompt string, messages []Message, _ ToolDef) (map[string]any, TokenUsage, error) {
+	text, err := c.Chat(systemPrompt, messages)
+	if err != nil {
+		return nil, TokenUsage{}, err
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		return nil, TokenUsage{}, fmt.Errorf("structured output parse: %w", err)
+	}
+	return result, TokenUsage{}, nil
 }
 
 func getEnv(key, def string) string {

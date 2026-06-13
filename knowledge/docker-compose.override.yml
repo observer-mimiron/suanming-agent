@@ -1,0 +1,7 @@
+services:
+  wiki:
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./suanming-wiki:/app/wiki
+      - ./suanming-raw:/app/raw

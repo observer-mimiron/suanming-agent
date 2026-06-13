@@ -165,6 +165,10 @@ func (o *Orchestrator) executeFollowupRoute(ctx context.Context, sink EventSink,
 	}
 	candidate.NeedsQimen = needsQimen
 
+	if needsQimen {
+		return o.executeParallelFortuneRoute(ctx, sink, st, candidate, userQuestion)
+	}
+
 	if candidate.HasBaziResult() {
 		text, err := o.handleFollowupReading(ctx, sink, candidate)
 		if err == nil {
@@ -210,10 +214,13 @@ func (o *Orchestrator) executeQimenPrimaryRoute(ctx context.Context, sink EventS
 		qimenResult, qimenErr := qimenTool.Execute(ctx, qimenParams)
 		if qimenErr == nil {
 			if qm, ok2 := qimenResult.(map[string]any); ok2 {
-				sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
-					"type": "qimen-chart", "payload": qm,
-				}})
 				qimenData = qm
+				if !st.HasQimenResult() {
+					sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
+						"type": "qimen-chart", "payload": qm,
+					}})
+				}
+				candidate.QimenResult = qm
 			}
 		} else {
 			qmSpan.SetStatus("fallback")
@@ -370,3 +377,44 @@ func (o *Orchestrator) executeZiweiPrimaryRoute(ctx context.Context, sink EventS
 	return "ziwei_primary_reading", text, err
 }
 
+
+func (o *Orchestrator) executeParallelFortuneRoute(ctx context.Context, sink EventSink, st *state.SessionState, candidate *state.SessionState, userQuestion string) (string, string, error) {
+	if !candidate.IsProfileComplete() && !candidate.HasBaziResult() {
+		text, err := o.handleAsk(ctx, sink, candidate)
+		if err == nil { *st = *candidate }
+		return "ask_missing_profile", text, err
+	}
+	if !candidate.HasBaziResult() && candidate.IsProfileComplete() {
+		if baziTool, ok := o.tools.Get("bazi_calc"); ok {
+			r, err := baziTool.Execute(ctx, candidate.Profile)
+			if err == nil {
+				if data, ok := r.(map[string]any); ok {
+					candidate.BaziResult = data
+					sink.Emit(ctx, Event{Type: "component", Data: map[string]any{"type": "bazi-chart", "payload": data}})
+				}
+			}
+		}
+	}
+	var qimenData map[string]any
+	if qimenTool, ok := o.tools.Get("qimen_dunjia"); ok {
+		qmSpan := tracing.SpanFromContext(ctx, "qimen_dunjia", tracing.KindTool)
+		defer qmSpan.End()
+		now := resolveQimenTime(time.Now())
+		params := qimenTools.ResolveTime(now)
+		sink.Emit(ctx, Event{Type: "tool_call", Data: map[string]any{"tool": "qimen_dunjia", "params": params}})
+		r, err := qimenTool.Execute(ctx, params)
+		if err == nil {
+			if qm, ok := r.(map[string]any); ok {
+				qimenData = qm
+				if !st.HasQimenResult() {
+					sink.Emit(ctx, Event{Type: "component", Data: map[string]any{"type": "qimen-chart", "payload": qm}})
+				}
+				candidate.QimenResult = qm
+			}
+		}
+	}
+	passages := o.runKnowledgeSearch(ctx, sink, candidate, qimenData)
+	text, err := o.streamInterpretation(ctx, sink, candidate, passages, qimenData, false)
+	if err == nil { *st = *candidate }
+	return "parallel_fortune", text, err
+}

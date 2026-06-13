@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/6tail/lunar-go/calendar"
@@ -12,7 +13,7 @@ type YongShenTool struct{}
 func (t *YongShenTool) Name() string        { return "yongshen" }
 func (t *YongShenTool) Description() string { return "分析日主强弱并推荐用神喜忌" }
 
-func (t *YongShenTool) Execute(params map[string]any) (any, error) {
+func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	year, _ := params["year"].(float64)
 	month, _ := params["month"].(float64)
 	day, _ := params["day"].(float64)

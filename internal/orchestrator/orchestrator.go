@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -95,6 +96,11 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 		decision, err := o.supervisor.Decide(ctx, message, st)
 		if err != nil {
 			supSpan.SetAttribute("error", err.Error())
+			supSpan.SetStatus("degraded")
+			log.Printf("[orchestrator] supervisor decision failed: %v", err)
+			sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
+				"agent": "orchestrator", "text": "⚠️ 服务暂时降级，使用保守策略继续。如持续出现请稍后重试。",
+			}})
 		}
 		supSpan.SetAttribute("primary_domain", decision.PrimaryDomain)
 		supSpan.SetAttribute("task_intent", decision.TaskIntent)
@@ -113,15 +119,6 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 		}
 		gateSpan.End()
 
-		// Record routing snapshot into session state.
-		st.Routing = state.RoutingSnapshot{
-			ConversationIntent:    route.ConversationIntent,
-			PrimaryDomain:         route.PrimaryDomain,
-			SecondaryDomains:      route.SecondaryDomains,
-			TaskIntent:            route.TaskIntent,
-			AwaitingClarification: route.NeedsClarification,
-			Confidence:            decision.Confidence,
-		}
 
 		// ─── 确定性状态修正：LLM 负责内容分类，Go 负责状态判定 ───
 		//
@@ -149,11 +146,23 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 			route.PolicyHints.CanReuseSessionProfile = true
 		}
 
+		// Record routing snapshot into session state.
+		st.Routing = state.RoutingSnapshot{
+			ConversationIntent:    route.ConversationIntent,
+			PrimaryDomain:         route.PrimaryDomain,
+			SecondaryDomains:      route.SecondaryDomains,
+			TaskIntent:            route.TaskIntent,
+			AwaitingClarification: route.NeedsClarification,
+			Confidence:            decision.Confidence,
+			TimeScope:             route.Slots.TimeScope,
+			TargetSubject:         route.Slots.TargetSubject,
+		}
+
 		// Capture the approved route for specialist dispatch below.
 		approvedRoute = route
 
 		// Extract execution slots from the policy-approved route.
-		profilePatch, userQuestion, needsQimen, rawBazi = bridgeDecision(route, message)
+		action, profilePatch, userQuestion, needsQimen, rawBazi = bridgeDecision(route, message)
 		st.NeedsQimen = needsQimen
 	} else {
 		classifySpan := tracing.SpanFromContext(ctx, "classify_and_extract", tracing.KindChain)
@@ -812,10 +821,13 @@ func (o *Orchestrator) handleFollowupReading(ctx context.Context, sink EventSink
 				qimenResult, qimenErr := qimenTool.Execute(ctx, qimenParams)
 				if qimenErr == nil {
 					if qm, ok2 := qimenResult.(map[string]any); ok2 {
-						sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
-							"type": "qimen-chart", "payload": qm,
-						}})
 						extraPromptData = qm
+						if !st.HasQimenResult() {
+							sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
+								"type": "qimen-chart", "payload": qm,
+							}})
+						}
+						st.QimenResult = qm
 					}
 				} else {
 					qmSpan.SetStatus("fallback")

@@ -28,7 +28,7 @@ Go 单一后端。Supervisor 路由、Policy Gate 校验、确定性状态修正
 | Agent 路由 | 原生 Go（LLM 分类 + 确定性状态机） |
 | 八字 | [lunar-go](https://github.com/6tail/lunar-go) |
 | 奇门 | [qimen-go](https://github.com/deminzhang/qimen-go) |
-| 知识检索 | 项目知识库 MCP (yopedia) |
+| 知识检索 | 项目知识库 |
 | LLM | Claude API / DeepSeek |
 | 流式 | SSE |
 
@@ -41,7 +41,7 @@ Go 单一后端。Supervisor 路由、Policy Gate 校验、确定性状态修正
 make dev
 
 # 或分步
-make yopedia-start     # 知识库 (:3100)
+make knowledge-start   # 知识库 (:3100)
 make dev               # 后端 (:8080) + 前端 (:5173)
 ```
 

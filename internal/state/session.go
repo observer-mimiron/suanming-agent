@@ -20,6 +20,8 @@ type RoutingSnapshot struct {
 	TaskIntent            string   `json:"task_intent,omitempty"`
 	AwaitingClarification bool     `json:"awaiting_clarification,omitempty"`
 	Confidence            float64  `json:"confidence,omitempty"`
+	TimeScope             string   `json:"time_scope,omitempty"`
+	TargetSubject         string   `json:"target_subject,omitempty"`
 }
 
 // BaziState holds bazi-specific domain state.
@@ -33,16 +35,24 @@ type QimenState struct {
 	LastTimeScope string `json:"last_time_scope,omitempty"`
 }
 
+// ZiWeiState holds ziwei-specific domain state.
+type ZiWeiState struct {
+	ChartReady bool `json:"chart_ready,omitempty"`
+}
+
 // DomainStates groups per-domain state for the session.
 type DomainStates struct {
 	Bazi  BaziState  `json:"bazi,omitempty"`
 	Qimen QimenState `json:"qimen,omitempty"`
+	ZiWei ZiWeiState `json:"ziwei,omitempty"`
 }
 
 type SessionState struct {
 	SessionID           string
 	Profile             map[string]any // {year,month,day,hour,gender,...}
 	BaziResult          map[string]any // bazi_calc 输出
+	QimenResult         map[string]any // qimen_dunjia 输出（首次后缓存，不再重复 emit UI 组件）
+	ZiWeiResult         map[string]any // ziwei chart 输出
 	ConversationStage   string         // "collecting" | "ready" | "completed"
 	ConversationSummary string
 	LastUserQuestion    string
@@ -86,6 +96,16 @@ func (s *SessionState) IsProfileComplete() bool {
 // HasBaziResult reports whether the session already has a reusable chart context.
 func (s *SessionState) HasBaziResult() bool {
 	return s != nil && len(s.BaziResult) > 0
+}
+
+// HasQimenResult reports whether qimen data was already emitted in this session.
+func (s *SessionState) HasQimenResult() bool {
+	return s != nil && len(s.QimenResult) > 0
+}
+
+// ZiWeiResult holds the ziwei chart output.
+func (s *SessionState) HasZiWeiResult() bool {
+	return s != nil && s.ZiWeiResult != nil && len(s.ZiWeiResult) > 0
 }
 
 func (s *SessionState) MergeProfile(patch map[string]any) bool {
@@ -167,6 +187,12 @@ func (s *SessionState) Clone() *SessionState {
 		clone.BaziResult = make(map[string]any, len(s.BaziResult))
 		for k, v := range s.BaziResult {
 			clone.BaziResult[k] = v
+		}
+	}
+	if s.QimenResult != nil {
+		clone.QimenResult = make(map[string]any, len(s.QimenResult))
+		for k, v := range s.QimenResult {
+			clone.QimenResult[k] = v
 		}
 	}
 	if len(s.RecentTurns) > 0 {

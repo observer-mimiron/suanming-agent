@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
@@ -62,9 +64,14 @@ func (c *Client) Decide(ctx context.Context, msg string, st *state.SessionState)
 	if err == nil {
 		return decision, nil
 	}
+	log.Printf("[supervisor] layer-1 structuredDecide failed: %v, falling back to text-based routing", err)
 
 	// Layer 2+3: Fall back to text-based generation with validation + retries.
-	return c.textDecide(ctx, prompt, messages, st, msg)
+	decision, err = c.textDecide(ctx, prompt, messages, st, msg)
+	if err != nil {
+		log.Printf("[supervisor] layer-2/3 textDecide also failed: %v, using degraded fallback", err)
+	}
+	return decision, err
 }
 
 // structuredDecide (layer 1): constrained decoding via forced tool_choice.
@@ -238,13 +245,13 @@ func buildSessionContext(st *state.SessionState) string {
 	isComplete := st.IsProfileComplete()
 
 	if !hasProfile && !hasChart {
-		return "会话状态：新会话，尚无任何用户资料或命盘。"
+		return fmt.Sprintf("会话状态：新会话，尚无任何用户资料或命盘。\n当前日期：%s", time.Now().Format("2006-01-02"))
 	}
 
 	var parts []string
 	if hasProfile {
 		profileJSON, _ := json.Marshal(st.Profile)
-		parts = append(parts, fmt.Sprintf("已有资料：%s", string(profileJSON)))
+		parts = append(parts, fmt.Sprintf("当前日期：%s\n已有资料：%s", time.Now().Format("2006-01-02"), string(profileJSON)))
 		if isComplete {
 			parts = append(parts, "资料完整度：完整")
 		} else {
@@ -258,7 +265,7 @@ func buildSessionContext(st *state.SessionState) string {
 		parts = append(parts, fmt.Sprintf("上一轮问题：%s", st.LastUserQuestion))
 	}
 
-	return strings.Join(parts, "\n") + "\n\n根据以上会话状态：\n- 如果用户提供新的出生信息，且已有完整资料 → task_intent 应为 amend_profile\n- 如果用户追问且已有命盘 → task_intent 应为 fortune_followup，can_reuse_cached_result=true\n- 如果用户仅补充部分字段（如「我是女的」）且已有资料 → task_intent 应为 amend_profile，can_reuse_session_profile=true"
+	return strings.Join(parts, "\n") + "\n\n根据以上会话状态：\n- 如果用户刚提供出生信息且资料刚完整、尚无命盘 → task_intent 应为 interpret_chart（首次完整解读）\n- 如果用户提供新的出生信息，且已有完整资料+命盘 → task_intent 应为 amend_profile\n- 如果用户追问且已有命盘 → task_intent 应为 fortune_followup，can_reuse_cached_result=true\n- 如果用户仅补充部分字段（如「我是女的」）且已有资料 → task_intent 应为 amend_profile，can_reuse_session_profile=true"
 }
 
 // safeFallback (layer 3b): hardcoded conservative defaults when the LLM is unavailable.

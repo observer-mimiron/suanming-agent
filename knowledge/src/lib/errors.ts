@@ -1,0 +1,35 @@
+/**
+ * Extract a human-readable message from an unknown caught value.
+ *
+ * Handles Error instances, plain strings, and falls back to a default message
+ * for anything else (null, undefined, numbers, objects, etc.).
+ */
+export function getErrorMessage(
+  error: unknown,
+  fallback = "An unexpected error occurred",
+): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return fallback;
+}
+
+/**
+ * A caller-supplied-input error (bad/oversized/unsafe input) that a route
+ * should surface as a 4xx, distinct from a server-side failure. Lets routes
+ * classify by type rather than by string-matching the message.
+ */
+export class ClientInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ClientInputError";
+  }
+}
+
+/** Check whether an unknown caught value is a Node.js ENOENT (file-not-found) error. */
+export function isEnoent(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    "code" in err &&
+    (err as NodeJS.ErrnoException).code === "ENOENT"
+  );
+}

@@ -1,0 +1,1878 @@
+import {
+  saveRawSource,
+  saveRawSourceFor,
+  writeWikiPageWithSideEffects,
+  readWikiPageWithFrontmatter,
+  serializeFrontmatter,
+  listWikiPages,
+  findRelatedPages,
+  type Frontmatter,
+} from "./wiki";
+import { callLLM, hasLLMKey } from "./llm";
+import { fetchUrlContent, downloadImages, fetchImageBytes, storeImageBytes, pdfToText } from "./fetch";
+import { describeImage } from "./vision";
+import { isYouTubeUrl, fetchYouTubeContent } from "./youtube";
+import { isXPostUrl, fetchXPostContent } from "./x-post";
+import type { IngestResult, IngestPreviewMeta, SourceEntry } from "./types";
+import {
+  serializeSources,
+  parseSources,
+  buildSourceEntry,
+} from "./sources";
+
+/**
+ * Merge a provenance entry into a sources list. A real source URL supersedes a
+ * stale `"text-paste"` placeholder of the same type (the placeholder just means
+ * "no URL was known"), so once a real URL arrives the placeholder is dropped.
+ * Updates an existing match in place; otherwise appends.
+ */
+function mergeSourceEntry(sources: SourceEntry[], entry: SourceEntry): SourceEntry[] {
+  const base =
+    entry.url !== "text-paste"
+      ? sources.filter((s) => !(s.type === entry.type && s.url === "text-paste"))
+      : sources;
+  // A real (non-text-paste) source is identified by its URL alone: the same URL
+  // is the same source even if a re-ingest classified its type differently
+  // (e.g. a PDF URL re-fetched as a plain "url"). Matching on URL+type here let
+  // such a re-ingest append a duplicate entry. text-paste placeholders have no
+  // real URL, so they still dedup on (url, type).
+  const idx =
+    entry.url !== "text-paste"
+      ? base.findIndex((s) => s.url === entry.url)
+      : base.findIndex((s) => s.url === entry.url && s.type === entry.type);
+  if (idx >= 0) {
+    base[idx] = {
+      ...base[idx],
+      fetched: entry.fetched,
+      triggered_by: entry.triggered_by,
+      // Carry the new snapshot id (same URL → same id; also upgrades a legacy
+      // entry that predates per-source raw).
+      ...(entry.raw_id ? { raw_id: entry.raw_id } : {}),
+    };
+  } else {
+    base.push(entry);
+  }
+  return base;
+}
+
+/**
+ * Authority baseline per source type for the confidence heuristic — higher for
+ * documents/articles, lower for social/unverified provenance.
+ */
+const SOURCE_TYPE_WEIGHT: Record<SourceEntry["type"], number> = {
+  pdf: 0.68,
+  "wiki-ref": 0.65,
+  url: 0.6,
+  youtube: 0.55,
+  image: 0.5,
+  text: 0.5,
+  "x-mention": 0.5,
+};
+
+/**
+ * Heuristic page confidence from real provenance signals — replaces the old
+ * constant 0.7. A lone source sits BELOW 0.7 so corroboration can earn its way
+ * up (a single URL reads ~0.60, not the old default):
+ *  - authority of the STRONGEST source type present,
+ *  - corroboration: +0.05 per additional DISTINCT source URL (cap +0.15),
+ *  - a `disputed` page is capped at 0.5.
+ * Clamped to [0.3, 0.95], rounded to 2 decimals. An empty source set → 0.5.
+ */
+export function computeConfidence(
+  sources: SourceEntry[],
+  disputed: boolean,
+): number {
+  if (sources.length === 0) return 0.5;
+  const base = Math.max(
+    ...sources.map((s) => SOURCE_TYPE_WEIGHT[s.type] ?? 0.5),
+  );
+  const distinctUrls = new Set(sources.map((s) => s.url)).size;
+  const corroboration = Math.min(0.15, Math.max(0, distinctUrls - 1) * 0.05);
+  let score = base + corroboration;
+  if (disputed) score = Math.min(score, 0.5);
+  return Math.round(Math.min(0.95, Math.max(0.3, score)) * 100) / 100;
+}
+import {
+  MAX_LLM_INPUT_CHARS,
+  INGEST_MAX_OUTPUT_TOKENS,
+  MAX_APPENDED_IMAGES,
+  MAX_CONTENT_LENGTH,
+  MAX_PDF_SIZE,
+  MAX_AUTO_TAGS,
+  TAG_VOCAB_LIMIT,
+} from "./constants";
+import { ClientInputError } from "./errors";
+import { slugify } from "./slugify";
+import { loadPageConventions } from "./schema";
+import { getRawDir } from "./config";
+import { resolveAlias } from "./alias-index";
+import {
+  resolveSourceUrl,
+  resolveContentHash,
+  updateSourceIndexForPage,
+} from "./source-index";
+import { contentHash, searchByVector, hasEmbeddingSupport } from "./embeddings";
+import { canReadEntry } from "./authz";
+import { getStorage } from "./storage";
+import { logger } from "./logger";
+
+// ---------------------------------------------------------------------------
+// Ingest ledger — append-only JSONL record of each ingest operation
+// ---------------------------------------------------------------------------
+
+/** A single entry in the ingest ledger (data/ingest-ledger.jsonl). */
+export interface LedgerEntry {
+  ingest_id: string;
+  source_type: string;
+  source_url: string;
+  primary_slug: string;
+  related_slugs: string[];
+  started_at: string;
+  finished_at: string;
+  status: string;
+}
+
+/** Relative path to the ingest ledger within the StorageProvider root. */
+const LEDGER_REL_PATH = "data/ingest-ledger.jsonl";
+
+/**
+ * Returns the relative storage path to the ingest ledger JSONL file.
+ * Exported for testing.
+ */
+export function getLedgerPath(): string {
+  return LEDGER_REL_PATH;
+}
+
+/**
+ * Read the ingest ledger, returning entries most-recent-first.
+ *
+ * Gracefully returns an empty array if the file doesn't exist.
+ * Malformed JSONL lines are silently skipped.
+ *
+ * @param limit  Maximum number of entries to return (default: all)
+ */
+export async function readLedger(limit?: number): Promise<LedgerEntry[]> {
+  let raw: string;
+  try {
+    raw = await getStorage().readFile(LEDGER_REL_PATH);
+  } catch {
+    // File doesn't exist or is unreadable — return empty
+    return [];
+  }
+
+  const lines = raw.trim().split("\n").filter(Boolean);
+  const entries: LedgerEntry[] = [];
+  for (const line of lines) {
+    try {
+      entries.push(JSON.parse(line) as LedgerEntry);
+    } catch {
+      // Skip malformed lines
+    }
+  }
+
+  // Most recent first (ledger is append-only, so reverse)
+  entries.reverse();
+
+  if (limit !== undefined && limit > 0) {
+    return entries.slice(0, limit);
+  }
+  return entries;
+}
+
+/**
+ * Append a single ledger entry to data/ingest-ledger.jsonl.
+ *
+ * StorageProvider.appendFile creates parent directories as needed.
+ * Errors are caught and logged so a ledger I/O failure never breaks
+ * the ingest pipeline.
+ */
+export async function persistToLedger(entry: LedgerEntry): Promise<void> {
+  try {
+    await getStorage().appendFile(LEDGER_REL_PATH, JSON.stringify(entry) + "\n");
+  } catch (err) {
+    logger.error("ingest", "Failed to write ledger entry:", err);
+  }
+}
+
+/**
+ * Ingest a URL into the wiki.
+ *
+ * 1. Fetch and extract the page content
+ * 2. Delegate to the standard `ingest()` pipeline
+ */
+export async function ingestUrl(
+  url: string,
+  options?: IngestOptions,
+): Promise<IngestResult> {
+  // Dedup: if this URL is already a canonical page, attach the triggerer and
+  // skip the fetch + LLM + embedding entirely. Not for preview / commit-from-
+  // preview (those are explicit content workflows).
+  if (!options?.preview && !options?.generatedContent) {
+    const dupSlug = await resolveSourceUrl(url);
+    if (dupSlug) {
+      const result = await attachIngestTrigger(dupSlug, {
+        url,
+        type: options?.sourceType ?? "url",
+        triggeredBy: options?.triggeredBy,
+        actorOwner: options?.owner ?? options?.author,
+      });
+      if (result) return result;
+    }
+  }
+
+  if (isYouTubeUrl(url)) {
+    return ingestYouTube(url, options);
+  }
+
+  // X.com serves a JS shell to plain fetches (the "Something went wrong" page),
+  // so read the post via the syndication CDN instead. Default the provenance to
+  // x-mention when the caller didn't already set one (e.g. a manual UI ingest).
+  if (isXPostUrl(url)) {
+    const { title, content } = await fetchXPostContent(url);
+    return ingest(title, content, {
+      ...options,
+      sourceUrl: url,
+      sourceType: options?.sourceType ?? "x-mention",
+    });
+  }
+
+  const { title, content } = await fetchUrlContent(url);
+  // Image downloading is centralized in ingest() so every path (url, text,
+  // agent, X) captures embedded images uniformly.
+  return ingest(title, content, { ...options, sourceUrl: url });
+}
+
+/**
+ * Provisional title for a title-less pasted-text ingest: the first markdown H1,
+ * else the first non-empty line (leading heading/list markers stripped), capped.
+ * Returns `""` only when the content has no usable line. The synthesis CONCEPT
+ * (or, on commit-from-preview, the body H1) overrides this for the final title.
+ */
+export function deriveTitleFromContent(content: string): string {
+  const h1 = content.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim();
+  if (h1) return h1.slice(0, 120).trim();
+  const firstLine = content
+    .split("\n")
+    .map((l) => l.replace(/^[#>\-*\d.\s)]+/, "").trim())
+    .find((l) => l.length > 0);
+  if (!firstLine) return "";
+  let t = firstLine;
+  const end = t.search(/[.!?。！？]/);
+  if (end >= 8 && end < 100) t = t.slice(0, end);
+  return t.slice(0, 120).trim();
+}
+
+/** Derive a concise page title from the vision description's first meaningful
+ *  line (e.g. a transcribed headline). Returns undefined if nothing usable. */
+function deriveImageTitle(visionText?: string): string | undefined {
+  if (!visionText) return undefined;
+  const firstLine = visionText
+    .split("\n")
+    .map((l) => l.replace(/^[#>\-*\d.\s)]+/, "").trim())
+    .find((l) => l.length > 0);
+  if (!firstLine) return undefined;
+  let title = firstLine;
+  const sentenceEnd = title.search(/[.!?。！？\n]/);
+  if (sentenceEnd >= 8 && sentenceEnd < 80) title = title.slice(0, sentenceEnd);
+  title = title.slice(0, 80).trim();
+  return title || undefined;
+}
+
+/** Derive a human-ish title from a filename or URL (e.g. "diagram-2.png" →
+ *  "diagram 2"). Falls back to "Image". */
+function humanizeFilename(nameOrUrl: string): string {
+  let base = nameOrUrl;
+  try {
+    base = new URL(nameOrUrl).pathname.split("/").pop() || nameOrUrl;
+  } catch {
+    // not a URL — use as-is
+  }
+  base = base.split("?")[0].split("#")[0].replace(/\.[a-z0-9]+$/i, "");
+  return base.replace(/[-_]+/g, " ").trim() || "Image";
+}
+
+/**
+ * Ingest a single image. Stores the image as an asset, runs a vision model to
+ * extract a description (fail-soft), and writes a wiki page that embeds the
+ * image followed by the description. The LLM re-distillation is skipped (the
+ * body is already small and correct) but frontmatter/dedup/embedding all reuse
+ * the normal {@link ingest} pipeline.
+ *
+ * Accepts either an `imageUrl` (fetched + SSRF-guarded) or raw `bytes` (upload).
+ */
+export async function ingestImage(
+  input: { imageUrl?: string; bytes?: ArrayBuffer; filename?: string; contentType?: string },
+  options?: IngestOptions & { title?: string },
+): Promise<IngestResult> {
+  const { imageUrl, bytes: uploadedBytes, filename: uploadName } = input;
+
+  // Dedup by URL first — cheapest path (no fetch, no vision, no LLM).
+  if (imageUrl && !options?.preview && !options?.generatedContent) {
+    const dupSlug = await resolveSourceUrl(imageUrl);
+    if (dupSlug) {
+      const result = await attachIngestTrigger(dupSlug, {
+        url: imageUrl,
+        type: "image",
+        triggeredBy: options?.triggeredBy,
+        actorOwner: options?.owner ?? options?.author,
+      });
+      if (result) return result;
+    }
+  }
+
+  // 1. Obtain the bytes + metadata WITHOUT storing yet — we may title the page
+  //    (and thus the slug) from the vision text, so the slug isn't known yet.
+  let bytes: ArrayBuffer;
+  let filename: string;
+  let mediaType: string | undefined;
+  if (imageUrl) {
+    const fetched = await fetchImageBytes(imageUrl);
+    bytes = fetched.bytes;
+    filename = fetched.filename;
+    mediaType = fetched.contentType;
+  } else if (uploadedBytes) {
+    bytes = uploadedBytes;
+    filename = uploadName || "image";
+    mediaType = input.contentType;
+  } else {
+    throw new Error("ingestImage requires either imageUrl or bytes");
+  }
+
+  // 2. Vision description — fail-soft (null → image-only page).
+  const vision = await describeImage(bytes, { mediaType });
+
+  // 3. Title: explicit → derived from the vision text → humanized filename.
+  const title =
+    options?.title?.trim() ||
+    deriveImageTitle(vision?.text) ||
+    humanizeFilename(filename || imageUrl || "image");
+  const slug = slugify(title);
+
+  // 4. Store the asset under the final slug.
+  const { localPath } = await storeImageBytes(bytes, slug, filename);
+
+  const body =
+    `# ${title}\n\n![${title}](${localPath})` + (vision ? `\n\n${vision.text}` : "");
+
+  // generatedContent writes `body` as-is (skip the wiki-editor LLM) while still
+  // reusing frontmatter, dedup, embedding, cross-refs, and the ledger.
+  const result = await ingest(title, body, {
+    ...options,
+    generatedContent: body,
+    sourceUrl: imageUrl ?? "upload",
+    sourceType: "image",
+  });
+  // On preview, return the body as sourceContent so the client can commit it via
+  // the text path on approve (the image asset is already stored above).
+  return options?.preview ? { ...result, sourceContent: body } : result;
+}
+
+/**
+ * Ingest a PDF — either from a URL or uploaded bytes.
+ *
+ * URL path: dedup check → fetchUrlContent (which handles application/pdf) → ingest().
+ * Upload path: extract text via unpdf → ingest() with sourceType "pdf".
+ */
+export async function ingestPdf(
+  input: { pdfUrl: string } | { bytes: ArrayBuffer; filename: string },
+  options?: Omit<IngestOptions, "sourceType"> & { title?: string; tags?: string[] },
+): Promise<IngestResult> {
+  // URL path: delegate to ingestUrl which already handles PDF content-type
+  if ("pdfUrl" in input) {
+    const url = input.pdfUrl;
+    // Dedup check
+    if (!options?.preview && !options?.generatedContent) {
+      const dupSlug = await resolveSourceUrl(url);
+      if (dupSlug) {
+        const result = await attachIngestTrigger(dupSlug, {
+          url,
+          type: "pdf",
+          triggeredBy: options?.triggeredBy,
+          actorOwner: options?.owner ?? options?.author,
+        });
+        if (result) return result;
+      }
+    }
+    // fetchUrlContent now handles application/pdf natively
+    const { title, content } = await fetchUrlContent(url);
+    const result = await ingest(options?.title ?? title, content, {
+      ...options,
+      sourceUrl: url,
+      sourceType: "pdf",
+    });
+    // On preview, return the extracted text so the client can replay it to the
+    // text commit path on approve (no re-fetch / re-extract needed).
+    return options?.preview ? { ...result, sourceContent: content } : result;
+  }
+
+  // Upload path: extract text from bytes directly
+  const { bytes, filename } = input;
+  if (bytes.byteLength > MAX_PDF_SIZE) {
+    throw new ClientInputError(
+      `PDF too large (${(bytes.byteLength / 1024 / 1024).toFixed(1)} MB). Maximum: ${MAX_PDF_SIZE / 1024 / 1024} MB.`,
+    );
+  }
+
+  // Layout-aware extraction (preserves line/paragraph structure) — shared with
+  // the URL PDF path so the raw stays readable and synthesis gets better input.
+  const trimmed = (await pdfToText(bytes)).trim();
+  if (!trimmed) {
+    throw new ClientInputError(
+      "PDF has no extractable text layer. Scanned/image-only PDFs are not supported yet.",
+    );
+  }
+  const content =
+    trimmed.length > MAX_CONTENT_LENGTH
+      ? trimmed.slice(0, MAX_CONTENT_LENGTH)
+      : trimmed;
+
+  // Derive title from first line or filename.
+  const firstLine =
+    trimmed.split("\n").find((l) => l.trim().length > 0)?.trim() ?? "";
+  const derivedTitle =
+    firstLine.length > 200 ? firstLine.slice(0, 200) : firstLine;
+  const title =
+    options?.title || derivedTitle || filename.replace(/\.pdf$/i, "") || "PDF Document";
+
+  const result = await ingest(title, content, {
+    ...options,
+    sourceType: "pdf",
+  });
+  return options?.preview ? { ...result, sourceContent: content } : result;
+}
+
+/**
+ * Re-ingest a previously ingested wiki page by re-fetching its `source_url`.
+ *
+ * Reads the page's frontmatter to find the original URL, fetches fresh content,
+ * and runs the standard ingest pipeline to update the page.
+ *
+ * @throws {Error} When the page doesn't exist or has no `source_url` in its frontmatter.
+ */
+export async function reingest(
+  slug: string,
+  opts?: {
+    author?: string;
+    owner?: string;
+    triggeredBy?: string;
+    /** Synthesize and return the draft WITHOUT writing (for a review step). */
+    preview?: boolean;
+    /** Commit a reviewed draft (skips the LLM, writes this body as-is). */
+    generatedContent?: string;
+  },
+): Promise<IngestResult> {
+  const page = await readWikiPageWithFrontmatter(slug);
+  if (!page) {
+    throw new Error(`Cannot re-ingest: page "${slug}" not found`);
+  }
+
+  const sourceUrl = page.frontmatter.source_url;
+  if (typeof sourceUrl !== "string" || sourceUrl.trim() === "") {
+    throw new Error("Cannot re-ingest: no source URL recorded");
+  }
+
+  // Re-fetch via the SAME routing as ingestUrl (YouTube transcript, X
+  // syndication, else plain fetch) — otherwise an X post re-fetches the JS
+  // shell ("Something went wrong") and a tweet page rebuilds from the error
+  // page. `pinSlug` keeps the result on this page instead of forking to a new
+  // concept-derived slug.
+  if (isYouTubeUrl(sourceUrl)) {
+    const { title, content } = await fetchYouTubeContent(sourceUrl);
+    return ingest(title, content, {
+      sourceUrl,
+      sourceType: "youtube",
+      pinSlug: slug,
+      ...opts,
+    });
+  }
+
+  if (isXPostUrl(sourceUrl)) {
+    const { title, content } = await fetchXPostContent(sourceUrl);
+    return ingest(title, content, {
+      sourceUrl,
+      sourceType: "x-mention",
+      pinSlug: slug,
+      ...opts,
+    });
+  }
+
+  const { title, content: rawContent } = await fetchUrlContent(sourceUrl);
+  const content = await downloadImages(rawContent, slug, getRawDir());
+  return ingest(title, content, { sourceUrl, pinSlug: slug, ...opts });
+}
+
+/**
+ * Ingest an X (Twitter) post into the wiki.
+ *
+ * Delegates to {@link ingestUrl}, which reads the post via the syndication CDN
+ * (X serves a JS shell to plain fetches), tagged with `x-mention` provenance so
+ * the source is correctly attributed.
+ *
+ * @param url         - Full URL to the X/Twitter post.
+ * @param triggeredBy - Handle of the user or agent that triggered the ingest.
+ */
+export async function ingestXMention(
+  url: string,
+  triggeredBy: string,
+  opts?: { author?: string; owner?: string },
+): Promise<IngestResult> {
+  return ingestUrl(url, {
+    sourceType: "x-mention",
+    triggeredBy,
+    ...opts,
+  });
+}
+
+/**
+ * Ingest a YouTube video into the wiki.
+ *
+ * Fetches the video transcript and metadata via the youtube module,
+ * then delegates to the standard ingest pipeline with `youtube` provenance.
+ */
+export async function ingestYouTube(
+  url: string,
+  options?: IngestOptions,
+): Promise<IngestResult> {
+  const { title, content } = await fetchYouTubeContent(url);
+  return ingest(title, content, {
+    ...options,
+    sourceUrl: url,
+    sourceType: "youtube",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fallback stub (no API key)
+// ---------------------------------------------------------------------------
+
+function generateFallbackPage(title: string, content: string): string {
+  const preview = content.length > 200 ? content.slice(0, 200) + "..." : content;
+  return `# ${title}\n\n## Summary\n\n${preview}\n\n## Raw Content\n\n${content}`;
+}
+
+// ---------------------------------------------------------------------------
+// Image preservation
+// ---------------------------------------------------------------------------
+
+/**
+/** An image ref captured from the source for token-based inline placement. */
+interface SourceImageRef {
+  alt: string;
+  ref: string;
+}
+
+/** Image refs we strip outright (decorative/branding/UI — never content). */
+const DECORATIVE_IMAGE_RE = /(logo|icon|avatar|sprite|favicon|emoji|banner)/i;
+
+/**
+ * Replace the source's image refs with short `[[IMG:n]]` placeholder tokens at
+ * their original positions, so the synthesis LLM can keep the genuine ones by
+ * placing the same token inline where it now belongs (and omit the rest) — the
+ * LLM reliably preserves a tiny token but mangles long `assets/<slug>/x.png`
+ * paths. Decorative/branding images are removed outright (never tokenized).
+ * Returns the tokenized text plus the ordered ref map for {@link restoreImageTokens}.
+ */
+export function tokenizeSourceImages(content: string): {
+  text: string;
+  refs: SourceImageRef[];
+} {
+  const refs: SourceImageRef[] = [];
+  const tokenByRef = new Map<string, number>(); // dedup: same ref → same token
+  const re = /!\[([^\]]*)\]\(((?:assets\/|https?:\/\/)[^)\s]+)\)/g;
+  const text = content.replace(re, (_whole, alt: string, ref: string) => {
+    if (DECORATIVE_IMAGE_RE.test(ref) || DECORATIVE_IMAGE_RE.test(alt)) {
+      return ""; // strip decorative images so the LLM never sees them
+    }
+    const existing = tokenByRef.get(ref);
+    if (existing) return `\n\n[[IMG:${existing}]]\n\n`; // reuse — don't spend a cap slot
+    if (refs.length >= MAX_APPENDED_IMAGES) return ""; // past the cap → drop (don't leak a raw ref)
+    refs.push({ alt, ref });
+    tokenByRef.set(ref, refs.length);
+    return `\n\n[[IMG:${refs.length}]]\n\n`;
+  });
+  return { text, refs };
+}
+
+/**
+ * Substitute the real image refs back for the `[[IMG:n]]` tokens the LLM kept.
+ * Tokens the LLM omitted are absent (those images are filtered out); tokens with
+ * an out-of-range/invalid `n` (hallucinated) are dropped.
+ */
+export function restoreImageTokens(body: string, refs: SourceImageRef[]): string {
+  const kept = new Set<number>();
+  const out = body.replace(/\[\[IMG:(\d+)\]\]/g, (_whole, n: string) => {
+    const idx = Number(n) - 1;
+    const img = refs[idx];
+    if (!img) return "";
+    kept.add(idx);
+    return `![${img.alt}](${img.ref})`;
+  });
+  // Observability: a sudden "kept 0/N" signals a prompt/truncation regression
+  // silently dropping real figures (which otherwise leaves no trace).
+  if (refs.length > 0) {
+    logger.debug("ingest", `inline images: kept ${kept.size}/${refs.length}`);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Summary extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a short summary from content by finding the first sentence.
+ *
+ * Uses sentence-ending punctuation followed by whitespace (`[.!?]\s`) or
+ * paragraph breaks (`\n\n`) as boundaries — avoids splitting on abbreviations
+ * like "Dr." or "U.S." where the period is not followed by a space that starts
+ * a new sentence (though it's a heuristic, not perfect).
+ *
+ * Returns at most `maxLen` characters.
+ */
+export function extractSummary(content: string, maxLen = 200): string {
+  const trimmed = content.trim();
+  if (!trimmed) return "";
+
+  // Look for a sentence boundary: period/exclamation/question followed by a space
+  const sentenceEnd = trimmed.search(/[.!?]\s/);
+  // Look for a paragraph break
+  const paraBreak = trimmed.indexOf("\n\n");
+
+  // Pick the earliest valid boundary
+  let cutoff = -1;
+  if (sentenceEnd !== -1 && paraBreak !== -1) {
+    cutoff = Math.min(sentenceEnd + 1, paraBreak); // +1 to include the punctuation
+  } else if (sentenceEnd !== -1) {
+    cutoff = sentenceEnd + 1;
+  } else if (paraBreak !== -1) {
+    cutoff = paraBreak;
+  }
+
+  let summary: string;
+  if (cutoff !== -1 && cutoff <= maxLen) {
+    summary = trimmed.slice(0, cutoff).trim();
+  } else {
+    // No sentence boundary found or it's too far — just truncate
+    summary =
+      trimmed.length > maxLen
+        ? trimmed.slice(0, maxLen).trim() + "..."
+        : trimmed.trim();
+  }
+
+  return summary;
+}
+
+// ---------------------------------------------------------------------------
+// Content chunking
+// ---------------------------------------------------------------------------
+
+/**
+ * Split text into chunks of at most `maxChars` characters.
+ *
+ * Strategy:
+ * 1. Split on paragraph boundaries (`\n\n`).
+ * 2. Greedily combine paragraphs into chunks up to `maxChars`.
+ * 3. If a single paragraph exceeds `maxChars`, split it on sentence
+ *    boundaries (`. `, `! `, `? ` followed by whitespace or end-of-string).
+ * 4. If a single sentence still exceeds `maxChars`, hard-split at `maxChars`.
+ *
+ * Returns an array of chunks, each ≤ `maxChars`.
+ */
+export function chunkText(text: string, maxChars: number = MAX_LLM_INPUT_CHARS): string[] {
+  if (text.length <= maxChars) return [text];
+
+  const paragraphs = text.split(/\n\n+/);
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const para of paragraphs) {
+    // If this single paragraph fits in the current chunk, append it
+    if (current.length === 0 && para.length <= maxChars) {
+      current = para;
+      continue;
+    }
+
+    if (current.length > 0 && current.length + 2 + para.length <= maxChars) {
+      current += "\n\n" + para;
+      continue;
+    }
+
+    // Flush current chunk if non-empty
+    if (current.length > 0) {
+      chunks.push(current);
+      current = "";
+    }
+
+    // If the paragraph itself fits in a chunk, start a new chunk with it
+    if (para.length <= maxChars) {
+      current = para;
+      continue;
+    }
+
+    // Oversized paragraph — split on sentence boundaries
+    const sentences = splitSentences(para);
+    for (const sentence of sentences) {
+      if (sentence.length > maxChars) {
+        // Hard-split an oversized sentence
+        for (let i = 0; i < sentence.length; i += maxChars) {
+          const piece = sentence.slice(i, i + maxChars);
+          if (current.length === 0) {
+            chunks.push(piece);
+          } else if (current.length + 1 + piece.length <= maxChars) {
+            current += " " + piece;
+          } else {
+            chunks.push(current);
+            chunks.push(piece);
+            current = "";
+          }
+        }
+        continue;
+      }
+
+      if (current.length === 0) {
+        current = sentence;
+      } else if (current.length + 1 + sentence.length <= maxChars) {
+        current += " " + sentence;
+      } else {
+        chunks.push(current);
+        current = sentence;
+      }
+    }
+  }
+
+  if (current.length > 0) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
+/**
+ * Split a paragraph into sentences. Uses sentence-ending punctuation
+ * followed by whitespace as the delimiter. Keeps the punctuation attached
+ * to the sentence.
+ */
+function splitSentences(text: string): string[] {
+  // Temporarily replace markdown image/link references so their internal
+  // dots (e.g. "image.jpg") don't trigger sentence-boundary splits.
+  const placeholders: string[] = [];
+  const shielded = text.replace(/!?\[[^\]]*\]\([^)]*\)/g, (match) => {
+    const idx = placeholders.length;
+    placeholders.push(match);
+    return `\x00MDREF${idx}\x00`;
+  });
+
+  // Split after sentence-ending punctuation followed by whitespace
+  const parts = shielded.split(/(?<=[.!?])\s+/);
+
+  // Restore placeholders
+  return parts
+    .map((s) =>
+      s.replace(/\x00MDREF(\d+)\x00/g, (_, idx) => placeholders[Number(idx)]),
+    )
+    .filter((s) => s.length > 0);
+}
+
+// ---------------------------------------------------------------------------
+// Ingest pipeline
+// ---------------------------------------------------------------------------
+
+// Conventions are documented in SCHEMA.md at the repo root.
+const INGEST_SYSTEM_PROMPT_BASE = `You are a wiki editor. Given a source document, generate a wiki article in markdown format.
+
+Begin your output with these three header lines in EXACTLY this form:
+CONCEPT: <canonical concept name>
+ALIASES: <comma-separated alternative names / synonyms for the concept, or "none">
+TAGS: <3-6 lowercase, hyphenated topic tags, comma-separated>
+CONCEPT names the one CANONICAL CONCEPT the document is about — the established term other writers on the same topic would also use (a concept, NOT the article's headline). Pick a granularity that is one coherent topic: general enough that other articles on the same subject would share it, specific enough not to lump distinct topics together.
+ALIASES lists other names the SAME concept is known by (acronyms, expansions, common synonyms) so future sources under those names converge here — not narrower sub-topics or related concepts. Use "none" if there are no real synonyms.
+TAGS are 3-6 broad topical labels for browsing/filtering (e.g. \`machine-learning\`, \`distributed-systems\`) — lowercase, hyphenated, no \`#\`. Tags are coarser than the CONCEPT: they group MANY pages, so reuse shared themes rather than coining a unique tag per page.
+
+Then, on the following lines, the wiki article. Include:
+- A title as a level-1 heading (# Title) — use the SAME canonical concept
+- A brief summary section (## Summary)
+- Key points or takeaways (## Key Points)
+- Notable entities, concepts, or terms worth remembering (## Concepts)
+- A detailed section (## Details) that DISTILLS the source's essential substance
+  — the key explanations, definitions, mechanisms, steps, and notable specifics
+  a reader needs to understand the concept — as readable prose and lists. Be
+  concise: omit boilerplate, marketing, repetition, and tangents; summarize
+  rather than transcribe. The full raw source is preserved separately and one
+  click away ("View raw"), so do NOT try to reproduce it. Invent nothing not
+  supported by the source.
+
+Images: the source may contain placeholder tokens like \`[[IMG:1]]\`. KEEP the ones that are genuine content — diagrams, figures, charts, screenshots that illustrate the topic — by writing the SAME token on its own line at the most relevant point in the article (next to the text it illustrates). Omit any token whose image is clearly decorative/branding/UI. Never invent tokens or change their numbers; output each kept token verbatim.
+
+Write a focused, distilled page, not a transcript of the source. Output the CONCEPT, ALIASES, and TAGS lines, then pure markdown, and nothing else. Do not wrap in code fences.`;
+
+/**
+ * System prompt for continuation chunks when a long source document has been
+ * split into multiple parts. The LLM receives the article produced so far and
+ * a new batch of source material and should produce only the *additional*
+ * sections — no duplicate title or summary.
+ */
+const CONTINUATION_SYSTEM_PROMPT = `You are a wiki editor. You have already started a wiki article from earlier parts of a long source document. You are now given additional source material.
+
+Add new key points, concepts, and details from the additional source material. Do NOT repeat the title, summary, or any content already in the article. Only output the new sections or bullet points to append.
+
+Images: the source may contain placeholder tokens like \`[[IMG:1]]\`. Keep genuine content images (diagrams, figures, charts, screenshots) by writing the SAME token on its own line where relevant; omit any whose image is clearly decorative/branding/UI. Never invent tokens or change their numbers.
+
+Output pure markdown and nothing else. Do not wrap in code fences.`;
+
+/**
+ * System prompt for reconciling an existing page with a newly ingested source
+ * on the SAME concept (the accumulate-and-reconcile step). The LLM merges both
+ * into one canonical article rather than the new ingest overwriting the page,
+ * and surfaces contradictions instead of silently picking a side.
+ */
+const RECONCILE_SYSTEM_PROMPT = `You are a wiki editor maintaining a single canonical page about one concept. You are given the page's CURRENT content and a NEWLY INGESTED article about the same concept. Merge them into one cohesive, up-to-date wiki article.
+
+Rules:
+- Preserve all substantive information from BOTH versions; integrate the new material rather than discarding what's already on the page.
+- Remove redundancy; keep the existing section structure (## Summary, ## Key Points, ## Concepts, ## Details) and any image markdown, without duplicating images.
+- Do NOT invent anything not supported by either source.
+- If the new article CONTRADICTS the current page on any material fact, do not silently pick one side: keep both positions (attributing each) and begin your ENTIRE output with a single line, exactly:
+DISPUTED: yes
+  Otherwise do not emit a DISPUTED line.
+
+Output the optional DISPUTED line, then pure markdown, and nothing else. Do not wrap in code fences.`;
+
+/**
+ * The ingest synthesis prompt asks the LLM to begin its output with two header
+ * lines naming the canonical concept and its synonyms:
+ *
+ *     CONCEPT: <canonical concept name>
+ *     ALIASES: <comma/semicolon-separated synonyms, or "none">
+ *
+ * Parse those out and return the concept, the alias list, and the body with
+ * both header lines removed.
+ *
+ * Two articles about the same concept under different headlines (e.g. "Intro
+ * to Transformers" and "The Transformer Architecture Explained") both emit
+ * `CONCEPT: Transformer`, so they converge onto one content-derived slug
+ * instead of forking by title. The aliases widen the exact-match net (acronyms,
+ * expansions) so future sources under those names also converge.
+ *
+ * Returns `concept: ""` (and no aliases) when the marker is absent — the
+ * deterministic fallback page, a commit-from-preview body (already stripped),
+ * older pages, or test mocks — so callers keep the title-derived slug unchanged.
+ * The `ALIASES` line is optional even when `CONCEPT` is present.
+ */
+export function parseConceptMarker(raw: string): {
+  concept: string;
+  aliases: string[];
+  tags: string[];
+  body: string;
+} {
+  const conceptM = raw.match(/^\uFEFF?\s*CONCEPT:[ \t]*(.+?)[ \t]*(?:\r?\n|$)/i);
+  if (!conceptM) return { concept: "", aliases: [], tags: [], body: raw };
+
+  let rest = raw.slice(conceptM[0].length);
+  let aliases: string[] = [];
+  let tags: string[] = [];
+  const splitList = (s: string) =>
+    s
+      .split(/[;,]/)
+      .map((x) => x.trim())
+      .filter((x) => x !== "" && x.toLowerCase() !== "none");
+
+  // Consume the optional ALIASES / TAGS header lines in either order.
+  for (let i = 0; i < 2; i++) {
+    const aliasM = rest.match(/^\s*ALIASES:[ \t]*(.*?)[ \t]*(?:\r?\n|$)/i);
+    if (aliasM && aliases.length === 0) {
+      rest = rest.slice(aliasM[0].length);
+      aliases = splitList(aliasM[1]);
+      continue;
+    }
+    const tagM = rest.match(/^\s*TAGS:[ \t]*(.*?)[ \t]*(?:\r?\n|$)/i);
+    if (tagM && tags.length === 0) {
+      rest = rest.slice(tagM[0].length);
+      tags = normalizeTags(splitList(tagM[1]));
+      continue;
+    }
+    break;
+  }
+
+  return {
+    concept: conceptM[1].trim(),
+    aliases,
+    tags,
+    body: rest.replace(/^\s+/, ""),
+  };
+}
+
+/**
+ * Normalize free-text tags to the wiki's canonical form: lowercase,
+ * hyphen-separated, no leading `#`, deduped, capped at {@link MAX_AUTO_TAGS}.
+ * Keeps tags consistent regardless of how the LLM (or a caller) cased/spaced them.
+ */
+export function normalizeTags(raw: string[], max: number = MAX_AUTO_TAGS): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of raw) {
+    const tag = t
+      .toLowerCase()
+      .trim()
+      .replace(/^#+/, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    if (tag && !seen.has(tag)) {
+      seen.add(tag);
+      out.push(tag);
+      if (out.length >= max) break;
+    }
+  }
+  return out;
+}
+
+/** Cosine-similarity floor for treating the nearest existing page as the SAME
+ *  concept on a semantic match. Deliberately conservative — a wrong merge is
+ *  harder to undo than a fork, so we err toward a new page when unsure. */
+export const CONCEPT_MERGE_THRESHOLD = 0.86;
+
+/**
+ * Resolve the slug an ingest should land on, given a content-derived concept.
+ * Convergence ladder — each step only redirects to an EXISTING page; otherwise
+ * the candidate concept slug is used and a new page is forked:
+ *
+ *   1. Exact — the candidate concept slug is already a page.
+ *   2. Alias — the concept or one of its synonyms resolves (via the alias
+ *      index) to an existing page.
+ *   3. Semantic — the nearest existing page by embedding similarity is at or
+ *      above {@link CONCEPT_MERGE_THRESHOLD}. Scoped to the SAME owner's silo so
+ *      a fuzzy match never attaches a source to another tenant's page.
+ *
+ * `embedBody` is the synthesized page body used for the semantic query. Returns
+ * the candidate concept slug unchanged when no confident existing match is
+ * found. Embedding-unavailable environments (e.g. tests) cleanly skip step 3.
+ */
+async function resolveConceptSlug(
+  candidateSlug: string,
+  concept: string,
+  aliases: string[],
+  embedBody: string,
+  owner: string,
+  pageType: string | undefined,
+): Promise<string> {
+  // 1. Exact concept-slug hit.
+  if (await readWikiPageWithFrontmatter(candidateSlug)) return candidateSlug;
+
+  // 2. Alias / slug index over the concept and its synonyms.
+  for (const term of [concept, ...aliases]) {
+    const hit = await resolveAlias(term);
+    if (
+      hit &&
+      hit !== candidateSlug &&
+      (await readWikiPageWithFrontmatter(hit))
+    ) {
+      return hit;
+    }
+  }
+
+  // 3. Semantic nearest-page (the robust catch for LLM wording drift).
+  if (hasEmbeddingSupport()) {
+    const hits = await searchByVector(`${concept}\n\n${embedBody}`, 3);
+    for (const { slug: hitSlug, score } of hits) {
+      if (score < CONCEPT_MERGE_THRESHOLD) break; // sorted desc — none closer
+      if (hitSlug === candidateSlug) continue;
+      const page = await readWikiPageWithFrontmatter(hitSlug);
+      if (!page) continue;
+      // Same-silo guard: only merge into a page this owner owns, AND only when
+      // the page scope matches — so a fuzzy match can't fold agent-knowledge
+      // into a public feed page (or vice versa). Conservative: err toward fork.
+      const sameOwner = (page.frontmatter.owner ?? "system") === owner;
+      const sameScope = (page.frontmatter.type ?? "") === (pageType ?? "");
+      if (sameOwner && sameScope) return hitSlug;
+    }
+  }
+
+  // 4. No confident match — fork onto the candidate concept slug.
+  return candidateSlug;
+}
+
+/**
+ * Parse a leading `DISPUTED: yes` line the reconcile prompt emits when the new
+ * source contradicts the existing page. Returns whether the page is disputed
+ * plus the body with the marker line stripped. Absent / "no" → not disputed.
+ */
+export function parseDisputedMarker(raw: string): {
+  disputed: boolean;
+  body: string;
+} {
+  const m = raw.match(/^﻿?\s*DISPUTED:[ \t]*(yes|true)[ \t]*(?:\r?\n|$)/i);
+  if (!m) return { disputed: false, body: raw };
+  return { disputed: true, body: raw.slice(m[0].length).replace(/^\s+/, "") };
+}
+
+/**
+ * Reconcile an existing page body with a newly ingested article on the same
+ * concept via a single LLM call (the accumulate-and-reconcile step). Returns
+ * the merged body and whether the new source contradicts the existing page
+ * (→ `disputed`).
+ *
+ * Defensive about the model's output: strips a `DISPUTED:` marker, then any
+ * echoed `CONCEPT:`/`ALIASES:` synthesis headers. Falls back to the new body on
+ * an empty/failed response so a reconcile hiccup never blanks the page.
+ */
+async function reconcilePage(
+  existingBody: string,
+  newBody: string,
+): Promise<{ body: string; disputed: boolean }> {
+  const user = `# Current page\n\n${existingBody}\n\n# Newly ingested article (same concept)\n\n${newBody}`;
+  const out = await callLLM(RECONCILE_SYSTEM_PROMPT, user, {
+    maxOutputTokens: INGEST_MAX_OUTPUT_TOKENS,
+  });
+  if (!out || out.trim() === "") {
+    return { body: newBody, disputed: false };
+  }
+  const { disputed, body: afterDisputed } = parseDisputedMarker(out);
+  // Guard against the model echoing the synthesis headers into the merged body.
+  const { body } = parseConceptMarker(afterDisputed);
+  return { body, disputed };
+}
+
+/**
+ * Build the ingest system prompt by composing the base prompt with the
+ * "Page conventions" slice of SCHEMA.md loaded at runtime. Read on every
+ * call (no caching) so live edits to SCHEMA.md take effect immediately —
+ * the whole point is to keep prompt and schema co-evolving.
+ */
+/**
+ * The wiki's existing tag vocabulary (most-used first), so the synthesis LLM can
+ * PREFER reusing established tags over coining near-duplicates ("llm" vs "llms").
+ * Capped at {@link TAG_VOCAB_LIMIT} to bound prompt size. Best-effort: returns
+ * `[]` if the index can't be read.
+ */
+export async function collectTagVocabulary(
+  limit: number = TAG_VOCAB_LIMIT,
+): Promise<string[]> {
+  try {
+    const counts = new Map<string, number>();
+    for (const entry of await listWikiPages()) {
+      for (const t of entry.tags ?? []) {
+        if (typeof t === "string" && t.trim() !== "") {
+          counts.set(t, (counts.get(t) ?? 0) + 1);
+        }
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, limit)
+      .map(([tag]) => tag);
+  } catch {
+    return [];
+  }
+}
+
+export async function buildIngestSystemPrompt(): Promise<string> {
+  const conventions = await loadPageConventions();
+  const vocab = await collectTagVocabulary();
+
+  let prompt = INGEST_SYSTEM_PROMPT_BASE;
+  if (conventions !== "") {
+    prompt += `
+
+The wiki you are editing follows these conventions (from SCHEMA.md):
+
+${conventions}
+
+Follow these conventions when generating the page.`;
+  }
+  if (vocab.length > 0) {
+    prompt += `
+
+Tags already used across this wiki (PREFER reusing an existing tag when it fits; only coin a new one when none apply):
+${vocab.join(", ")}`;
+  }
+  return prompt;
+}
+
+// ---------------------------------------------------------------------------
+// Ingest options
+// ---------------------------------------------------------------------------
+
+/** Options for the two-phase ingest workflow. */
+export interface IngestOptions {
+  /**
+   * When `true`, run the LLM and return the generated wiki content without
+   * writing anything to disk. The caller can display this for human review
+   * before committing.
+   */
+  preview?: boolean;
+  /**
+   * Pre-generated wiki content from a prior preview call. When provided the
+   * LLM is skipped entirely and this content is written to disk as-is. This
+   * avoids paying for the LLM call twice (once for preview, once for commit).
+   */
+  generatedContent?: string;
+  /**
+   * Original source URL. Set automatically by `ingestUrl()` so the URL is
+   * persisted in the wiki page's frontmatter as `source_url`.
+   */
+  sourceUrl?: string;
+  /**
+   * Provenance type override. When set, this type is used instead of the
+   * default `"url"` / `"text"` heuristic when building the `sources[]` entry.
+   * Used by `ingestXMention()` to set `"x-mention"` provenance.
+   */
+  sourceType?: "url" | "text" | "x-mention" | "image" | "pdf" | "youtube";
+  /**
+   * Who triggered the ingest (user handle or agent ID). Defaults to `"system"`.
+   * Passed through to the `triggered_by` field on the `SourceEntry`.
+   */
+  triggeredBy?: string;
+  /**
+   * Tags to apply to the created/updated page. Merged with any existing tags
+   * when re-ingesting an existing page.
+   */
+  tags?: string[];
+  /**
+   * The acting identity that performed this ingest (a user handle, or `yoyo`
+   * when mediated). Becomes `authors` on a new page and is appended to
+   * `contributors` on re-ingest. Set from the authenticated session by the
+   * route — never from client input. Falls back to `"system"`.
+   */
+  author?: string;
+  /**
+   * The principal who owns the resulting page (accountable party). For manual
+   * ingests this equals `author`; for mediated ingests it's the triggering
+   * user. Defaults to `author`.
+   */
+  owner?: string;
+  /**
+   * Optional page `type` frontmatter. When set on a NEW page, marks it as
+   * agent-scoped so it is excluded from the public browse feed and general
+   * search, surfacing only via an `agent:` scope. A union (not open string) so
+   * a typo can't silently produce an unscoped page. Ignored on re-ingest of an
+   * existing page (its scope is preserved — see below).
+   */
+  pageType?: "agent-knowledge" | "agent-identity";
+  /**
+   * Pin the result to this exact slug, bypassing concept/alias slug derivation.
+   * Used by `reingest()` so re-synthesizing a page updates it IN PLACE rather
+   * than forking to a new concept-derived slug (e.g. `agentic-system` →
+   * `agentic-systems`). Only honored on the direct synthesis path.
+   */
+  pinSlug?: string;
+}
+
+/**
+ * Attach a new ingest trigger to an existing canonical page **without
+ * re-synthesizing** — the token-saving dedup path. Used when a source (same URL
+ * or identical content) was already ingested: append a provenance entry + the
+ * triggerer, bump `updated`, increment `source_count`, but skip the LLM and (the
+ * body is unchanged) any new embedding. Returns `null` if the page is missing
+ * (stale index) so the caller can fall through to a normal ingest.
+ */
+/**
+ * Reduce a handle to its human identity: an agent id `<user>--<name>` collapses
+ * to `<user>` (slugified), a plain handle slugifies as-is. Mirrors the
+ * owner-equivalence `canReadPage`/`canWritePage` use, at the handle level.
+ */
+function humanOf(handle: string): string {
+  const i = handle.indexOf("--");
+  return slugify(i >= 0 ? handle.slice(0, i) : handle);
+}
+
+/**
+ * True iff ingest actor `actorOwner` belongs to the same human-owner class as a
+ * page owned by `pageOwner` — i.e. the actor (or their agent) owns it. Used to
+ * decide whether an ingest may converge onto a PRIVATE page: private content is
+ * owner-only, so a non-owner must never dedup/merge into it.
+ */
+function sameHumanOwner(actorOwner: string | undefined, pageOwner: unknown): boolean {
+  if (typeof pageOwner !== "string" || pageOwner.trim() === "") return false;
+  if (!actorOwner || actorOwner.trim() === "") return false;
+  return humanOf(actorOwner) === humanOf(pageOwner);
+}
+
+/** Find a slug not taken by any existing page (`base`, `base-2`, `base-3`, …). */
+async function findFreeSlug(base: string): Promise<string> {
+  let candidate = base;
+  let n = 2;
+  while (await readWikiPageWithFrontmatter(candidate)) {
+    candidate = `${base}-${n++}`;
+  }
+  return candidate;
+}
+
+async function attachIngestTrigger(
+  slug: string,
+  source: {
+    url: string;
+    type: SourceEntry["type"];
+    triggeredBy?: string;
+    /** The ingest's acting owner — used to gate dedup into a PRIVATE page. */
+    actorOwner?: string;
+  },
+): Promise<IngestResult | null> {
+  const existing = await readWikiPageWithFrontmatter(slug);
+  if (!existing) return null; // index drifted — let the caller ingest normally
+
+  // Realm-aware dedup: private content is owner-only, so a caller who isn't the
+  // owner (or their agent) must NOT dedup into a private page — no write, no
+  // slug leak. Return null so the caller falls through to a normal ingest that
+  // creates the actor's OWN page.
+  if (
+    existing.frontmatter.visibility === "private" &&
+    !sameHumanOwner(source.actorOwner, existing.frontmatter.owner)
+  ) {
+    return null;
+  }
+
+  const frontmatter: Frontmatter = { ...existing.frontmatter };
+  frontmatter.updated = new Date().toISOString().slice(0, 10);
+
+  // Merge the new provenance entry into sources[] (update fetched/triggered_by
+  // if the same source already has an entry, else append).
+  const entry = buildSourceEntry(source.url, source.type, source.triggeredBy);
+  const existingSourcesRaw = existing.frontmatter.sources;
+  const sources = parseSources(
+    typeof existingSourcesRaw === "string"
+      ? existingSourcesRaw
+      : Array.isArray(existingSourcesRaw)
+        ? existingSourcesRaw
+        : undefined,
+  );
+  const merged = mergeSourceEntry(sources, entry);
+  frontmatter.sources = serializeSources(merged);
+  frontmatter.source_count = String(merged.length);
+
+  // Record the triggerer as a contributor (deduped) — drives the "Mine" lens.
+  const triggeredBy = source.triggeredBy?.trim();
+  if (triggeredBy) {
+    const contribs = Array.isArray(existing.frontmatter.contributors)
+      ? (existing.frontmatter.contributors as string[])
+      : [];
+    if (!contribs.includes(triggeredBy)) {
+      frontmatter.contributors = [...contribs, triggeredBy];
+    }
+  }
+
+  const mergedContent = serializeFrontmatter(frontmatter, existing.body);
+  await writeWikiPageWithSideEffects({
+    slug,
+    title: existing.title,
+    content: mergedContent,
+    summary: extractSummary(existing.body.replace(/^#\s+.+$/m, "").trim()),
+    logOp: "ingest",
+    crossRefSource: null, // skip the cross-ref LLM — pure dedup attach
+    author: triggeredBy,
+    logDetails: () => `dedup: attached trigger to existing page "${slug}"`,
+  });
+
+  const url =
+    typeof frontmatter.source_url === "string" ? frontmatter.source_url : undefined;
+  const hash =
+    typeof frontmatter.content_hash === "string"
+      ? frontmatter.content_hash
+      : undefined;
+  updateSourceIndexForPage(slug, url, hash);
+
+  return {
+    rawPath: "",
+    primarySlug: slug,
+    relatedUpdated: [],
+    wikiPages: [slug],
+    indexUpdated: true,
+    deduped: true,
+    ...(url ? { sourceUrl: url } : {}),
+  };
+}
+
+/**
+ * Ingest a source document into the wiki.
+ *
+ * Supports a two-phase preview workflow:
+ *
+ * 1. **Preview** (`options.preview = true`): run the LLM to generate wiki
+ *    content and identify related pages, but do NOT write anything to disk.
+ *    Returns the result with `previewContent` populated.
+ *
+ * 2. **Commit from preview** (`options.generatedContent` set): skip the LLM,
+ *    use the pre-generated content and write everything to disk. This is the
+ *    "approve" step after a human reviews the preview.
+ *
+ * 3. **Direct ingest** (no options / defaults): the original single-step
+ *    behaviour — call the LLM and write immediately. Fully backward-compatible.
+ */
+export async function ingest(
+  title: string,
+  content: string,
+  options?: IngestOptions,
+): Promise<IngestResult> {
+  const startedAt = new Date().toISOString();
+  // Title is optional for pasted text — derive a provisional one from the
+  // content (the synthesis CONCEPT/H1 still drives the final slug + title below).
+  const effectiveTitle = title.trim() || deriveTitleFromContent(content);
+  const rawSlug = slugify(effectiveTitle);
+
+  if (rawSlug === "") {
+    throw new Error(
+      "Cannot ingest: no title was given and none could be derived from the content",
+    );
+  }
+
+  // --- Alias resolution: check if title matches an existing page's aliases ---
+  // This prevents duplicate pages when the same concept appears under different
+  // names (e.g. "React.js" vs a page with aliases: ["React.js"]).
+  const resolvedSlug = await resolveAlias(effectiveTitle);
+  // Provisional slug from the title. On the direct ingest path this is later
+  // replaced by a content-derived *concept* slug (see the CONCEPT marker below),
+  // so the same concept under different headlines converges onto one page.
+  // `pinSlug` (re-ingest) overrides everything: stay on the known page.
+  let slug = options?.pinSlug ?? resolvedSlug ?? rawSlug;
+  // The page title written to the index/log. Becomes the canonical concept name
+  // when one is derived; otherwise stays the (derived) source title.
+  let pageTitle = effectiveTitle;
+
+  const isPreview = options?.preview === true;
+  const preGeneratedContent = options?.generatedContent;
+
+  // Acting identity + owner come from the authenticated session (set by the
+  // route), never from client input. Fall back to "system" for legacy/bootstrap.
+  // Resolved here (not just at frontmatter-build time) so the concept resolver
+  // can scope a semantic merge to the same owner's silo.
+  const actor = options?.author?.trim() || "system";
+  const owner = options?.owner?.trim() || actor;
+
+  // Download any images referenced in the source to local storage and rewrite
+  // their markdown refs to `assets/<slug>/...`. Centralized here (not in
+  // ingestUrl) so URL, pasted-text, agent, and X ingests all capture images.
+  // Skipped when committing pre-generated content (commit-from-preview or the
+  // image-ingest body): those already ran image capture / carry local refs, so
+  // re-downloading would refetch every image needlessly.
+  if (!preGeneratedContent) {
+    content = await downloadImages(content, slug, getRawDir());
+  }
+
+  // Dedup by content: if identical content was already ingested (any slug),
+  // attach the triggerer and skip the LLM + embedding. Not for preview /
+  // commit-from-preview.
+  const hash = contentHash(content);
+  if (!isPreview && !preGeneratedContent) {
+    const dupSlug = await resolveContentHash(hash);
+    if (dupSlug) {
+      const result = await attachIngestTrigger(dupSlug, {
+        url: options?.sourceUrl ?? "text-paste",
+        type: options?.sourceType ?? (options?.sourceUrl ? "url" : "text"),
+        triggeredBy: options?.triggeredBy,
+        actorOwner: owner,
+      });
+      if (result) return result;
+    }
+  }
+
+  // 1. Generate wiki page content (or use pre-generated from preview)
+  let wikiContent: string;
+  if (preGeneratedContent) {
+    // Commit-from-preview: skip the LLM, use the content the user approved
+    wikiContent = preGeneratedContent;
+  } else if (hasLLMKey()) {
+    const systemPrompt = await buildIngestSystemPrompt();
+    // Swap source images for [[IMG:n]] tokens so the LLM can place the relevant
+    // ones inline (and omit decorative ones); refs are restored after synthesis.
+    const { text: llmInput, refs: imageRefs } = tokenizeSourceImages(content);
+    const chunks = chunkText(llmInput, MAX_LLM_INPUT_CHARS);
+
+    // Larger output budget so the ## Details section can preserve substantive
+    // source content instead of being truncated.
+    const llmOptions = { maxOutputTokens: INGEST_MAX_OUTPUT_TOKENS };
+
+    if (chunks.length === 1) {
+      // Short content — single LLM call (no behaviour change)
+      wikiContent = await callLLM(systemPrompt, chunks[0], llmOptions);
+    } else {
+      // Long content — call LLM per chunk, merge results
+      // First chunk produces the primary page structure
+      wikiContent = await callLLM(systemPrompt, chunks[0], llmOptions);
+
+      // Subsequent chunks add supplemental content
+      for (let i = 1; i < chunks.length; i++) {
+        const continuation = await callLLM(
+          CONTINUATION_SYSTEM_PROMPT,
+          `# Existing article so far\n\n${wikiContent}\n\n# Additional source material (part ${i + 1} of ${chunks.length})\n\n${chunks[i]}`,
+          llmOptions,
+        );
+        wikiContent += "\n\n" + continuation;
+      }
+    }
+
+    // Restore the kept [[IMG:n]] tokens to real refs (omitted ones are dropped).
+    wikiContent = restoreImageTokens(wikiContent, imageRefs);
+  } else {
+    // Use the derived title so a title-less paste doesn't emit an empty `# ` H1.
+    wikiContent = generateFallbackPage(effectiveTitle, content);
+  }
+
+  // Pull the leading `CONCEPT:` / `ALIASES:` header lines the synthesis prompt
+  // asks for (and strip them from the body so they never leak into the page or
+  // preview). Absent for the fallback page / commit-from-preview / test mocks →
+  // concept "" and no aliases.
+  const {
+    concept,
+    aliases: conceptSynonyms,
+    tags: conceptTags,
+    body: conceptStrippedBody,
+  } = parseConceptMarker(wikiContent);
+  wikiContent = conceptStrippedBody;
+
+  // Direct ingest path only: converge onto the content-derived concept slug so
+  // re-ingests of the same concept (under any headline) land on one page. The
+  // preview→commit path keeps the title-derived slug (commit carries no marker)
+  // — preview/commit slug consistency is handled separately.
+  // `pinSlug` (re-ingest) keeps the page on its known slug, so skip concept-slug
+  // convergence — but still adopt the concept as the title and record aliases.
+  let conceptAliases: string[] = [];
+  if (!isPreview && !preGeneratedContent && concept) {
+    if (options?.pinSlug) {
+      pageTitle = concept;
+      conceptAliases = conceptSynonyms;
+    } else {
+      const conceptSlug = slugify(concept);
+      if (conceptSlug !== "") {
+        slug = await resolveConceptSlug(
+          conceptSlug,
+          concept,
+          conceptSynonyms,
+          wikiContent,
+          owner,
+          options?.pageType,
+        );
+        pageTitle = concept;
+        conceptAliases = conceptSynonyms;
+      }
+    }
+  }
+
+  // Images are placed inline during synthesis via [[IMG:n]] tokens (see
+  // tokenizeSourceImages / restoreImageTokens) — no trailing dump.
+
+  // Commit-from-preview carries no CONCEPT marker (preview stripped it), so the
+  // canonical slug would otherwise stay the source-TITLE slug even though the
+  // page H1 shows the synthesized concept — e.g. "Agentic systems" published at
+  // /wiki/building-effective-ai-agents. Re-derive slug + title from the body's
+  // first H1 so they match what the reader sees. Only when the concept slug is
+  // FREE — never clobber a different existing page (same-URL re-ingest already
+  // deduped before synthesis).
+  if (!isPreview && preGeneratedContent) {
+    const h1 = wikiContent.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim();
+    if (options?.pinSlug) {
+      // Re-ingest (commit-from-preview): keep the page on its pinned slug — a
+      // user-edited H1 must never fork it — but let the TITLE follow the H1.
+      if (h1) {
+        pageTitle = h1;
+      } else {
+        // No H1 in the reviewed draft — preserve the EXISTING page's title
+        // rather than overwriting it with the re-fetched source <title>.
+        const existingPage = await readWikiPageWithFrontmatter(slug);
+        const existingTitle = existingPage?.body
+          ?.match(/^#\s+(.+?)\s*$/m)?.[1]
+          ?.trim();
+        if (existingTitle) pageTitle = existingTitle;
+      }
+    } else {
+      const conceptSlug = h1 ? slugify(h1) : "";
+      if (h1 && conceptSlug && conceptSlug !== slug) {
+        const taken = await readWikiPageWithFrontmatter(conceptSlug);
+        if (!taken) {
+          slug = conceptSlug;
+          pageTitle = h1;
+        }
+      }
+    }
+  }
+
+  // 2. Compute the index summary from the *raw* source so the index reflects
+  // the original document, not the LLM's reformatting.
+  const summary = extractSummary(content);
+
+  // Realm guard: never converge onto a PRIVATE page this actor can't write
+  // (private = owner-only). If the resolved slug landed on someone else's
+  // private page — via the concept resolver, an alias, or a slug collision —
+  // FORK to a fresh slug so the ingest produces the actor's OWN page and never
+  // writes to (or leaks the slug of) the private one. Runs BEFORE the preview
+  // return too, so a non-owner's preview can't read back the private slug.
+  const resolvedExisting = await readWikiPageWithFrontmatter(slug);
+  if (
+    resolvedExisting &&
+    resolvedExisting.frontmatter.visibility === "private" &&
+    !sameHumanOwner(owner, resolvedExisting.frontmatter.owner)
+  ) {
+    slug = await findFreeSlug(slug);
+  }
+
+  // --- Preview mode: return the generated content without writing ---
+  if (isPreview) {
+    // Identify which related pages would be updated — read-gated to the actor
+    // so a private page the actor can't read never leaks (title/summary/slug)
+    // into the preview's cross-ref set.
+    const reader = owner ? { handle: owner } : null;
+    const existingEntries = (await listWikiPages()).filter((e) =>
+      canReadEntry(e, reader),
+    );
+    const relatedSlugs = await findRelatedPages(slug, content, existingEntries);
+
+    // Would publishing merge into an existing commons page, or create a fresh
+    // one? Resolve the same source-URL / content-hash dedup the commit path
+    // uses, but read-only. Read-gated via `existingEntries` so a private page
+    // the actor can't see is treated as "new" (it would fork on publish).
+    let dupSlug = options?.sourceUrl
+      ? await resolveSourceUrl(options.sourceUrl)
+      : null;
+    if (!dupSlug) dupSlug = await resolveContentHash(hash);
+    const existingEntry = dupSlug
+      ? existingEntries.find((e) => e.slug === dupSlug)
+      : undefined;
+
+    // Mirror the commit path's metadata as far as is knowable pre-synthesis, so
+    // the review card matches publish for the common case. Review-by always
+    // resets to now + 90 days. Confidence uses the SAME heuristic over the
+    // prospective source set and the EXISTING disputed flag — it can still
+    // diverge only if the reconcile step newly escalates the page to `disputed`
+    // (which caps the committed value at 0.5); the preview can't anticipate that
+    // LLM outcome.
+    const reviewExpiry = new Date();
+    reviewExpiry.setDate(reviewExpiry.getDate() + 90);
+    const reviewBy = reviewExpiry.toISOString().slice(0, 10);
+    const previewSourceType =
+      options?.sourceType ?? (options?.sourceUrl ? "url" : "text");
+    const previewEntry = buildSourceEntry(
+      options?.sourceUrl ?? "text-paste",
+      previewSourceType,
+      options?.triggeredBy,
+    );
+    let previewSources: SourceEntry[] = [previewEntry];
+    let previewDisputed = false;
+    // Read the existing page by the RESOLVED slug — the same way the commit path
+    // finds what it merges into. (The dedup `existingEntry` only resolves on a
+    // URL/content/concept hit, so a same-slug re-ingest with a new URL would
+    // otherwise miss the existing sources and under-report confidence.)
+    const ex = await readWikiPageWithFrontmatter(slug);
+    if (ex) {
+      const exSources = ex.frontmatter.sources;
+      previewSources = mergeSourceEntry(
+        parseSources(
+          typeof exSources === "string"
+            ? exSources
+            : Array.isArray(exSources)
+              ? exSources
+              : undefined,
+        ),
+        previewEntry,
+      );
+      previewDisputed = ex.frontmatter.disputed === true;
+    }
+    const confidence = computeConfidence(previewSources, previewDisputed);
+
+    // Synthesized tags + any existing/caller tags. The reviewer sees these in
+    // the card and (via the commit-from-preview path) they're sent back as
+    // options.tags on approve, so the published page keeps them.
+    const tags = normalizeTags(
+      [...(existingEntry?.tags ?? []), ...(options?.tags ?? []), ...conceptTags],
+      Infinity, // canonicalize + dedupe; the per-synthesis cap was applied above
+    );
+
+    const previewMeta: IngestPreviewMeta = {
+      title: concept || pageTitle || title || slug,
+      summary,
+      tags,
+      owner: owner ?? "",
+      confidence,
+      reviewBy,
+      deduped: !!existingEntry,
+      ...(existingEntry ? { existingTitle: existingEntry.title } : {}),
+    };
+
+    return {
+      rawPath: "",
+      primarySlug: slug,
+      relatedUpdated: relatedSlugs,
+      wikiPages: [slug, ...relatedSlugs],
+      indexUpdated: false,
+      previewContent: wikiContent,
+      preview: previewMeta,
+      ...(options?.sourceUrl ? { sourceUrl: options.sourceUrl } : {}),
+    };
+  }
+
+  // --- Normal commit path (direct ingest or commit-from-preview) ---
+
+  // 3. Save raw source
+  const rawPath = await saveRawSource(slug, content);
+
+  // 4. Build / refresh the YAML frontmatter block. New pages get
+  // created = updated = today and source_count = 1. Re-ingesting the same
+  // slug preserves `created`, advances `updated`, increments `source_count`,
+  // and preserves any user-edited tags.
+  const now = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const expiry = new Date();
+  expiry.setDate(expiry.getDate() + 90);
+  const expiryDate = expiry.toISOString().slice(0, 10);
+  // `actor`/`owner` are resolved near the top of ingest() (the concept resolver
+  // needs `owner` for its same-silo guard).
+  const frontmatter: Frontmatter = {
+    created: now,
+    updated: now,
+    source_count: "1",
+    tags: [],
+    confidence: 0.7,
+    expiry: expiryDate,
+    valid_from: now,
+    owner,
+    visibility: "public",
+    authors: [actor],
+    contributors: [],
+    disputed: false,
+    supersedes: "",
+    aliases: [],
+    content_hash: hash,
+  };
+
+  // Agent-scoped pages carry a `type` (e.g. "agent-knowledge") so they're
+  // filtered from the public browse feed and general search.
+  if (options?.pageType) {
+    frontmatter.type = options.pageType;
+  }
+
+  // Persist the original source URL when provided (URL-based ingest).
+  if (options?.sourceUrl) {
+    frontmatter.source_url = options.sourceUrl;
+  }
+
+  // Build the structured sources[] provenance entry for this ingest, and keep a
+  // per-source raw snapshot so a multi-source page can show each source's raw.
+  // The id is keyed on the source URL (so re-ingesting a URL refreshes that
+  // snapshot, matching how mergeSourceEntry dedups by url); paste/upload key on
+  // content instead, since they share the "text-paste" placeholder url.
+  const sourceType = options?.sourceType
+    ?? (options?.sourceUrl ? "url" : "text");
+  const sourceUrl = options?.sourceUrl ?? "text-paste";
+  const rawId = contentHash(
+    sourceUrl !== "text-paste" && sourceUrl !== "upload" ? sourceUrl : content,
+  );
+  await saveRawSourceFor(slug, rawId, content);
+  const sourceEntry = buildSourceEntry(sourceUrl, sourceType, options?.triggeredBy, rawId);
+  frontmatter.sources = serializeSources([sourceEntry]);
+
+  // Tags: synthesized (conceptTags, empty on commit-from-preview/fallback) plus
+  // any caller-supplied tags — normalized to the canonical form so caller tags
+  // dedupe against synthesized ones. Merged with existing tags below for re-ingests.
+  const newTags = normalizeTags([...(options?.tags ?? []), ...conceptTags], Infinity);
+  if (newTags.length > 0) {
+    frontmatter.tags = newTags;
+  }
+
+  const existing = await readWikiPageWithFrontmatter(slug);
+  if (existing) {
+    const existingCreated = existing.frontmatter.created;
+    if (typeof existingCreated === "string" && existingCreated !== "") {
+      frontmatter.created = existingCreated;
+    }
+    const prevCountRaw = existing.frontmatter.source_count;
+    const prevCount =
+      typeof prevCountRaw === "number"
+        ? prevCountRaw
+        : typeof prevCountRaw === "string"
+          ? Number(prevCountRaw)
+          : NaN;
+    frontmatter.source_count = String(
+      (Number.isFinite(prevCount) ? prevCount : 0) + 1,
+    );
+    if (Array.isArray(existing.frontmatter.tags)) {
+      // Merge existing tags with any new tags from options (deduplicated)
+      const existingTags = existing.frontmatter.tags.filter(
+        (t): t is string => typeof t === "string",
+      );
+      const merged = normalizeTags([...existingTags, ...newTags], Infinity);
+      frontmatter.tags = merged;
+    }
+    // Preserve existing source_url if the new ingest doesn't provide one.
+    if (
+      !frontmatter.source_url &&
+      typeof existing.frontmatter.source_url === "string" &&
+      existing.frontmatter.source_url !== ""
+    ) {
+      frontmatter.source_url = existing.frontmatter.source_url;
+    }
+
+    // Merge structured sources[]: parse existing, update or append new entry.
+    const existingSourcesRaw = existing.frontmatter.sources;
+    const existingSources = parseSources(
+      typeof existingSourcesRaw === "string"
+        ? existingSourcesRaw
+        : Array.isArray(existingSourcesRaw)
+          ? existingSourcesRaw
+          : undefined,
+    );
+    // Merge the new entry, superseding a stale "text-paste" placeholder.
+    // (source_count is the ingest counter, set above — not the array length.)
+    frontmatter.sources = serializeSources(mergeSourceEntry(existingSources, sourceEntry));
+
+    // --- Phase 1 fields: preserve on re-ingest ---
+    // Preserve authors from existing page (don't reset).
+    if (Array.isArray(existing.frontmatter.authors)) {
+      frontmatter.authors = existing.frontmatter.authors;
+    }
+    // Preserve owner (the original owner stays accountable).
+    if (typeof existing.frontmatter.owner === "string" && existing.frontmatter.owner !== "") {
+      frontmatter.owner = existing.frontmatter.owner;
+    }
+    // Preserve visibility (don't silently re-publish a private page).
+    if (existing.frontmatter.visibility === "private") {
+      frontmatter.visibility = "private";
+    }
+    // Don't change an existing page's scope on re-ingest: preserve its `type`
+    // (or lack of one), so an agent ingest can't flip a public page into
+    // agent-scope (out of the feed/search) by colliding on a slug.
+    if (typeof existing.frontmatter.type === "string") {
+      frontmatter.type = existing.frontmatter.type;
+    } else {
+      delete frontmatter.type;
+    }
+    // Append the acting identity to contributors if not already present.
+    const existingContribs = Array.isArray(existing.frontmatter.contributors)
+      ? existing.frontmatter.contributors
+      : [];
+    if (!existingContribs.includes(actor)) {
+      frontmatter.contributors = [...existingContribs, actor];
+    } else {
+      frontmatter.contributors = existingContribs;
+    }
+    // Preserve disputed flag from existing.
+    if (typeof existing.frontmatter.disputed === "boolean") {
+      frontmatter.disputed = existing.frontmatter.disputed;
+    }
+    // Preserve supersedes from existing.
+    if (typeof existing.frontmatter.supersedes === "string") {
+      frontmatter.supersedes = existing.frontmatter.supersedes;
+    }
+    // Preserve aliases from existing.
+    if (Array.isArray(existing.frontmatter.aliases)) {
+      frontmatter.aliases = existing.frontmatter.aliases;
+    }
+    // Expiry resets to 90 days from now (re-ingest refreshes the page).
+    // valid_from also resets to now (the page's information is re-verified).
+    // (both already set above — no need to change)
+    // Confidence is recomputed from signals below (not preserved), so adding a
+    // corroborating source raises it on re-ingest.
+  }
+
+  // Re-synthesize on merge (accumulate-and-reconcile): when this ingest lands on
+  // an EXISTING page, fold the existing body and the new article into one
+  // canonical page instead of overwriting — and escalate to `disputed` if the
+  // new source contradicts what's there. Skipped without an LLM key (fall back
+  // to the prior overwrite behaviour) and for commit-from-preview (the user
+  // already approved a body). The page summary is computed from the raw source,
+  // so it is unaffected.
+  if (existing && hasLLMKey() && !preGeneratedContent) {
+    try {
+      // Reconcile against the frontmatter-STRIPPED body (existing.content still
+      // carries the YAML block; existing.body is the markdown) so page metadata
+      // never bleeds into the merged prose.
+      const reconciled = await reconcilePage(existing.body, wikiContent);
+      wikiContent = reconciled.body;
+      // Only escalate — never clear a disputed flag preserved from the existing
+      // page above.
+      if (reconciled.disputed) frontmatter.disputed = true;
+    } catch (err) {
+      // A reconcile hiccup (LLM API error / empty response) must not fail an
+      // ingest whose synthesis already succeeded — degrade to the prior
+      // overwrite behaviour (keep the freshly synthesized body, disputed
+      // untouched).
+      logger.warn("ingest", "reconcile-on-merge failed; using new body", err);
+    }
+  }
+
+  // When the page converged onto a concept slug, record the source title AND
+  // the LLM-supplied concept synonyms as aliases so a later ingest arriving
+  // under any of those names resolves here (extends convergence beyond the
+  // content hash to the title/synonym routes). Merges with any existing
+  // aliases; deduped case-insensitively; never aliases the concept to itself.
+  if (pageTitle !== effectiveTitle) {
+    const aliasList = Array.isArray(frontmatter.aliases)
+      ? [...frontmatter.aliases]
+      : [];
+    const seen = new Set(aliasList.map((a) => a.toLowerCase()));
+    for (const candidate of [effectiveTitle, ...conceptAliases]) {
+      const trimmed = candidate.trim();
+      const key = trimmed.toLowerCase();
+      if (trimmed === "" || key === pageTitle.toLowerCase() || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      aliasList.push(trimmed);
+    }
+    frontmatter.aliases = aliasList;
+  }
+
+  // Confidence from provenance signals — computed last, when sources[] and the
+  // disputed flag are final (after the re-ingest merge and reconcile).
+  const finalSources = parseSources(
+    typeof frontmatter.sources === "string" ? frontmatter.sources : undefined,
+  );
+  // Defensive: sources[] was just serialized from ≥1 entry, so an empty parse
+  // means a serialize/parse round-trip lost it — confidence would silently fall
+  // to the 0.6 default. Surface it rather than flatlining invisibly.
+  if (
+    finalSources.length === 0 &&
+    typeof frontmatter.sources === "string" &&
+    frontmatter.sources !== "[]"
+  ) {
+    logger.warn(
+      "ingest",
+      `sources[] failed to round-trip for "${slug}"; confidence falls back to the default`,
+    );
+  }
+  frontmatter.confidence = computeConfidence(finalSources, frontmatter.disputed === true);
+
+  const contentWithFm = serializeFrontmatter(frontmatter, wikiContent);
+
+  // 5. Hand off to the unified write pipeline. We pass the raw `content` as
+  // `crossRefSource` so the LLM sees the full document when picking related
+  // pages, matching the previous behaviour.
+  const { updatedSlugs } = await writeWikiPageWithSideEffects({
+    slug,
+    title: pageTitle,
+    content: contentWithFm,
+    summary,
+    logOp: "ingest",
+    crossRefSource: content,
+    author: actor,
+    logDetails: ({ updatedSlugs }) =>
+      `slug: ${slug} · updated ${updatedSlugs.length} related page(s)`,
+  });
+
+  // 6. Alias index is updated automatically by the lifecycle pipeline
+  //    (writeWikiPageWithSideEffects → runPageLifecycleOp) — no caller-side
+  //    call needed. The source index (URL/content-hash → slug) is caller-owned,
+  //    so refresh it here for future dedup hits.
+  updateSourceIndexForPage(
+    slug,
+    typeof frontmatter.source_url === "string" ? frontmatter.source_url : undefined,
+    hash,
+  );
+
+  const result: IngestResult = {
+    rawPath,
+    primarySlug: slug,
+    relatedUpdated: updatedSlugs,
+    wikiPages: [slug, ...updatedSlugs],
+    indexUpdated: true,
+    ...(options?.sourceUrl ? { sourceUrl: options.sourceUrl } : {}),
+  };
+
+  // 7. Persist a ledger entry recording this ingest operation.
+  await persistToLedger({
+    ingest_id: `${startedAt}/${slug}`,
+    source_type: sourceType,
+    source_url: sourceUrl,
+    primary_slug: slug,
+    related_slugs: updatedSlugs,
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+    status: "completed",
+  });
+
+  return result;
+}
