@@ -761,9 +761,9 @@ func TestExecuteRoute_TimingFollowupEnablesQimen(t *testing.T) {
 		t.Fatalf("executeRoute with timing_followup returned error: %v", err)
 	}
 
-	// timing_followup should route to followup_reading with qimen enabled.
-	if turnType != "followup_reading" {
-		t.Fatalf("timing_followup should produce followup_reading, got %q", turnType)
+	// timing_followup with NeedsQimen=true routes to parallel_fortune (qimen + bazi).
+	if turnType != "parallel_fortune" {
+		t.Fatalf("timing_followup with NeedsQimen=true should produce parallel_fortune, got %q", turnType)
 	}
 	// needsQimen=true should have been passed through to the handler.
 	// We verify indirectly: st.NeedsQimen should be true (set by the route path).

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 )
 
 // DayunAnalyzer annotates each dayun with quality and ten-god classification
@@ -9,7 +10,7 @@ type DayunAnalyzer struct{}
 func (t *DayunAnalyzer) Name() string        { return "dayun_analyzer" }
 func (t *DayunAnalyzer) Description() string { return "分析每个大运的吉凶和十神类型" }
 
-func (t *DayunAnalyzer) Execute(params map[string]any) (any, error) {
+func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, error) {
 	dayun, _ := params["dayun"].([]map[string]any)
 	baziResult, _ := params["bazi_result"].(map[string]any)
 	yongshen, _ := baziResult["yongshen"].(map[string]any)

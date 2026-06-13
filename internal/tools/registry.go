@@ -1,11 +1,14 @@
 package tools
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 type Tool interface {
 	Name() string
 	Description() string
-	Execute(params map[string]any) (any, error)
+	Execute(ctx context.Context, params map[string]any) (any, error)
 }
 
 type Registry struct {

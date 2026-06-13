@@ -7,23 +7,12 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
-
-// yearEventRe matches questions that ask about a specific year or event time.
-var yearEventRe = regexp.MustCompile(`\d{4}\s*年|哪年|何年|发生何事|哪一年|何年何月|流年`)
-
-// diagnosticRe matches questions that ask for a diagnostic judgment about an
-// existing chart ("how is X"), as opposed to consulting questions ("when will I").
-// When a chart already exists, these should use forensic prompt.
-var diagnosticRe = regexp.MustCompile(`如何|怎么样|怎样|好不好|是否|会不会`)
-
-// existing chart ("how is X", "what is X like"), as opposed to consulting
-// questions ("when will I get married"). When a chart already exists, these
-// should use forensic prompt instead of warm consulting prompts.
 
 func (o *Orchestrator) buildKnowledgeQuery(ctx context.Context, st *state.SessionState, qimenData map[string]any) string {
 	// When qimen data is available and no bazi chart exists, search qimen terms.
@@ -121,7 +110,7 @@ func (o *Orchestrator) buildKnowledgeQuery(ctx context.Context, st *state.Sessio
 
 	// User question keywords
 	if question != "" {
-		keywords := o.extractSearchKeywords(ctx, question)
+		keywords := o.extractSearchKeywords(ctx, question, dayGan+"日主"+dayWx+"命")
 		if keywords != "" {
 			terms = append(terms, keywords)
 		}
@@ -134,9 +123,10 @@ func (o *Orchestrator) buildKnowledgeQuery(ctx context.Context, st *state.Sessio
 	return query
 }
 
-// extractSearchKeywords uses LLM to extract concise search keywords from user question
-func (o *Orchestrator) extractSearchKeywords(ctx context.Context, question string) string {
-	prompt := "将用户问题提炼为3-5个搜索关键词，用空格分隔。只返回关键词，不要任何解释。问题：" + question
+// extractSearchKeywords uses LLM to extract concise search keywords from user question.
+// chartContext provides the day master identity for domain-aware keyword extraction.
+func (o *Orchestrator) extractSearchKeywords(ctx context.Context, question string, chartContext string) string {
+	prompt := "用户正在咨询八字命理，命主为" + chartContext + "。根据用户当前问题，提炼3-5个需要从命理古籍中检索的关键词（如格局名、十神关系、调候要点等），用空格分隔。只返回关键词，不要任何解释。\n问题：" + question
 	messages := []llm.Message{{Role: "user", Content: question}}
 	resp, _, err := o.llm.Generate(ctx, prompt, messages)
 	if err != nil {
@@ -156,80 +146,68 @@ func currentQuestion(st *state.SessionState) string {
 	return "请先给出一段简明的命盘总评。"
 }
 
-// selectPrompt chooses a specialized prompt based on the question category.
-// When o.promptMode is "direct", it bypasses keyword routing and uses a testing-oriented
-// prompt that prioritizes definitive answers over hedged consulting language.
-//
-// TODO: direct mode is temporarily exposed via PROMPT_MODE=direct env var for benchmark testing.
-// Once the test harness is stable, this should be gated behind an internal flag or removed.
+// selectPrompt chooses the system prompt based on session routing state.
+// Two standalone modes (qimen/direct) use full prompt files. Everything else
+// uses interpret.md as a stable base with a task-specific snippet injected.
 func (o *Orchestrator) selectPrompt(st *state.SessionState, qimenPrimary bool) []byte {
 	// ---- qimen primary: standalone qimen prompt when no bazi chart ----
 	if qimenPrimary && !st.HasBaziResult() {
-		tpl, err := os.ReadFile("prompts/qimen.md")
-		if err == nil {
-			return tpl
-		}
+		return readFile("prompts/qimen.md")
 	}
 	// ---- direct mode: benchmark-oriented, no hedges ----
 	if o.promptMode == "direct" {
-		tpl, err := os.ReadFile("prompts/direct.md")
-		if err == nil {
-			return tpl
-		}
-	}
-	// ---- soft mode: user-facing, warm and restrained ----
-
-	question := currentQuestion(st)
-	var promptFile string
-
-	// Year-specific forensic routing: questions about a specific year or "what happened"
-	// use the forensic prompt which enforces definitive judgment over hedged consulting.
-	if yearEventRe.MatchString(question) {
-		tpl, err := os.ReadFile("prompts/forensic.md")
-		if err == nil {
-			return tpl
-		}
+		return readFile("prompts/direct.md")
 	}
 
-	// Diagnostic routing: when a chart already exists, "how is X" questions
-	// are forensic diagnostics about a specific chart, not personal consulting.
-	// Route them to forensic instead of warm consulting prompts.
-	if st.HasBaziResult() && diagnosticRe.MatchString(question) {
-		tpl, err := os.ReadFile("prompts/forensic.md")
-		if err == nil {
-			return tpl
-		}
+	// ---- normal mode: interpret.md base + task snippet injection ----
+	base := readFile("prompts/interpret.md")
+	snippet := o.pickSnippet(st)
+	if len(snippet) == 0 {
+		return base
+	}
+	return []byte(strings.Replace(string(base), "<!-- TASK_BLOCK -->", string(snippet), 1))
+}
+
+// pickSnippet selects a task-specific instruction block based on routing state.
+func (o *Orchestrator) pickSnippet(st *state.SessionState) []byte {
+	// Specific year scope -> year_event snippet
+	if st.Routing.TaskIntent == "timing_followup" && isYearScope(st.Routing.TimeScope) {
+		return readFile("prompts/snippets/year_event.md")
 	}
 
-	// Keyword-based routing to specialized prompts (user-facing consulting)
-	kwMap := map[string]string{
-		"prompts/marriage.md":    "结婚|婚姻|感情|恋爱|配偶|夫妻|离婚|男友|女友|丈夫|妻子|单身|桃花|拍拖",
-		"prompts/career.md":      "事业|工作|职业|财运|工资|收入|生意|创业|老板|公司|升职|跳槽|投资",
-		"prompts/health.md":      "健康|病|疾病|手术|身体|住院|抑郁|癌症|死|伤|痛",
-		"prompts/personality.md": "性格|个性|脾气|人品|外貌|身材|长相",
+	// Fortune / interpret followup -> fortune snippet
+	if st.Routing.TaskIntent == "fortune_followup" || st.Routing.TaskIntent == "interpret_chart" {
+		return readFile("prompts/snippets/fortune.md")
 	}
 
-	for file, keywords := range kwMap {
-		for _, kw := range strings.Split(keywords, "|") {
-			if strings.Contains(question, kw) {
-				tpl, err := os.ReadFile(file)
-				if err == nil {
-					return tpl
-				}
-				break
-			}
-		}
-		if promptFile != "" {
-			break
-		}
+	// Domain-specific -> targeted snippet
+	switch st.Routing.TargetSubject {
+	case "婚姻", "感情", "恋爱", "配偶":
+		return readFile("prompts/snippets/marriage.md")
+	case "事业", "财运", "工作", "职业":
+		return readFile("prompts/snippets/career.md")
+	case "健康", "疾病", "身体":
+		return readFile("prompts/snippets/health.md")
+	case "性格", "个性":
+		return readFile("prompts/snippets/personality.md")
 	}
 
-	// Fallback to generic prompt
-	tpl, err := os.ReadFile("prompts/interpret.md")
+	return readFile("prompts/snippets/default.md")
+}
+
+var yearScopeRe = regexp.MustCompile(`\d{4}\s*年`)
+
+func isYearScope(scope string) bool {
+	return yearScopeRe.MatchString(scope)
+}
+
+// readFile reads a file and returns its content, or an empty slice on error.
+func readFile(path string) []byte {
+	b, err := os.ReadFile(path)
 	if err != nil {
-		return []byte("你是精通八字命理的中文咨询师。请基于给定命盘和问题作答，不要暴露推理过程。")
+		return []byte{}
 	}
-	return tpl
+	return b
 }
 
 func (o *Orchestrator) buildInterpretPrompt(st *state.SessionState, passages []mcp.Passage, extra map[string]any, qimenPrimary bool) string {
@@ -291,6 +269,8 @@ func (o *Orchestrator) buildInterpretPrompt(st *state.SessionState, passages []m
 	prompt := string(tpl) + `
 
 ## 运行时上下文
+
+当前日期：` + time.Now().Format("2006-01-02") + `（奇门排盘和流年判断以此日期为准）
 
 ### 出生资料
 ` + string(profileJSON) + `
@@ -398,4 +378,3 @@ func (o *Orchestrator) buildQimenKnowledgeQuery(question string, qimenData map[s
 	}
 	return query
 }
-

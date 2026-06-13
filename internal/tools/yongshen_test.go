@@ -1,8 +1,12 @@
 package tools
-import "testing"
+
+import (
+	"context"
+	"testing"
+)
 func TestYongShen(t *testing.T) {
     yt := &YongShenTool{}
-    r, err := yt.Execute(map[string]any{
+    r, err := yt.Execute(context.Background(), map[string]any{
         "year": float64(1974), "month": float64(4), "day": float64(28),
         "hour": float64(16), "gender": "男",
     })
