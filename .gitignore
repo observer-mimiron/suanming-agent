@@ -39,3 +39,23 @@ docs/
 testsets/
 .claude/
 .agents/
+
+# 知识库子项目 — 运行时数据与密钥（防御性覆盖，子项目 .gitignore 也有）
+knowledge/.env
+knowledge/.env.local
+knowledge/.dev.vars
+knowledge/.next/
+knowledge/node_modules/
+knowledge/*.tsbuildinfo
+knowledge/.wrangler/
+knowledge/.open-next/
+knowledge/.clerk/
+knowledge/wiki/
+knowledge/raw/
+knowledge/data/
+knowledge/discuss/
+knowledge/.indexes/
+knowledge/tenants/
+knowledge/agents/
+knowledge/agent-secrets/
+knowledge/.llm-wiki-config.json
