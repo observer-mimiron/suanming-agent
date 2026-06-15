@@ -2,7 +2,6 @@
   <div class="bazi-card">
     <!-- Header -->
     <div class="bz-header">
-      <span class="bz-title">八字命盘</span>
       <span class="bz-meta">日主 <strong>{{ dayGan }}</strong>（{{ dayGanWuxing }}）· {{ lunarDate }}</span>
     </div>
 
@@ -87,13 +86,24 @@ const shenGongNaYin = computed(() => props.data?.shenGongNaYin || '')
 const taiYuan = computed(() => props.data?.taiYuan || '')
 const taiYuanNaYin = computed(() => props.data?.taiYuanNaYin || '')
 
+// 天干→五行
+const stemWuxing: Record<string, string> = {
+  '甲':'木','乙':'木','丙':'火','丁':'火','戊':'土',
+  '己':'土','庚':'金','辛':'金','壬':'水','癸':'水',
+}
+// 地支→五行
+const branchWuxing: Record<string, string> = {
+  '寅':'木','卯':'木','巳':'火','午':'火',
+  '辰':'土','戌':'土','丑':'土','未':'土',
+  '申':'金','酉':'金','亥':'水','子':'水',
+}
 function pillarElement(p: any): 'wood' | 'fire' | 'earth' | 'metal' | 'water' {
-  const wx = p.stemWuxing || p.branchWuxing || ''
-  if (wx.includes('木')) return 'wood'
-  if (wx.includes('火')) return 'fire'
-  if (wx.includes('土')) return 'earth'
-  if (wx.includes('金')) return 'metal'
-  if (wx.includes('水')) return 'water'
+  const wx = stemWuxing[p.stem] || branchWuxing[p.branch] || '土'
+  if (wx === '木') return 'wood'
+  if (wx === '火') return 'fire'
+  if (wx === '土') return 'earth'
+  if (wx === '金') return 'metal'
+  if (wx === '水') return 'water'
   return 'earth'
 }
 
@@ -114,20 +124,12 @@ const currentDayunIdx = computed(() => {
 .bazi-card {
   text-align: left;
   font-size: 13px;
-  max-width: 560px;
+  max-width: 100%;
 }
 .bz-header {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
   margin-bottom: 16px;
   padding: 0 4px;
-}
-.bz-title {
-  font-family: var(--serif);
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
 }
 .bz-meta { font-size: 12px; color: var(--text-muted); }
 .bz-meta strong { color: var(--text-secondary); }
