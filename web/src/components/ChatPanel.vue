@@ -126,12 +126,12 @@ async function handleSend(t?: string) {
   flex: 1;
   width: 100%;
   max-width: 680px;
-  padding: 24px 24px 0;
+  padding: 32px 20px 0;
 }
 .input-row {
   width: 100%;
   max-width: 680px;
-  padding: 16px 24px;
+  padding: 16px 20px;
 }
 .chat-input {
   border-top: 1px solid var(--border);

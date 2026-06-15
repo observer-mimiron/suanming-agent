@@ -179,7 +179,7 @@ function kindLabel(kind: string): string {
   align-items: center;
   width: 14px;
   flex-shrink: 0;
-  padding-top: 3px;
+  padding-top: 5px;
 }
 .step-dot {
   width: 8px; height: 8px;
@@ -201,7 +201,7 @@ function kindLabel(kind: string): string {
 .step-content {
   flex: 1;
   min-width: 0;
-  padding: 4px 0 12px;
+  padding: 0 0 12px;
 }
 .step-head {
   display: flex;
