@@ -16,10 +16,10 @@
         <div class="chain-line"></div>
         <div class="chain-items">
           <div v-for="(t, i) in vm.thoughts" :key="'th-' + i" class="chain-thought">{{ t }}</div>
-          <div v-for="(tc, i) in vm.toolCalls" :key="'tc-' + i" class="chain-tool" @click="tc._show = !tc._show">
+          <div v-for="(tc, i) in vm.toolCalls" :key="'tc-' + i" class="chain-tool">
             <Wrench :size="11" class="tool-icon" />
             <span class="tool-name">{{ tc.name }}</span>
-            <span v-if="tc._show && tc.arguments" class="tool-args-full">{{ tc.arguments }}</span>
+            <code v-if="tc.arguments" class="tool-args">{{ tc.arguments }}</code>
           </div>
         </div>
       </div>
@@ -184,20 +184,18 @@ function fmtMs(ms: number): string {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: border-color 0.12s;
 }
-.chain-tool:hover { border-color: var(--accent); }
 .tool-icon { color: var(--accent-dim); flex-shrink: 0; }
 .tool-name { color: var(--text-secondary); font-weight: 500; }
-.tool-args-full {
-  width: 100%;
+.tool-args {
   font-family: var(--mono);
   font-size: 10px;
   color: var(--text-muted);
-  padding: 4px 0 0 17px;
-  word-break: break-all;
-  white-space: pre-wrap;
+  margin-left: 4px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .turn-zone { margin-bottom: 12px; }
@@ -206,7 +204,7 @@ function fmtMs(ms: number): string {
   line-height: 1.85;
   color: var(--text-primary);
   font-size: 15px;
-  padding: 0 8px;
+  padding: 0 4px;
 }
 .answer-content :deep(p) { margin: 0 0 10px; }
 .answer-content :deep(p:last-child) { margin-bottom: 0; }

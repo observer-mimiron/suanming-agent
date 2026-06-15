@@ -86,9 +86,9 @@ function kindLabel(kind: string): string {
 
 <style scoped>
 .trace-panel {
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
   overflow: hidden;
 }
 
@@ -127,8 +127,8 @@ function kindLabel(kind: string): string {
   font-weight: 500;
   white-space: nowrap;
 }
-.badge-err  { background: rgba(224, 85, 85, 0.12); color: #e08888; }
-.badge-warn { background: rgba(200, 166, 78, 0.12); color: #d4b96a; }
+.badge-err  { background: rgba(224,85,85,0.12); color: #e08888; }
+.badge-warn { background: rgba(200,166,78,0.12); color: #d4b96a; }
 
 .trace-label {
   font-size: 13px;
@@ -159,14 +159,13 @@ function kindLabel(kind: string): string {
 }
 
 .trace-detail {
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--border);
   padding: 12px 14px 14px;
 }
 
 .trace-timeline {
   display: flex;
   flex-direction: column;
-  gap: 0;
 }
 
 .trace-step {
@@ -180,7 +179,7 @@ function kindLabel(kind: string): string {
   align-items: center;
   width: 14px;
   flex-shrink: 0;
-  padding-top: 2px;
+  padding-top: 3px;
 }
 .step-dot {
   width: 8px; height: 8px;
@@ -194,15 +193,15 @@ function kindLabel(kind: string): string {
 .step-connector {
   width: 1px;
   flex: 1;
-  min-height: 14px;
-  background: var(--line-soft);
-  margin: 3px 0;
+  min-height: 12px;
+  background: var(--border);
+  margin: 2px 0;
 }
 
 .step-content {
   flex: 1;
   min-width: 0;
-  padding: 6px 0 14px;
+  padding: 4px 0 12px;
 }
 .step-head {
   display: flex;
@@ -217,10 +216,9 @@ function kindLabel(kind: string): string {
 .step-kind {
   font-size: 10px;
   color: var(--text-muted);
-  background: var(--bg-subtle);
+  background: var(--bg);
   padding: 1px 5px;
   border-radius: 3px;
-  text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .step-ms {
@@ -248,6 +246,6 @@ function kindLabel(kind: string): string {
   margin-top: 2px;
   font-weight: 500;
 }
-.step-badge-err  { background: rgba(224, 85, 85, 0.12); color: #e08888; }
-.step-badge-warn { background: rgba(200, 166, 78, 0.12); color: #d4b96a; }
+.step-badge-err  { background: rgba(224,85,85,0.12); color: #e08888; }
+.step-badge-warn { background: rgba(200,166,78,0.12); color: #d4b96a; }
 </style>

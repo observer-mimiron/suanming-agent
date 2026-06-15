@@ -114,6 +114,7 @@ const currentDayunIdx = computed(() => {
 .bazi-card {
   text-align: left;
   font-size: 13px;
+  max-width: 560px;
 }
 .bz-header {
   display: flex;

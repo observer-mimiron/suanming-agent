@@ -1,18 +1,52 @@
 <template>
-  <n-card title="📚 命理典籍引用" size="small" class="card" v-if="passages.length">
-    <div v-for="(p,i) in passages" :key="i" class="passage">
-      <blockquote>{{ p.content }}</blockquote>
-      <cite v-if="p.source">— {{ p.source }}</cite>
+  <div class="ks-card" v-if="groups && groups.length">
+    <div class="ks-header">知识来源</div>
+    <div v-for="(g, gi) in groups" :key="gi" class="ks-group">
+      <div class="ks-source">{{ g.source }}</div>
+      <div v-for="(p, pi) in g.passages" :key="pi" class="ks-passage">
+        <blockquote>{{ p }}</blockquote>
+      </div>
     </div>
-  </n-card>
+  </div>
 </template>
+
 <script setup lang="ts">
-import {computed} from 'vue'; import {NCard} from 'naive-ui'
-const props=defineProps<{data:any}>()
-const passages=computed(()=>props.data?.passages||[])
+import type { EvidenceGroup } from '../utils/assistantTurn'
+defineProps<{ groups: EvidenceGroup[] }>()
 </script>
+
 <style scoped>
-.card{margin:8px 0}
-blockquote{margin:0 0 4px;padding-left:12px;border-left:2px solid #D4A853;color:#C8C0B5;font-style:italic}
-cite{font-size:12px;color:var(--n-text-color-3)}
+.ks-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  padding: 14px 16px;
+  margin: 8px 0;
+}
+.ks-header {
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.ks-group {
+  margin-bottom: 10px;
+}
+.ks-group:last-child { margin-bottom: 0; }
+.ks-source {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-dim);
+  margin-bottom: 4px;
+}
+.ks-passage blockquote {
+  margin: 0 0 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.5;
+}
 </style>
