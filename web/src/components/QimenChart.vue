@@ -24,11 +24,11 @@
         <ElementSprite :element="palaceElement(cell.palace)" :size="22" class="qm-sprite" />
         <div class="qm-god">{{ cell.god || '—' }}</div>
         <div class="qm-star-row">
-          <SpriteStar v-if="cell.star" :starType="starType(cell.star)" :size="16" />
+          <SpriteStar v-if="cell.star" :starType="starType(cell.star)" :size="18" />
           <span class="qm-star-text">{{ cell.star || '—' }}</span>
         </div>
         <div class="qm-door-row">
-          <SpriteDoor v-if="cell.door" :doorType="doorType(cell.door)" :size="16" />
+          <SpriteDoor v-if="cell.door" :doorType="doorType(cell.door)" :size="18" />
           <span class="qm-door-text">{{ cell.door || '—' }}</span>
         </div>
         <div class="qm-gans">{{ cell.guest_gan || '—' }} · {{ cell.host_gan || '—' }}</div>
@@ -87,7 +87,7 @@ function cellDelay(palace: string) {
 <style scoped>
 .qimen-card {
   text-align: left;
-  max-width: 560px;
+  max-width: 100%;
 }
 
 .qm-info {
