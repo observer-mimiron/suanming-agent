@@ -7,7 +7,8 @@ import (
 	"github.com/6tail/lunar-go/calendar"
 )
 
-// YongShenTool computes day master strength, yongshen, and seasonal adjustment
+// YongShenTool 用神推算工具。基于八字四柱的天干地支，从月令得时、通根、生扶三个维度
+// 综合评定日主强弱（身旺/身弱/中和），并根据身强喜克泄耗、身弱喜生扶的原则推荐用神、喜神和忌神。
 type YongShenTool struct{}
 
 func (t *YongShenTool) Name() string        { return "yongshen" }
@@ -26,7 +27,8 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 
 	y, m, d, h := int(year), int(month), int(day), int(hour)
 
-	// 真太阳时校正（与 bazi_calc 保持一致的逻辑）
+	// 真太阳时校正（与 bazi_calc 保持一致的逻辑）：基于经度偏差（差1度约4分钟）修正当地时间，
+	// 以确保排盘时月柱和日柱的正确性，特别是跨日界的情况（如新疆23:30钟表时可能为次日凌晨）
 	minute := 0
 	if mv, hasMin := params["minute"].(float64); hasMin {
 		minute = int(mv)
@@ -54,28 +56,28 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 	dayZhi := ec.GetDayZhi()
 	monthZhi := ec.GetMonthZhi()
 
-	// Build full stem/branch list for analysis
+	// 构建完整的四柱干支列表用于后续分析
 	allGan := []string{ec.GetYearGan(), ec.GetMonthGan(), dayGan, ec.GetTimeGan()}
 	allZhi := []string{ec.GetYearZhi(), monthZhi, dayZhi, ec.GetTimeZhi()}
 
-	// Map stems/branches to wuxing
+	// 将天干地支映射到五行
 	stemWx := map[string]string{
 		"甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
 		"己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
 	}
-	// Branch hidegan (simplified main qi)
+	// 地支藏干表（简化版主气）
 	branchHidegan := map[string][]string{
 		"子": {"癸"}, "丑": {"己", "辛", "癸"}, "寅": {"甲", "丙", "戊"},
 		"卯": {"乙"}, "辰": {"戊", "乙", "癸"}, "巳": {"丙", "戊", "庚"},
 		"午": {"丁", "己"}, "未": {"己", "丁", "乙"}, "申": {"庚", "壬", "戊"},
 		"酉": {"辛"}, "戌": {"戊", "辛", "丁"}, "亥": {"壬", "甲"},
 	}
-	// Elements that generate a given element
+	// 生某五行的元素（印星）
 	generates := map[string]string{"木": "水", "火": "木", "土": "火", "金": "土", "水": "金"}
 
-	dayWx := stemWx[dayGan] // e.g. "土"
+	dayWx := stemWx[dayGan] // 如"土"
 
-	// Determine month wang status
+	// 判断月令旺衰状态
 	monthSeasons := map[string]string{
 		"寅": "春", "卯": "春", "辰": "春",
 		"巳": "夏", "午": "夏", "未": "夏",
@@ -84,7 +86,7 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 	}
 	season := monthSeasons[monthZhi]
 
-	// Wang table: which element is wang (strong) in each season
+	// 五行四时旺相表：各季节中旺相的元素
 	seasonWang := map[string]string{"春": "木", "夏": "火", "秋": "金", "冬": "水", "土": "土"}
 	seasonXiang := map[string]string{"春": "火", "夏": "土", "秋": "水", "冬": "木"}
 
@@ -97,7 +99,7 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 		monthScore = 1 // 休囚死
 	}
 
-	// Count roots (tong gen)
+	// 统计通根数量
 	rootCount := 0
 	for _, z := range allZhi {
 		for _, hg := range branchHidegan[z] {
@@ -106,14 +108,14 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 			}
 		}
 	}
-	// Also count stems sharing same element
+	// 统计同五行天干数
 	sameElementCount := 0
 	for _, g := range allGan {
 		if stemWx[g] == dayWx {
 			sameElementCount++
 		}
 	}
-	// Count generating elements (印星)
+	// 统计印星生扶数
 	generateCount := 0
 	for _, g := range allGan {
 		if stemWx[g] == generates[dayWx] {
@@ -128,7 +130,7 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 		}
 	}
 
-	// Strength determination
+	// 日主强弱判定
 	totalSupport := monthScore + rootCount + generateCount
 	var strength string
 	switch {
@@ -145,40 +147,40 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 		strength = "身弱极"
 	}
 
-	// Determine yongshen
+	// 定用神
 	var yongShen, xiShen, jiShen []string
 	wx := []string{"木", "火", "土", "金", "水"}
 	switch strength {
 	case "身强", "身旺极":
-		// Need to vent, consume, or restrain
-		// Yong: food/injury (generate), wealth (consume), official (restrain)
+		// 身强需克泄耗
+		// 用神：食伤（泄）、财星（耗）、官杀（克）
 		for _, e := range wx {
 			for _, g := range wx {
 				if stemWx[g] == dayWx {
-					// food/injury = dayWx generates x
+					// 食伤 = 日主生 x
 					if generates[e] == dayWx {
 						yongShen = append(yongShen, e)
 					}
-					// wealth = dayWx restrains x
+					// 财星 = 日主克 x
 					if generates[dayWx] == e {
 						yongShen = append(yongShen, e)
 					}
 				}
 			}
 		}
-		// official = restrains dayWx
+		// 官杀 = 克日主
 		for _, e := range wx {
 			if generates[e] == dayWx && dayWx != e {
 				yongShen = append(yongShen, e)
 			}
 		}
 	default: // 身弱, 身弱极, 中和
-		// Need to generate or support
+		// 身弱需生扶
 		yongShen = append(yongShen, generates[dayWx])        // 印星
 		yongShen = append(yongShen, dayWx)                    // 比劫
 	}
 
-	// Determine 调候 (seasonal adjustment)
+	// 判断调候需求（季节性调整）
 	tiaoHouNeed := ""
 	if season == "冬" {
 		tiaoHouNeed = "需火调候暖局"
@@ -186,7 +188,7 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 		tiaoHouNeed = "需水调候润局"
 	}
 
-	// Deduplicate
+	// 去重
 	dedup := func(s []string) []string {
 		seen := map[string]bool{}
 		var r []string
@@ -200,7 +202,7 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 	}
 	yongShen = dedup(yongShen)
 
-	// Compute jiShen (opposite of yongShen)
+	// 计算忌神（用神的对立面）
 	yongSet := map[string]bool{}
 	for _, y := range yongShen {
 		yongSet[y] = true
@@ -211,7 +213,7 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 		}
 	}
 
-	// Xi shen (support yongShen)
+	// 喜神（生扶用神的五行）
 	for _, y := range yongShen {
 		g := generates[y]
 		if g != "" && g != y {

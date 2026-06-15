@@ -4,13 +4,15 @@ import (
 	"github.com/6tail/lunar-go/calendar"
 )
 
-// LiuNianMutagen 流年四化标记
+// LiuNianMutagen 流年四化标记。表示某一年的流年四化情况，即该年哪些星曜产生了化禄/化权/化科/化忌。
+// 流年四化用于判断该年的吉凶应事领域。
 type LiuNianMutagen struct {
 	Star    string `json:"star"`    // 星名
 	Mutagen string `json:"mutagen"` // 化禄/化权/化科/化忌
 }
 
-// LiuNianInfo 流年信息
+// LiuNianInfo 流年信息。包含流年的干支、四化情况和小限所在宫位。
+// 流年用于推算特定年份的运势走向，与命盘大限配合解读。
 type LiuNianInfo struct {
 	Year       int               `json:"year"`        // 流年（公历）
 	YearStem   string            `json:"year_stem"`   // 流年天干
@@ -19,8 +21,9 @@ type LiuNianInfo struct {
 	AgePalace  string            `json:"age_palace"`  // 小限宫位名
 }
 
-// GetLiuNian 计算流年信息
-// baseChart 为本命盘，targetYear 为流年公历年份，currentAge 为虚岁年龄
+// GetLiuNian 计算流年信息。基于本命盘推算指定公历年份的流年干支、四化和小限宫位。
+// baseChart 为本命盘（由 BuildChart 生成），targetYear 为流年公历年份，currentAge 为虚岁年龄。
+// 流年分析是紫微斗数咨询中最常用的动态推运方法，与大限配合使用。
 func GetLiuNian(baseChart *ZiWeiChart, targetYear int, currentAge int) *LiuNianInfo {
 	// 流年干支
 	solar := calendar.NewSolar(targetYear, 6, 15, 12, 0, 0) // 年中某日取年干支
@@ -69,8 +72,8 @@ func GetLiuNian(baseChart *ZiWeiChart, targetYear int, currentAge int) *LiuNianI
 	return ln
 }
 
-// ApplyLiuNianMutagens 将流年四化应用到命盘星曜上
-// 返回标记了流年四化的星曜列表（不修改原命盘）
+// ApplyLiuNianMutagens 将流年四化映射到命盘星曜。返回星名到四化的映射表（如"紫微"→"化权"），
+// 不修改原命盘数据，适用于展示流年四化信息。
 func ApplyLiuNianMutagens(chart *ZiWeiChart, liuNian *LiuNianInfo) map[string]string {
 	result := make(map[string]string)
 	for _, m := range liuNian.Mutagens {
@@ -79,7 +82,8 @@ func ApplyLiuNianMutagens(chart *ZiWeiChart, liuNian *LiuNianInfo) map[string]st
 	return result
 }
 
-// GetLiuNianByYear 简化版：给定出生信息和目标年，直接算流年
+// GetLiuNianByYear 便捷函数：给定出生年月日时和性别，直接排本命盘并计算流年信息。
+// 适用于一次性的流年查询场景，内部委托 BuildChart 和 GetLiuNian。
 func GetLiuNianByYear(birthYear, birthMonth, birthDay, birthHour int, gender string, targetYear int, currentAge int) (*LiuNianInfo, *ZiWeiChart, error) {
 	solar := calendar.NewSolar(birthYear, birthMonth, birthDay, birthHour, 0, 0)
 	timeIndex := TimeToIndex(birthHour)

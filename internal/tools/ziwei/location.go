@@ -4,10 +4,12 @@ import (
 	"github.com/6tail/lunar-go/calendar"
 )
 
-// GetStartIndex 起紫微星诀
+// GetStartIndex 起紫微星诀。根据五行局和农历日数推算紫微星所在宫位。
 //
-// 局数除日数，商数宫前走；若见数无余，便要起虎口；日数小於局，还直宫中守。
-// 返回紫微星和天府星的宫位索引（寅=0）
+// 口诀：局数除日数，商数宫前走；若见数无余，便要起虎口；日数小于局，还直宫中守。
+// 算法概要：用农历日数除以五行局数，余数为0则商数即为紫微星宫位；若有余数则递增日数再除；
+// 商数对12取模。天府星位置与紫微星成镜像对称（寅起索引，紫微+天府=12宫）。
+// 返回值为紫微星和天府星在十二宫的索引（寅=0）。
 func GetStartIndex(solar *calendar.Solar, timeIndex int, heavenlyStemOfSoul, earthlyBranchOfSoul string) (int, int) {
 	lunar := solar.GetLunar()
 	lunarDay := lunar.GetDay()
@@ -47,7 +49,9 @@ func GetStartIndex(solar *calendar.Solar, timeIndex int, heavenlyStemOfSoul, ear
 	return ziweiIndex, tianfuIndex
 }
 
-// GetLuYangTuoMaIndex 获取禄存、擎羊、陀罗、天马索引
+// GetLuYangTuoMaIndex 获取禄存、擎羊、陀罗、天马索引。
+// 禄存按年干定位（甲禄寅、乙禄卯等），擎羊在禄存前一宫，陀罗在禄存后一宫。
+// 天马按年支定位，只出现在寅申巳亥四马地。
 func GetLuYangTuoMaIndex(yearStem, yearBranch string) (lu, yang, tuo, ma int) {
 	si := stemIndex(yearStem)
 	bi := branchIndex(yearBranch)
@@ -90,7 +94,8 @@ func GetLuYangTuoMaIndex(yearStem, yearBranch string) (lu, yang, tuo, ma int) {
 	return
 }
 
-// GetKuiYueIndex 获取天魁天钺索引（按年干）
+// GetKuiYueIndex 获取天魁天钺索引（按年干）。
+// 天魁天钺为贵人星，甲戊庚丑未、乙己子申、丙丁亥酉、辛午寅、壬癸卯巳。
 func GetKuiYueIndex(yearStem string) (kui, yue int) {
 	si := stemIndex(yearStem)
 	switch si {
@@ -113,14 +118,14 @@ func GetKuiYueIndex(yearStem string) (kui, yue int) {
 	return
 }
 
-// GetZuoYouIndex 获取左辅右弼索引（按生月）
+// GetZuoYouIndex 获取左辅右弼索引（按生月）。左辅从辰宫起正月顺数，右弼从戌宫起正月逆数。
 func GetZuoYouIndex(lunarMonth int) (zuo, you int) {
 	zuo = FixIndex12(FixEarthlyBranchIndex("辰") + (lunarMonth - 1))
 	you = FixIndex12(FixEarthlyBranchIndex("戌") - (lunarMonth - 1))
 	return
 }
 
-// GetChangQuIndex 获取文昌文曲索引（按时支）
+// GetChangQuIndex 获取文昌文曲索引（按时支）。文昌从戌宫起子时逆数，文曲从辰宫起子时顺数。
 func GetChangQuIndex(timeIndex int) (chang, qu int) {
 	ti := FixIndex12(timeIndex)
 	chang = FixIndex12(FixEarthlyBranchIndex("戌") - ti)
@@ -128,7 +133,7 @@ func GetChangQuIndex(timeIndex int) (chang, qu int) {
 	return
 }
 
-// GetKongJieIndex 获取地空地劫索引（按时支）
+// GetKongJieIndex 获取地空地劫索引（按时支）。地空从亥宫起子时逆数，地劫从亥宫起子时顺数。
 func GetKongJieIndex(timeIndex int) (kong, jie int) {
 	ti := FixIndex12(timeIndex)
 	haiIdx := FixEarthlyBranchIndex("亥")
@@ -137,7 +142,8 @@ func GetKongJieIndex(timeIndex int) (kong, jie int) {
 	return
 }
 
-// GetHuoLingIndex 获取火星铃星索引（按年支+时支）
+// GetHuoLingIndex 获取火星铃星索引（按年支+时支）。火星铃星为煞星，年支三合局决定起算方式。
+// 寅午戌年从丑卯起、申子辰年从寅戌起、巳酉丑年从卯戌起、亥卯未年从酉戌起。
 func GetHuoLingIndex(yearBranch string, timeIndex int) (huo, ling int) {
 	ti := FixIndex12(timeIndex)
 	bi := branchIndex(yearBranch)
@@ -158,7 +164,8 @@ func GetHuoLingIndex(yearBranch string, timeIndex int) (huo, ling int) {
 	return
 }
 
-// GetLuanXiIndex 获取红鸾天喜索引（按年支）
+// GetLuanXiIndex 获取红鸾天喜索引（按年支）。红鸾从卯宫起子年逆数，天喜在红鸾对宫（+6宫）。
+// 红鸾天喜主姻缘、感情和喜庆之事。
 func GetLuanXiIndex(yearBranch string) (hongluan, tianxi int) {
 	bi := branchIndex(yearBranch)
 	hongluan = FixIndex12(FixEarthlyBranchIndex("卯") - bi)
@@ -166,7 +173,8 @@ func GetLuanXiIndex(yearBranch string) (hongluan, tianxi int) {
 	return
 }
 
-// GetHuagaiXianchiIndex 获取华盖咸池索引（按年支）
+// GetHuagaiXianchiIndex 获取华盖咸池索引（按年支）。华盖主才艺孤傲，咸池（桃花）主人缘感情。
+// 寅午戌年华盖戌咸池卯，申子辰年华盖辰咸池酉，巳酉丑年华盖丑咸池午，亥卯未年华盖未咸池子。
 func GetHuagaiXianchiIndex(yearBranch string) (huagai, xianchi int) {
 	bi := branchIndex(yearBranch)
 	switch {
@@ -186,7 +194,8 @@ func GetHuagaiXianchiIndex(yearBranch string) (huagai, xianchi int) {
 	return
 }
 
-// GetGuGuaIndex 获取孤辰寡宿索引（按年支）
+// GetGuGuaIndex 获取孤辰寡宿索引（按年支）。孤辰寡宿主孤独，常出现在三会局的前后方位。
+// 寅卯辰年孤巳寡丑，巳午未年孤申寡辰，申酉戌年孤亥寡未，亥子丑年孤寅寡戌。
 func GetGuGuaIndex(yearBranch string) (guchen, guasu int) {
 	bi := branchIndex(yearBranch)
 	switch {
@@ -206,7 +215,8 @@ func GetGuGuaIndex(yearBranch string) (guchen, guasu int) {
 	return
 }
 
-// GetJieshaIndex 获取劫杀索引（按年支）
+// GetJieshaIndex 获取劫杀索引（按年支）。劫杀为年支三合局的对冲方向：
+// 申子辰→巳、亥卯未→申、寅午戌→亥、巳酉丑→寅。
 func GetJieshaIndex(yearBranch string) int {
 	bi := branchIndex(yearBranch)
 	switch {
@@ -222,7 +232,7 @@ func GetJieshaIndex(yearBranch string) int {
 	return -1
 }
 
-// GetDahaoIndex 获取大耗索引（按年支）
+// GetDahaoIndex 获取大耗索引（按年支）。大耗位于年支的对宫，是年支三合局中破耗的位置，主破财损耗。
 func GetDahaoIndex(yearBranch string) int {
 	bi := branchIndex(yearBranch)
 	// 大耗位于年支对宫，阳顺阴逆移一位
@@ -230,7 +240,7 @@ func GetDahaoIndex(yearBranch string) int {
 	return FixIndex12(FixEarthlyBranchIndex(matched[bi]))
 }
 
-// GetNianjieIndex 获取年解索引（按年支）
+// GetNianjieIndex 获取年解索引（按年支）。解神从戌上起子年，逆数至当生年太岁，主解厄消灾。
 func GetNianjieIndex(yearBranch string) int {
 	bi := branchIndex(yearBranch)
 	// 解神从戌上起子，逆数至当生年太岁上
@@ -238,7 +248,8 @@ func GetNianjieIndex(yearBranch string) int {
 	return FixIndex12(FixEarthlyBranchIndex(matched[bi]))
 }
 
-// YearlyStarIndex 年系星索引
+// YearlyStarIndex 年系星索引容器。包含所有以年支/年干为基准推算的杂曜索引值，
+// 如咸池、华盖、孤辰、寡宿、天才、天寿、龙池、凤阁、天哭、天虚等二十余种。
 type YearlyStarIndex struct {
 	Xianchi, Huagai, Guchen, Guasu             int
 	Tiancai, Tianshou, Tianchu, Posui, Feilian int
@@ -249,7 +260,8 @@ type YearlyStarIndex struct {
 	Jiesha, Nianjie, Dahao                     int
 }
 
-// GetYearlyStarIndex 获取所有年系星索引
+// GetYearlyStarIndex 获取所有年系杂曜索引。按年支和年干推算咸池、华盖、孤辰、寡宿、天才、天寿、
+// 天厨、破碎、蜚蠊、龙池、凤阁、天哭、天虚、天官、天福、天德、月德、天空、截路空亡、旬空、劫杀、年解、大耗、天使天伤等。
 func GetYearlyStarIndex(solar *calendar.Solar, timeIndex int, gender, yearStem, yearBranch string, soulIndex, bodyIndex int) YearlyStarIndex {
 	si := stemIndex(yearStem)
 	bi := branchIndex(yearBranch)
@@ -342,7 +354,8 @@ func GetYearlyStarIndex(solar *calendar.Solar, timeIndex int, gender, yearStem, 
 	}
 }
 
-// GetTianshiTianshangIndex 获取天使天伤索引
+// GetTianshiTianshangIndex 获取天使天伤索引。天使居疾厄宫，天伤居交友宫（未旋转时）。
+// 阳男阴女为正位，阴男阳女交换位置。天使主病痛，天伤主伤害。
 func GetTianshiTianshangIndex(gender, yearBranch string, soulIndex int) (tianshi, tianshang int) {
 	bi := branchIndex(yearBranch)
 	yinyang := bi % 2 // 0=阳 1=阴
@@ -360,14 +373,15 @@ func GetTianshiTianshangIndex(gender, yearBranch string, soulIndex int) (tianshi
 	return
 }
 
-// MonthlyStarIndex 月系星索引
+// MonthlyStarIndex 月系星索引容器。包含月解、天姚、天刑、阴煞、天月、天巫等按月支推算的杂曜索引。
 type MonthlyStarIndex struct {
 	Yuejie, Tianyao, Tianxing, Yinsha, Tianyue, Tianwu int
 }
 
-// GetMonthlyStarIndex 获取月系星索引
+// GetMonthlyStarIndex 获取月系杂曜索引。按月支推算月解、天姚（桃花星）、天刑（刑伤星）、
+// 阴煞（阴性煞星）、天月、天巫（宗教星）的位置。
 func GetMonthlyStarIndex(lunar *calendar.Lunar, timeIndex int) MonthlyStarIndex {
-	monthIndex := fixLunarMonthIndex(lunar, timeIndex, false) // 0-based
+	monthIndex := fixLunarMonthIndex(lunar, timeIndex, false) // 从0开始
 
 	// 月解
 	yuejieBranches := [6]string{"申", "戌", "子", "寅", "辰", "午"}
@@ -401,17 +415,18 @@ func GetMonthlyStarIndex(lunar *calendar.Lunar, timeIndex int) MonthlyStarIndex 
 	}
 }
 
-// DailyStarIndex 日系星索引
+// DailyStarIndex 日系星索引容器。包含三台、八座、恩光、天贵等按日支推算的杂曜索引。
 type DailyStarIndex struct {
 	Santai, Bazuo, Enguang, Tiangui int
 }
 
-// GetDailyStarIndex 获取日系星索引
+// GetDailyStarIndex 获取日系杂曜索引。按日支推算三台、八座、恩光、天贵的位置，
+// 这些星曜与左辅右弼和文昌文曲的位置关系密切。
 func GetDailyStarIndex(lunar *calendar.Lunar, timeIndex int) DailyStarIndex {
 	lunarDay := lunar.GetDay()
 	monthIndex := fixLunarMonthIndex(lunar, timeIndex, false)
 
-	zuo, you := GetZuoYouIndex(monthIndex + 1) // monthIndex 0-based, lunar month 1-based
+	zuo, you := GetZuoYouIndex(monthIndex + 1) // monthIndex 从0开始，农历月份从1开始
 	chang, qu := GetChangQuIndex(timeIndex)
 
 	dayIndex := lunarDay - 1
@@ -427,12 +442,12 @@ func GetDailyStarIndex(lunar *calendar.Lunar, timeIndex int) DailyStarIndex {
 	return DailyStarIndex{Santai: santai, Bazuo: bazuo, Enguang: enguang, Tiangui: tiangui}
 }
 
-// TimelyStarIndex 时系星索引
+// TimelyStarIndex 时系星索引容器。包含台辅、封诰等按时支推算的杂曜索引。
 type TimelyStarIndex struct {
 	Taifu, Fenggao int
 }
 
-// GetTimelyStarIndex 获取时系星索引
+// GetTimelyStarIndex 获取时系杂曜索引。按时支推算台辅、封诰的位置，主功名事业。
 func GetTimelyStarIndex(timeIndex int) TimelyStarIndex {
 	ti := FixIndex12(timeIndex)
 	taifu := FixIndex12(FixEarthlyBranchIndex("午") + ti)

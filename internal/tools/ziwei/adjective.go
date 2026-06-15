@@ -1,6 +1,17 @@
 package ziwei
 
-// GetAdjectiveStar 安杂曜
+// GetAdjectiveStar 安杂曜（年系、月系、日系、时系杂曜的汇总）。杂曜种类繁多，按推算基准分为四类：
+//
+// 年系杂曜（20+种）：咸池、华盖、孤辰、寡宿、天才、天寿、天厨、破碎、蜚蠊、龙池、凤阁、
+// 天哭、天虚、天官、天福、天德、月德、天空、截路空亡、旬空、劫杀、年解、大耗、天使、天伤。
+//
+// 月系杂曜（6种）：天姚（桃花星）、天刑（刑伤星）、阴煞、天月、天巫、月解。
+//
+// 日系杂曜（4种）：三台、八座、恩光、天贵。
+//
+// 时系杂曜（2种）：台辅、封诰。
+//
+// 杂曜虽然权重不及主星和辅星，但在判断具体应事领域（如桃花、财运、官非、病痛）时提供重要辅助信息。
 func GetAdjectiveStar(yearly YearlyStarIndex, monthly MonthlyStarIndex, daily DailyStarIndex, timely TimelyStarIndex, hongluan, tianxi int) [12][]ZiWeiStar {
 	var stars [12][]ZiWeiStar
 

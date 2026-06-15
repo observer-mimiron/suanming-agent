@@ -1,3 +1,5 @@
+// Package knowledge 提供命理知识库检索功能。通过 MCP 协议连接外部知识库服务，
+// 将古籍原文、命理规则和解读资料注入到 LLM 的决策上下文中。
 package knowledge
 
 import (
@@ -7,11 +9,12 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
 )
 
+// SearchTool 知识库检索工具。根据查询关键词从项目知识库中检索相关命理资料段落。
 type SearchTool struct {
 	client *mcp.Client
 }
 
-// NewSearchTool creates a SearchTool with an injected MCP client.
+// NewSearchTool 创建知识库检索工具，注入外部 MCP 客户端用于连接知识库服务。
 func NewSearchTool(client *mcp.Client) *SearchTool {
 	return &SearchTool{client: client}
 }

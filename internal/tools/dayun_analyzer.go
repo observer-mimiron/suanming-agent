@@ -2,13 +2,36 @@ package tools
 
 import (
 	"context"
+
+	"github.com/cloudwego/eino/schema"
 )
 
-// DayunAnalyzer annotates each dayun with quality and ten-god classification
+// DayunAnalyzer 大运分析工具。根据八字日主和用神喜忌，对每步大运标注十神类型和吉凶评价（大吉/凶/平）。
 type DayunAnalyzer struct{}
 
 func (t *DayunAnalyzer) Name() string        { return "dayun_analyzer" }
 func (t *DayunAnalyzer) Description() string { return "分析每个大运的吉凶和十神类型" }
+func (t *DayunAnalyzer) EinoToolInfo() *schema.ToolInfo {
+	return &schema.ToolInfo{
+		Name: t.Name(),
+		Desc: t.Description(),
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"dayun": {
+				Type: schema.Array,
+				Desc: "大运列表，每项至少包含 startAge、endAge、ganZhi",
+				ElemInfo: &schema.ParameterInfo{
+					Type: schema.Object,
+				},
+				Required: true,
+			},
+			"bazi_result": {
+				Type:     schema.Object,
+				Desc:     "八字分析结果，至少包含 dayGan 和 yongshen",
+				Required: true,
+			},
+		}),
+	}
+}
 
 func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, error) {
 	dayun, _ := params["dayun"].([]map[string]any)
@@ -19,7 +42,7 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 	yongList := toStringSlice(yongshen["yong_shen"])
 	jiList := toStringSlice(yongshen["ji_shen"])
 
-	// 十神速查表: given day gan and target gan, return ten-god name
+	// 十神速查表：以日干为基准，根据大运天干查找对应的十神（正官、七杀、正印、偏印、比肩、劫财、食神、伤官、正财、偏财）
 	shiShenTable := map[string]map[string]string{
 		"甲": {"甲": "比肩", "乙": "劫财", "丙": "食神", "丁": "伤官", "戊": "偏财", "己": "正财", "庚": "七杀", "辛": "正官", "壬": "偏印", "癸": "正印"},
 		"乙": {"甲": "劫财", "乙": "比肩", "丙": "伤官", "丁": "食神", "戊": "正财", "己": "偏财", "庚": "正官", "辛": "七杀", "壬": "正印", "癸": "偏印"},
@@ -33,10 +56,11 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 		"癸": {"甲": "伤官", "乙": "食神", "丙": "正财", "丁": "偏财", "戊": "正官", "己": "七杀", "庚": "正印", "辛": "偏印", "壬": "劫财", "癸": "比肩"},
 	}
 
-	// Wuxing generation: key generates value (木生火 etc)
+	// 五行相生：key 生 value（木生火、火生土、土生金、金生水、水生木），用于判断大运对日主的生克关系
 	generates := map[string]string{"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
 
-	// Map day master's wuxing-based yongshen to ten-god categories
+	// 将用神喜忌分类映射到十神五行的四大类：生（印星）、泄（食伤）、耗（财星）、克（官杀）、同我（比劫），
+	// 用于判断大运干支属于用神类还是忌神类
 	dayWx, _ := baziResult["day_master_wuxing"].(string)
 	yongCategories := map[string]bool{}
 	jiCategories := map[string]bool{}
@@ -69,7 +93,7 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 
 	annotated := make([]map[string]any, 0, len(dayun))
 	for _, dy := range dayun {
-		// Skip empty entries
+		// 跳过空条目
 		if dy["startAge"] == nil || dy["endAge"] == nil {
 			continue
 		}

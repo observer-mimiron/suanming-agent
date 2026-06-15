@@ -1,3 +1,5 @@
+// Package policy 实现策略校验门控，对 supervisor 的决策结果应用阶段约束和业务规则。
+// 负责领域白名单过滤、并行执行开关、低置信度强制澄清、资料完整性校验、奇门降级等。
 package policy
 
 import (
@@ -5,18 +7,18 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
 
-// Phase 1 constants.
+// 阶段一的常量定义。
 const (
 	confidenceThreshold = 0.6
 )
 
-// phase1Allowlist is the set of domains permitted in phase 1.
+// phase1Allowlist 是阶段一允许执行的领域集合。
 var phase1Allowlist = map[string]bool{
 	"bazi":  true,
 	"qimen": true,
 }
 
-// ApprovedRoute is the policy-gate-approved execution route.
+// ApprovedRoute 是经策略门控批准的执行路线，包含领域、任务意图、槽位和策略提示。
 type ApprovedRoute struct {
 	ConversationIntent    string
 	PrimaryDomain         string
@@ -29,7 +31,7 @@ type ApprovedRoute struct {
 	PolicyHints           schemas.PolicyHints
 }
 
-// Apply validates a supervisor decision against phase-1 policy rules.
+// Apply 对 supervisor 的决策进行阶段一策略校验并返回批准后的执行路线。
 func Apply(decision schemas.SupervisorDecision, st *state.SessionState) ApprovedRoute {
 	route := ApprovedRoute{
 		ConversationIntent:    decision.ConversationIntent,
@@ -38,12 +40,12 @@ func Apply(decision schemas.SupervisorDecision, st *state.SessionState) Approved
 		TaskIntent:            decision.TaskIntent,
 		NeedsClarification:    decision.NeedsClarification,
 		ClarificationQuestion: decision.ClarificationQuestion,
-		ParallelAllowed:       false, // hard-disabled in phase 1
+		ParallelAllowed:       false, // 阶段一强制禁用并行
 		Slots:                 decision.Slots,
 		PolicyHints:           decision.PolicyHints,
 	}
 
-	// 1. Phase-1 domain allowlist: drop unsupported domains.
+	// 1. 阶段一领域白名单：过滤不支持的领域。
 	if !phase1Allowlist[route.PrimaryDomain] {
 		route.PrimaryDomain = "bazi"
 		route.TaskIntent = "collect_profile"
@@ -56,10 +58,10 @@ func Apply(decision schemas.SupervisorDecision, st *state.SessionState) Approved
 	}
 	route.SecondaryDomains = filtered
 
-	// 2. Hard-disable parallel execution.
+	// 2. 强制禁用并行执行。
 	route.ParallelAllowed = false
 
-	// 3. Low confidence forces clarification.
+	// 3. 低置信度强制澄清。
 	if decision.Confidence < confidenceThreshold && !route.NeedsClarification {
 		route.NeedsClarification = true
 		if route.ClarificationQuestion == "" {
@@ -67,7 +69,7 @@ func Apply(decision schemas.SupervisorDecision, st *state.SessionState) Approved
 		}
 	}
 
-	// 4. Incomplete profile forces clarification or collect_profile.
+	// 4. 资料不完整强制澄清或转为收集资料。
 	profileReady := st.IsProfileComplete() || st.HasBaziResult()
 	if !profileReady && route.TaskIntent != "collect_profile" && route.TaskIntent != "amend_profile" && route.TaskIntent != "direct_bazi" {
 		if !route.NeedsClarification {
@@ -76,9 +78,9 @@ func Apply(decision schemas.SupervisorDecision, st *state.SessionState) Approved
 		}
 	}
 
-	// 5. Qimen can serve as primary only for timing-oriented tasks.
+	// 5. 奇门仅可在择时类任务中作为主导领域。
 	if route.PrimaryDomain == "qimen" && route.TaskIntent != "timing_followup" && route.TaskIntent != "cross_domain_consult" {
-		// Downgrade: qimen primary without timing intent → bazi primary, qimen secondary.
+		// 降级：奇门主导无择时意图 → 转为八字主导，奇门降为辅助。
 		route.PrimaryDomain = "bazi"
 		route.TaskIntent = "collect_profile"
 		if !hasDomain(route.SecondaryDomains, "qimen") {

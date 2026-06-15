@@ -1,3 +1,5 @@
+// Package supervisor 提供三层防御的路由决策系统，将 LLM 输出转换为结构化 SupervisorDecision。
+
 package supervisor
 
 import (
@@ -12,43 +14,62 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/state"
+	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
-// Client calls the LLM supervisor and returns structured decisions.
+// RouteEngine 是 ADK 路由引擎接口，提供基于 LLM 的结构化决策。
+type RouteEngine interface {
+	Decide(ctx context.Context, prompt, msg string) (schemas.SupervisorDecision, error)
+}
+
+// ClientOption 是 Client 构造函数的选项函数。
+type ClientOption func(*Client)
+
+func WithRouteEngine(engine RouteEngine) ClientOption {
+	return func(c *Client) {
+		c.routeEngine = engine
+	}
+}
+
+var loadSupervisorPrompt = buildSupervisorPrompt
+
+// Client 调用 LLM supervisor 并返回结构化路由决策。
 type Client struct {
-	flash llm.Chat
+	flash       llm.Chat
+	routeEngine RouteEngine
 }
 
-// NewClient creates a supervisor client backed by the given flash model.
-func NewClient(flash llm.Chat) *Client {
-	return &Client{flash: flash}
+// NewClient 创建一个由 flash 模型驱动的 supervisor 客户端，可传入选项配置路由引擎。
+func NewClient(flash llm.Chat, opts ...ClientOption) *Client {
+	client := &Client{flash: flash}
+	for _, opt := range opts {
+		opt(client)
+	}
+	return client
 }
 
-// Decide runs the supervisor through a three-layer defense:
+// Decide 通过三层防御机制运行 supervisor 决策：
 //
-//	Layer 1 — structuredDecide (constrained decoding):
-//	  Uses GenerateWithTool with forced tool_choice. The model is required to
-//	  call the "output" tool whose input_schema is the SupervisorDecision schema.
-//	  This guarantees the JSON structure matches — not probabilistic, mathematical.
-//	  Up to 2 attempts with error feedback on validation failure.
+//	第 1 层 — structuredDecide（约束解码）：
+//	  使用强制 tool_choice 的 GenerateWithTool。模型必须调用 "output" 工具，
+//	  其 input_schema 为 SupervisorDecision 模式。这保证 JSON 结构精确匹配——是数学保证，而非概率。
+//	  验证失败时有最多 2 次重试，附带错误反馈。
 //
-//	Layer 2 — textDecide (prompt + validate + retry):
-//	  Falls back to plain text generation if layer 1 fails (API error or
-//	  persistent validation failure). The model is prompted to output JSON,
-//	  the response is parsed and validated, and specific error feedback is
-//	  injected into retry prompts. Up to 3 attempts.
+//	第 2 层 — textDecide（提示词 + 验证 + 重试）：
+//	  如果第 1 层失败（API 错误或持续验证失败），回退到纯文本生成。
+//	  提示模型输出 JSON，解析并验证响应，将具体的错误反馈注入重试提示词中。
+//	  最多 3 次尝试。
 //
-//	Layer 3 — fallbackExtract / safeFallback:
-//	  If all layer-2 attempts fail, falls back to a simplified extraction prompt
-//	  without complex routing. If the model is completely unavailable, returns
-//	  hardcoded conservative defaults via safeFallback.
+//	第 3 层 — fallbackExtract / safeFallback：
+//	  如果所有第 2 层尝试均失败，回退到简化的提取提示词，不进行复杂路由。
+//	  如果模型完全不可用，通过 safeFallback 返回硬编码的保守默认值。
 func (c *Client) Decide(ctx context.Context, msg string, st *state.SessionState) (schemas.SupervisorDecision, error) {
-	prompt, err := buildSupervisorPrompt()
+	prompt, err := loadSupervisorPrompt()
 	if err != nil {
 		return safeFallback(st), fmt.Errorf("supervisor prompt: %w", err)
 	}
 
-	// Inject session context so the supervisor knows what data already exists.
+	// 注入会话上下文，使 supervisor 了解已有的数据。
 	sessionCtx := buildSessionContext(st)
 	if sessionCtx != "" {
 		prompt += "\n\n## 当前会话状态\n\n" + sessionCtx
@@ -58,15 +79,15 @@ func (c *Client) Decide(ctx context.Context, msg string, st *state.SessionState)
 		{Role: "user", Content: msg},
 	}
 
-	// Layer 1: Try constrained decoding via forced tool use.
-	// This guarantees the response JSON conforms to the schema.
+	// 第 1 层：尝试通过强制工具使用的约束解码。
+	// 这保证响应 JSON 符合模式定义。
 	decision, err := c.structuredDecide(ctx, prompt, messages)
 	if err == nil {
 		return decision, nil
 	}
 	log.Printf("[supervisor] layer-1 structuredDecide failed: %v, falling back to text-based routing", err)
 
-	// Layer 2+3: Fall back to text-based generation with validation + retries.
+	// 第 2+3 层：回退到基于文本的生成，带验证和重试。
 	decision, err = c.textDecide(ctx, prompt, messages, st, msg)
 	if err != nil {
 		log.Printf("[supervisor] layer-2/3 textDecide also failed: %v, using degraded fallback", err)
@@ -74,12 +95,24 @@ func (c *Client) Decide(ctx context.Context, msg string, st *state.SessionState)
 	return decision, err
 }
 
-// structuredDecide (layer 1): constrained decoding via forced tool_choice.
-// The model must call the "output" tool, whose input_schema is the SupervisorDecision
-// schema — this guarantees structurally valid JSON. Up to 2 attempts with error
-// feedback on domain-level validation failures.
+// structuredDecide（第 1 层）：通过强制 tool_choice 进行约束解码。
+// 模型必须调用 "output" 工具，其 input_schema 为 SupervisorDecision 模式——这保证结构上有效的 JSON。
+// 最多 2 次尝试，失败时附带领域级验证的错误反馈。
 func (c *Client) structuredDecide(ctx context.Context, prompt string, messages []llm.Message) (schemas.SupervisorDecision, error) {
+	if c.routeEngine != nil {
+		if len(messages) == 0 {
+			return schemas.SupervisorDecision{}, fmt.Errorf("structured: missing user message")
+		}
+		return c.routeEngine.Decide(ctx, prompt, messages[len(messages)-1].Content)
+	}
+
 	tool := buildDecisionTool()
+	if llm.IsEinoChat(c.flash) {
+		ctx = tracing.WithEinoCallbackSpan(ctx, tracing.EinoCallbackSpanConfig{
+			Name: "supervisor_model",
+			Kind: tracing.KindLLM,
+		})
+	}
 
 	for attempt := 0; attempt < 2; attempt++ {
 		input, _, err := c.flash.GenerateWithTool(ctx, prompt, messages, tool)
@@ -87,33 +120,37 @@ func (c *Client) structuredDecide(ctx context.Context, prompt string, messages [
 			return schemas.SupervisorDecision{}, fmt.Errorf("structured: %w", err)
 		}
 
-		// Convert the tool input back to JSON string for parseAndValidate
+		// 将工具输入转换回 JSON 字符串用于 parseAndValidate
 		raw, _ := json.Marshal(input)
 		decision, validationErr := parseAndValidate(string(raw))
 		if validationErr == nil {
 			return decision, nil
 		}
 
-		// Validation failed — feed error back for self-correction.
+		// 验证失败——将错误反馈回模型进行自我修正。
 		messages = append(messages,
 			llm.Message{Role: "assistant", Content: string(raw)},
-			llm.Message{Role: "user", Content: fmt.Sprintf(
-				"返回的 JSON 有误: %s。请重新返回完整的 JSON，特别注意 slots.profile 必须从用户原始消息中提取实际值，不要用示例值或空对象。", validationErr.Error(),
-			)},
+			llm.Message{Role: "user", Content: decisionRetryPrompt(validationErr)},
 		)
 	}
 
 	return schemas.SupervisorDecision{}, fmt.Errorf("structured: validation failed after retry")
 }
 
-// textDecide (layer 2): plain text generation with JSON parsing, domain validation,
-// and up to 3 retries. On each validation failure, the specific error is injected
-// into the next prompt so the model can self-correct. Falls through to layer 3
-// (fallbackExtract) if all retries are exhausted.
+// textDecide（第 2 层）：纯文本生成，带 JSON 解析、领域验证和最多 3 次重试。
+// 每次验证失败时，将具体错误注入下一次提示词，使模型能够自我修正。
+// 所有重试耗尽时回退到第 3 层（fallbackExtract）。
 func (c *Client) textDecide(ctx context.Context, prompt string, messages []llm.Message, st *state.SessionState, msg string) (schemas.SupervisorDecision, error) {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
-		resp, _, err := c.flash.Generate(ctx, prompt, messages)
+		callCtx := ctx
+		if llm.IsEinoChat(c.flash) {
+			callCtx = tracing.WithEinoCallbackSpan(callCtx, tracing.EinoCallbackSpanConfig{
+				Name: "supervisor_model",
+				Kind: tracing.KindLLM,
+			})
+		}
+		resp, _, err := c.flash.Generate(callCtx, prompt, messages)
 		if err != nil {
 			lastErr = fmt.Errorf("supervisor call: %w", err)
 			continue
@@ -125,20 +162,18 @@ func (c *Client) textDecide(ctx context.Context, prompt string, messages []llm.M
 		}
 
 		lastErr = validationErr
-		// Append error feedback so the model can self-correct on the next attempt.
+		// 附加错误反馈，使模型在下次尝试时能够自我修正。
 		messages = append(messages,
 			llm.Message{Role: "assistant", Content: resp},
-			llm.Message{Role: "user", Content: fmt.Sprintf(
-				"返回的 JSON 有误: %s。请重新返回完整的 JSON，特别注意 slots.profile 必须从用户原始消息中提取实际值，不要用示例值或空对象。", validationErr.Error(),
-			)},
+			llm.Message{Role: "user", Content: decisionRetryPrompt(validationErr)},
 		)
 	}
 
-	// All retries exhausted — fall back to focused extraction.
+	// 所有重试耗尽——回退到聚焦提取。
 	return c.fallbackExtract(ctx, msg, st), lastErr
 }
 
-// parseDecision unmarshals raw JSON into a normalized SupervisorDecision.
+// parseDecision 将原始 JSON 解析为规范化的 SupervisorDecision。
 func parseDecision(raw string) schemas.SupervisorDecision {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -160,7 +195,7 @@ func parseDecision(raw string) schemas.SupervisorDecision {
 	return d
 }
 
-// parseAndValidate parses the LLM response and runs domain-specific validation.
+// parseAndValidate 解析 LLM 响应并运行领域特定的验证。
 func parseAndValidate(raw string) (schemas.SupervisorDecision, error) {
 	d := parseDecision(raw)
 
@@ -168,9 +203,9 @@ func parseAndValidate(raw string) (schemas.SupervisorDecision, error) {
 		return d, fmt.Errorf("task_intent 为 collect_profile，但 slots.profile 为空。必须从用户原始消息中提取出生信息")
 	}
 
-	// Detect hallucinated profile: when the LLM fills in default values for missing fields.
-	// If profile has suspicious defaults (month=1, day=1, hour=0) alongside only 1-2 real fields,
-	// it's likely the model fabricated the rest. Reject and retry.
+	// 检测编造的资料：当 LLM 为缺失字段填入默认值时。
+	// 如果资料有可疑的默认值（month=1, day=1, hour=0）且只有 1-2 个真实字段，
+	// 很可能是模型编造了其余部分。拒绝并重试。
 	if d.TaskIntent == "collect_profile" && len(d.Slots.Profile) >= 4 {
 		if looksHallucinated(d.Slots.Profile) {
 			return d, fmt.Errorf("slots.profile 疑似编造了默认值。只提取消息中明确出现的字段，缺字段就缺着不要补，让系统自动追问")
@@ -184,8 +219,8 @@ func parseAndValidate(raw string) (schemas.SupervisorDecision, error) {
 	return d, nil
 }
 
-// looksHallucinated checks if a profile likely contains fabricated default values.
-// Signal: month=1, day=1, and hour=0 all present — classic LLM defaults for missing birth info.
+// looksHallucinated 检查资料是否可能包含编造的默认值。
+// 信号：month=1、day=1 和 hour=0 同时出现——LLM 为缺失出生信息设置的经典默认值。
 func looksHallucinated(profile map[string]any) bool {
 	month, hasMonth := profile["month"].(float64)
 	day, hasDay := profile["day"].(float64)
@@ -196,9 +231,9 @@ func looksHallucinated(profile map[string]any) bool {
 	return month == 1 && day == 1 && hour == 0
 }
 
-// fallbackExtract (layer 3a): last-resort LLM extraction when all retries fail.
-// Uses a focused, single-purpose prompt — no complex routing, just extract what's there.
-// Returns hardcoded defaults if even this fails.
+// fallbackExtract（第 3a 层）：所有重试均失败时的最后手段 LLM 提取。
+// 使用重点明确的单一用途提示词——不进行复杂路由，只提取已有内容。
+// 即使此步骤也失败时返回硬编码默认值。
 func (c *Client) fallbackExtract(ctx context.Context, msg string, st *state.SessionState) schemas.SupervisorDecision {
 	fallbackPrompt := `从用户消息中提取信息，只返回一个 JSON 对象。
 
@@ -224,7 +259,7 @@ func (c *Client) fallbackExtract(ctx context.Context, msg string, st *state.Sess
 	}
 
 	d := parseDecision(resp)
-	// Ensure critical fields have sane defaults after fallback.
+	// 确保回退后关键字段有合理的默认值。
 	if d.ConversationIntent == "" {
 		d.ConversationIntent = "consult"
 	}
@@ -237,8 +272,7 @@ func (c *Client) fallbackExtract(ctx context.Context, msg string, st *state.Sess
 	return d
 }
 
-// buildSessionContext builds a concise summary of the current session state
-// for injection into the supervisor prompt.
+// buildSessionContext 构建当前会话状态的简洁摘要，用于注入到 supervisor 提示词中。
 func buildSessionContext(st *state.SessionState) string {
 	hasProfile := len(st.Profile) > 0
 	hasChart := st.HasBaziResult()
@@ -268,8 +302,8 @@ func buildSessionContext(st *state.SessionState) string {
 	return strings.Join(parts, "\n") + "\n\n根据以上会话状态：\n- 如果用户刚提供出生信息且资料刚完整、尚无命盘 → task_intent 应为 interpret_chart（首次完整解读）\n- 如果用户提供新的出生信息，且已有完整资料+命盘 → task_intent 应为 amend_profile\n- 如果用户追问且已有命盘 → task_intent 应为 fortune_followup，can_reuse_cached_result=true\n- 如果用户仅补充部分字段（如「我是女的」）且已有资料 → task_intent 应为 amend_profile，can_reuse_session_profile=true"
 }
 
-// safeFallback (layer 3b): hardcoded conservative defaults when the LLM is unavailable.
-// No network calls — pure logic based on current session state.
+// safeFallback（第 3b 层）：LLM 不可用时的硬编码保守默认值。
+// 不进行网络调用——纯基于当前会话状态的逻辑判断。
 func safeFallback(st *state.SessionState) schemas.SupervisorDecision {
 	needsClarification := !st.IsProfileComplete() && !st.HasBaziResult()
 	taskIntent := "collect_profile"
@@ -297,7 +331,7 @@ func safeFallback(st *state.SessionState) schemas.SupervisorDecision {
 	}
 }
 
-// buildSupervisorPrompt loads the unified supervisor prompt.
+// buildSupervisorPrompt 加载统一的 supervisor 提示词。
 func buildSupervisorPrompt() (string, error) {
 	b, err := os.ReadFile("prompts/supervisor/unified_router.md")
 	if err != nil {
@@ -306,13 +340,12 @@ func buildSupervisorPrompt() (string, error) {
 	return string(b), nil
 }
 
-// buildDecisionTool returns the SupervisorDecision schema as an Anthropic tool definition.
-// This enables layer-1 constrained decoding: the model is forced to call this tool,
-// guaranteeing the output JSON conforms to the schema.
+// buildDecisionTool 返回 SupervisorDecision 模式作为 Anthropic 工具定义。
+// 这启用第 1 层约束解码：模型被强制调用此工具，保证输出 JSON 符合模式。
 func buildDecisionTool() llm.ToolDef {
 	return llm.ToolDef{
-		Name:        "output",
-		Description: "输出结构化的路由决策结果，包含对话意图分类、领域路由、任务意图和提取的槽位数据",
+		Name:        decisionToolName,
+		Description: decisionToolDescription,
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

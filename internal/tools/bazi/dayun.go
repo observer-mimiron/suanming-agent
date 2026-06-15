@@ -2,7 +2,7 @@ package bazi
 
 import "context"
 
-// DayunAnalyzer annotates each dayun with quality and ten-god classification
+// DayunAnalyzer 大运分析工具。根据日主和用神喜忌，对每步大运标注十神类型和吉凶评价。
 type DayunAnalyzer struct{}
 
 func (t *DayunAnalyzer) Name() string        { return "dayun_analyzer" }
@@ -17,7 +17,7 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 	yongList := toStringSlice(yongshen["yong_shen"])
 	jiList := toStringSlice(yongshen["ji_shen"])
 
-	// 十神速查表: given day gan and target gan, return ten-god name
+	// 十神速查表：以日干和目标天干为键，返回十神名称
 	shiShenTable := map[string]map[string]string{
 		"甲": {"甲": "比肩", "乙": "劫财", "丙": "食神", "丁": "伤官", "戊": "偏财", "己": "正财", "庚": "七杀", "辛": "正官", "壬": "偏印", "癸": "正印"},
 		"乙": {"甲": "劫财", "乙": "比肩", "丙": "伤官", "丁": "食神", "戊": "正财", "己": "偏财", "庚": "正官", "辛": "七杀", "壬": "正印", "癸": "偏印"},
@@ -31,10 +31,10 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 		"癸": {"甲": "伤官", "乙": "食神", "丙": "正财", "丁": "偏财", "戊": "正官", "己": "七杀", "庚": "正印", "辛": "偏印", "壬": "劫财", "癸": "比肩"},
 	}
 
-	// Wuxing generation: key generates value (木生火 etc)
+	// 五行相生：key 生 value（木生火 等）
 	generates := map[string]string{"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
 
-	// Map day master's wuxing-based yongshen to ten-god categories
+	// 将日主的五行用神映射到十神类别
 	dayWx, _ := baziResult["day_master_wuxing"].(string)
 	yongCategories := map[string]bool{}
 	jiCategories := map[string]bool{}
@@ -67,7 +67,7 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 
 	annotated := make([]map[string]any, 0, len(dayun))
 	for _, dy := range dayun {
-		// Skip empty entries
+		// 跳过空条目
 		if dy["startAge"] == nil || dy["endAge"] == nil {
 			continue
 		}

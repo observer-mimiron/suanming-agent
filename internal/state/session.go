@@ -1,3 +1,5 @@
+// 本文件定义会话状态的数据结构和方法。包注释见 locker.go。
+
 package state
 
 import "time"
@@ -12,7 +14,7 @@ type Turn struct {
 // MaxRecentTurns 是 RecentTurns 保留窗口大小（约 4 轮问答）。
 const MaxRecentTurns = 8
 
-// RoutingSnapshot captures the last supervisor routing decision written into session state.
+// RoutingSnapshot 记录写入会话状态的上一次 supervisor 路由决策。
 type RoutingSnapshot struct {
 	ConversationIntent    string   `json:"conversation_intent,omitempty"`
 	PrimaryDomain         string   `json:"primary_domain,omitempty"`
@@ -24,29 +26,30 @@ type RoutingSnapshot struct {
 	TargetSubject         string   `json:"target_subject,omitempty"`
 }
 
-// BaziState holds bazi-specific domain state.
+// BaziState 存储八字领域的会话状态。
 type BaziState struct {
 	ProfileComplete bool `json:"profile_complete,omitempty"`
 	ChartReady      bool `json:"chart_ready,omitempty"`
 }
 
-// QimenState holds qimen-specific domain state.
+// QimenState 存储奇门遁甲领域的会话状态。
 type QimenState struct {
 	LastTimeScope string `json:"last_time_scope,omitempty"`
 }
 
-// ZiWeiState holds ziwei-specific domain state.
+// ZiWeiState 存储紫微斗数领域的会话状态。
 type ZiWeiState struct {
 	ChartReady bool `json:"chart_ready,omitempty"`
 }
 
-// DomainStates groups per-domain state for the session.
+// DomainStates 聚合会话中各个领域的独立状态。
 type DomainStates struct {
 	Bazi  BaziState  `json:"bazi,omitempty"`
 	Qimen QimenState `json:"qimen,omitempty"`
 	ZiWei ZiWeiState `json:"ziwei,omitempty"`
 }
 
+// SessionState 表示一个会话的完整状态，包含用户资料、命盘结果、路由快照、对话历史等。
 type SessionState struct {
 	SessionID           string
 	Profile             map[string]any // {year,month,day,hour,gender,...}
@@ -68,6 +71,7 @@ type SessionState struct {
 	DomainStates DomainStates    `json:"domain_states,omitempty"`
 }
 
+// NewSession 创建一个新的会话状态实例，初始化空资料和收集阶段。
 func NewSession(id string) *SessionState {
 	return &SessionState{
 		SessionID:         id,
@@ -93,21 +97,22 @@ func (s *SessionState) IsProfileComplete() bool {
 	return len(s.MissingFields()) == 0
 }
 
-// HasBaziResult reports whether the session already has a reusable chart context.
+// HasBaziResult 判断会话是否已有可复用的命盘上下文。
 func (s *SessionState) HasBaziResult() bool {
 	return s != nil && len(s.BaziResult) > 0
 }
 
-// HasQimenResult reports whether qimen data was already emitted in this session.
+// HasQimenResult 判断会话中是否已发出过奇门数据。
 func (s *SessionState) HasQimenResult() bool {
 	return s != nil && len(s.QimenResult) > 0
 }
 
-// ZiWeiResult holds the ziwei chart output.
+// HasZiWeiResult 判断会话中是否存在紫微斗数命盘结果。
 func (s *SessionState) HasZiWeiResult() bool {
 	return s != nil && s.ZiWeiResult != nil && len(s.ZiWeiResult) > 0
 }
 
+// MergeProfile 将 patch 中的字段合并到当前 Profile 中，返回是否有变更。
 func (s *SessionState) MergeProfile(patch map[string]any) bool {
 	changed := false
 	for k, v := range patch {
@@ -119,7 +124,7 @@ func (s *SessionState) MergeProfile(patch map[string]any) bool {
 	return changed
 }
 
-// RecordTurn appends a new turn to the recent history.
+// RecordTurn 将一条新消息追加到最近对话历史中。
 func (s *SessionState) RecordTurn(role, content string) {
 	s.RecentTurns = append(s.RecentTurns, Turn{
 		Role:      role,
@@ -128,8 +133,8 @@ func (s *SessionState) RecordTurn(role, content string) {
 	})
 }
 
-// TrimTurns removes turns beyond MaxRecentTurns and returns the overflow.
-// Caller is responsible for summarizing the returned turns into RunningSummary.
+// TrimTurns 移除超出 MaxRecentTurns 的旧轮次并返回被截断的内容。
+// 调用方应将返回的溢出轮次汇总到 RunningSummary 中。
 func (s *SessionState) TrimTurns() []Turn {
 	if len(s.RecentTurns) <= MaxRecentTurns {
 		return nil
@@ -141,8 +146,7 @@ func (s *SessionState) TrimTurns() []Turn {
 	return overflow
 }
 
-// ActivePrimaryDomain returns the currently active primary domain.
-// Defaults to "bazi" if not explicitly set.
+// ActivePrimaryDomain 返回当前活跃的主领域，默认为 "bazi"。
 func (s *SessionState) ActivePrimaryDomain() string {
 	if s.ConversationStage == "qimen" {
 		return "qimen"
@@ -150,7 +154,7 @@ func (s *SessionState) ActivePrimaryDomain() string {
 	return "bazi"
 }
 
-// SetActivePrimaryDomain records the active primary domain for the session.
+// SetActivePrimaryDomain 记录当前活跃的主领域。
 func (s *SessionState) SetActivePrimaryDomain(domain string) {
 	if domain == "qimen" {
 		s.ConversationStage = "qimen"
@@ -159,7 +163,7 @@ func (s *SessionState) SetActivePrimaryDomain(domain string) {
 	s.ConversationStage = "ready"
 }
 
-// Clone returns a detached copy that can be mutated without affecting the session in store.
+// Clone 返回一个独立的会话状态副本，修改副本不影响原始会话。
 func (s *SessionState) Clone() *SessionState {
 	if s == nil {
 		return nil

@@ -4,10 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
+	einocallbacks "github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components"
+	einomodel "github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 	"github.com/wikiglobal/suanming-agent/internal/llm"
+	"github.com/wikiglobal/suanming-agent/internal/mcp"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
@@ -53,6 +59,80 @@ func (c *streamClient) GenerateWithTool(_ context.Context, _ string, _ []llm.Mes
 	return nil, llm.TokenUsage{}, fmt.Errorf("structured output not used in orchestrator tests")
 }
 
+type orchestratorFakeToolCallingModel struct {
+	emitCallbacks bool
+	generateFn    func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error)
+	streamFn      func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.StreamReader[*schema.Message], error)
+}
+
+func (m *orchestratorFakeToolCallingModel) Generate(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
+	if !m.emitCallbacks {
+		if m.generateFn != nil {
+			return m.generateFn(ctx, input, opts...)
+		}
+		return schema.AssistantMessage("ok", nil), nil
+	}
+
+	ctx = einocallbacks.EnsureRunInfo(ctx, "orchestratorFakeToolCallingModel", components.ComponentOfChatModel)
+	ctx = einocallbacks.OnStart(ctx, &einomodel.CallbackInput{Messages: input})
+	var (
+		msg *schema.Message
+		err error
+	)
+	if m.generateFn != nil {
+		msg, err = m.generateFn(ctx, input, opts...)
+	} else {
+		msg = schema.AssistantMessage("ok", nil)
+	}
+	if err != nil {
+		einocallbacks.OnError(ctx, err)
+		return nil, err
+	}
+	einocallbacks.OnEnd(ctx, &einomodel.CallbackOutput{Message: msg})
+	return msg, nil
+}
+
+func (m *orchestratorFakeToolCallingModel) Stream(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.StreamReader[*schema.Message], error) {
+	if !m.emitCallbacks {
+		if m.streamFn != nil {
+			return m.streamFn(ctx, input, opts...)
+		}
+		sr, sw := schema.Pipe[*schema.Message](1)
+		go func() {
+			defer sw.Close()
+			sw.Send(schema.AssistantMessage("ok", nil), nil)
+		}()
+		return sr, nil
+	}
+
+	ctx = einocallbacks.EnsureRunInfo(ctx, "orchestratorFakeToolCallingModel", components.ComponentOfChatModel)
+	ctx = einocallbacks.OnStart(ctx, &einomodel.CallbackInput{Messages: input})
+	var (
+		sr  *schema.StreamReader[*schema.Message]
+		err error
+	)
+	if m.streamFn != nil {
+		sr, err = m.streamFn(ctx, input, opts...)
+	} else {
+		localSR, sw := schema.Pipe[*schema.Message](1)
+		sr = localSR
+		go func() {
+			defer sw.Close()
+			sw.Send(schema.AssistantMessage("ok", nil), nil)
+		}()
+	}
+	if err != nil {
+		einocallbacks.OnError(ctx, err)
+		return nil, err
+	}
+	_, sr = einocallbacks.OnEndWithStreamOutput(ctx, sr)
+	return sr, nil
+}
+
+func (m *orchestratorFakeToolCallingModel) WithTools(tools []*schema.ToolInfo) (einomodel.ToolCallingChatModel, error) {
+	return m, nil
+}
+
 // recordingSink captures emitted events for inspection.
 type recordingSink struct {
 	events []Event
@@ -77,9 +157,9 @@ func (s *recordingSink) lastComponentType() string {
 }
 
 type fakeDomainHandler struct {
-	name   string
-	calls  int
-	runFn  func(ctx context.Context, st *state.SessionState, route specialists.ApprovedRoute, sink specialists.EventSink) (schemas.DomainResult, error)
+	name  string
+	calls int
+	runFn func(ctx context.Context, st *state.SessionState, route specialists.ApprovedRoute, sink specialists.EventSink) (schemas.DomainResult, error)
 }
 
 func (h *fakeDomainHandler) Name() string { return h.name }
@@ -230,6 +310,54 @@ func TestRun_DigestStableForFinishedTrace(t *testing.T) {
 		return
 	}
 	t.Error("trace-panel component not found in events")
+}
+
+func TestStreamInterpretation_EinoCallbackTracingDoesNotDuplicateLLMSpan(t *testing.T) {
+	einocallbacks.InitCallbackHandlers(nil)
+	t.Cleanup(func() { einocallbacks.InitCallbackHandlers(nil) })
+	einocallbacks.AppendGlobalHandlers(tracing.NewEinoTraceCallbackHandler())
+
+	model := &orchestratorFakeToolCallingModel{
+		emitCallbacks: true,
+		streamFn: func(_ context.Context, _ []*schema.Message, _ ...einomodel.Option) (*schema.StreamReader[*schema.Message], error) {
+			sr, sw := schema.Pipe[*schema.Message](1)
+			go func() {
+				defer sw.Close()
+				sw.Send(&schema.Message{Role: schema.Assistant, Content: "解读内容"}, nil)
+			}()
+			return sr, nil
+		},
+	}
+
+	chat := llm.NewEinoChat(model)
+	orch := New(tools.NewRegistry(), chat, &llm.NoopClient{}, state.NewMemoryStore(), state.NewMemoryLocker(), tracing.NewRealTracer(nil), "soft")
+	orch.SetLLMModel("deepseek-v4-pro")
+
+	st := state.NewSession("s1")
+	st.LastUserQuestion = "看看事业"
+	sink := &recordingSink{}
+
+	ctx, trace := tracing.NewRealTracer(nil).StartTrace(context.Background(), "chat.turn")
+	defer trace.End()
+
+	_, err := orch.streamInterpretation(ctx, sink, st, nil, nil, false)
+	if err != nil && err != io.EOF {
+		t.Fatalf("streamInterpretation error = %v", err)
+	}
+
+	tr := tracing.TraceFromContext(ctx)
+	if tr == nil {
+		t.Fatal("TraceFromContext returned nil")
+	}
+	var count int
+	for _, span := range tr.Spans {
+		if span.Name == "llm_generate" && span.Kind == tracing.KindLLM {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("llm_generate span count = %d, want 1", count)
+	}
 }
 
 func TestRun_FollowupWithDirectBaziContext_DoesNotAskMissingProfile(t *testing.T) {
@@ -769,6 +897,106 @@ func TestExecuteRoute_TimingFollowupEnablesQimen(t *testing.T) {
 	// We verify indirectly: st.NeedsQimen should be true (set by the route path).
 	if !st.NeedsQimen {
 		t.Fatal("timing_followup route should set NeedsQimen=true on session")
+	}
+}
+
+func TestRun_BirthTimeMessageOverridesBadSupervisorRoute(t *testing.T) {
+	st := state.NewSession("test-bad-supervisor-birthtime")
+
+	reg := tools.NewRegistry()
+	reg.Register(&fakeTool{
+		name: "bazi_calc",
+		executeFn: func(_ context.Context, params map[string]any) (any, error) {
+			return map[string]any{
+				"dayGan": "甲",
+				"pillars": []map[string]any{
+					{"stem": "庚", "branch": "午"},
+					{"stem": "壬", "branch": "午"},
+					{"stem": "甲", "branch": "申"},
+					{"stem": "戊", "branch": "辰"},
+				},
+				"dayun": []map[string]any{},
+			}, nil
+		},
+	})
+	reg.Register(&fakeTool{
+		name: "yongshen",
+		executeFn: func(_ context.Context, params map[string]any) (any, error) {
+			return map[string]any{
+				"day_master": "甲",
+				"strength":   "中和",
+				"yong_shen":  []string{"水"},
+				"ji_shen":    []string{"火"},
+			}, nil
+		},
+	})
+	reg.Register(&fakeTool{
+		name: "knowledge_search",
+		executeFn: func(_ context.Context, params map[string]any) (any, error) {
+			return map[string]any{"passages": []mcp.Passage{}}, nil
+		},
+	})
+
+	answerer := &streamClient{
+		streamFn: func(_ context.Context, _ string, _ []llm.Message, onChunk func(string)) error {
+			onChunk("命理分析结果")
+			return nil
+		},
+	}
+
+	store := state.NewMemoryStore()
+	store.Save(st)
+
+	orch := New(reg, answerer, answerer, store, state.NewMemoryLocker(),
+		tracing.NewRealTracer(nil), "soft")
+	orch.SetSupervisor(&mockSupervisor{
+		decision: schemas.SupervisorDecision{
+			ConversationIntent: "consult",
+			PrimaryDomain:      "bazi",
+			TaskIntent:         "interpret_chart",
+			Confidence:         0.95,
+			Slots: schemas.DecisionSlots{
+				QuestionText: "我1990年5月20日早上8点，男，北京，看看事业",
+			},
+		},
+	})
+	orch.SetSpecialists(bazi.New(), qimen.New(), ziwei.New())
+
+	sink := &recordingSink{}
+	err := orch.Run(context.Background(), sink, "test-bad-supervisor-birthtime",
+		"我1990年5月20日早上8点，男，北京，看看事业")
+	if err != nil {
+		t.Fatalf("Run() returned error: %v", err)
+	}
+
+	got := store.LoadOrCreate("test-bad-supervisor-birthtime")
+	if !got.HasBaziResult() {
+		t.Fatal("expected birth-time message to recover into full reading and store BaziResult")
+	}
+
+	for _, evt := range sink.events {
+		if evt.Type != "text" {
+			continue
+		}
+		if m, ok := evt.Data.(map[string]any); ok {
+			if content, ok2 := m["content"].(string); ok2 && strings.Contains(content, "请提供您的出生信息") {
+				t.Fatal("birth-time override should not fall back to ask_missing_profile")
+			}
+		}
+	}
+}
+
+func TestExtractProfileAndQuestion_ExtractsBirthplaceFromShortToken(t *testing.T) {
+	patch, question := extractProfileAndQuestion("我1990年5月20日早上8点，男，北京，看看事业")
+
+	if got := patch["birthplace"]; got != "北京" {
+		t.Fatalf("birthplace = %v, want 北京", got)
+	}
+	if got := patch["year"]; got != 1990.0 {
+		t.Fatalf("year = %v, want 1990", got)
+	}
+	if strings.Contains(question, "北京") {
+		t.Fatalf("question should strip birthplace token, got %q", question)
 	}
 }
 

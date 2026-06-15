@@ -5,12 +5,28 @@ import (
 	"fmt"
 
 	"github.com/6tail/lunar-go/calendar"
+	"github.com/cloudwego/eino/schema"
 )
 
+// BaziCalcTool 八字排盘工具。根据出生年月日时和性别，计算四柱八字（年柱、月柱、日柱、时柱）
+// 包含十神、纳音、旬空、地支藏干、地势等信息，并统计五行分布和大运。
 type BaziCalcTool struct{}
 
 func (t *BaziCalcTool) Name() string        { return "bazi_calc" }
 func (t *BaziCalcTool) Description() string { return "计算八字排盘，输入出生年月日时+性别" }
+func (t *BaziCalcTool) EinoToolInfo() *schema.ToolInfo {
+	return &schema.ToolInfo{
+		Name: t.Name(),
+		Desc: t.Description(),
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"year":   {Type: schema.Number, Desc: "出生年，1900-2100", Required: true},
+			"month":  {Type: schema.Number, Desc: "出生月，1-12", Required: true},
+			"day":    {Type: schema.Number, Desc: "出生日，1-31", Required: true},
+			"hour":   {Type: schema.Number, Desc: "出生小时，0-23", Required: true},
+			"gender": {Type: schema.String, Desc: "性别，男或女", Enum: []string{"男", "女"}, Required: true},
+		}),
+	}
+}
 
 func (t *BaziCalcTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	year, ok := params["year"].(float64)
@@ -65,7 +81,7 @@ func (t *BaziCalcTool) Execute(_ context.Context, params map[string]any) (any, e
 		}
 	}
 
-	// 五行统计
+	// 五行统计：将天干地支映射为五行（木火土金水），分别对四柱统计各五行出现次数
 	stemWuxing := map[string]string{
 		"甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
 		"己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
@@ -86,7 +102,7 @@ func (t *BaziCalcTool) Execute(_ context.Context, params map[string]any) (any, e
 		}
 	}
 
-	// 大运
+	// 大运计算：lunar-go 根据性别阴阳自动推算起运时间和各步大运干支
 	genderInt := 0
 	if gender == "男" {
 		genderInt = 1

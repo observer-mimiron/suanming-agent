@@ -1,3 +1,6 @@
+// Package ziwei 提供紫微斗数排盘功能。包含安命宫身宫、定五行局、安紫微天府、
+// 安主星辅星、安长生博士十二神、起大限、安杂曜和流年分析等完整算法。
+// 紫微斗数以年柱天干地支为核心，通过紫微星系和天府星系的分布构建十二宫星曜布局。
 package ziwei
 
 import (
@@ -7,7 +10,9 @@ import (
 	"github.com/6tail/lunar-go/calendar"
 )
 
-// ZiWeiCalcTool 紫微斗数排盘工具
+// ZiWeiCalcTool 紫微斗数排盘工具。根据出生年月日时和性别，排布紫微斗数十二宫命盘，
+// 包含主星（紫微、天机、太阳、武曲、天同等14主星）、辅星（文昌、文曲、左辅、右弼、天魁、天钺等14辅星）、
+// 杂曜（红鸾、天喜、三台、八座等数十种）、长生十二神、博士十二神和大限信息。
 type ZiWeiCalcTool struct{}
 
 func (t *ZiWeiCalcTool) Name() string        { return "ziwei_calc" }

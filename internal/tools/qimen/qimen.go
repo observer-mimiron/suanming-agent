@@ -1,3 +1,5 @@
+// Package qimen 提供奇门遁甲时家奇门排盘功能。基于 qimen-go 库实现九宫、八门、八神、九星的推演，
+// 支持拆补法和置闰法两种起局方式，适用于择吉、决策和命理咨询场景。
 package qimen
 
 import (
@@ -9,7 +11,8 @@ import (
 	"github.com/deminzhang/qimen-go/qimen"
 )
 
-// Tool 奇门遁甲排盘工具（时家奇门）
+// Tool 奇门遁甲排盘工具（时家奇门）。依据给定的年月日时分起局，生成九宫格局信息，
+// 包括八门（休生伤杜景死惊开）、九星（天蓬天芮等）、八神（值符腾蛇等）和引干等。
 type Tool struct{}
 
 func (t *Tool) Name() string        { return "qimen_dunjia" }
@@ -45,7 +48,7 @@ func (t *Tool) Execute(_ context.Context, params map[string]any) (any, error) {
 		YMDH:        qimen.QMGameHour, // 时家奇门
 	})
 
-	pan.ShowTimeGame() // sets ShowPan and populates JieQi, JuText, DutyText
+	pan.ShowTimeGame() // 设置 ShowPan 并填充 JieQi、JuText、DutyText
 	pp := pan.ShowPan
 
 	palaceNames := map[int]string{1: "坎", 2: "坤", 3: "震", 4: "巽", 5: "中", 6: "乾", 7: "兑", 8: "艮", 9: "离"}
@@ -84,7 +87,8 @@ func (t *Tool) Execute(_ context.Context, params map[string]any) (any, error) {
 	}, nil
 }
 
-// ResolveTime converts a time.Time to params for Tool.
+// ResolveTime 将标准时间转换为奇门工具使用的参数字典（年、月、日、时、分）。
+// 用于当客户端传入 time.Time 类型而非原始数值时的参数适配。
 func ResolveTime(tm time.Time) map[string]any {
 	return map[string]any{
 		"year":   float64(tm.Year()),

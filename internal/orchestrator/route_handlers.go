@@ -12,9 +12,9 @@ import (
 )
 
 
-// executeRoute dispatches execution directly from ApprovedRoute fields.
+// executeRoute 直接从 ApprovedRoute 字段调度执行。
 func (o *Orchestrator) executeRoute(ctx context.Context, sink EventSink, st *state.SessionState, route policy.ApprovedRoute, profilePatch map[string]any, userQuestion string, rawBazi []string) (string, string, error) {
-	// Reclassify spurious collect_profile when session already has data.
+	// 当会话已有资料时，重新分类误判的 collect_profile
 	taskIntent := route.TaskIntent
 	if taskIntent == "collect_profile" && (st.HasBaziResult() || len(st.Profile) > 0) && !containsBirthTime(userQuestion) {
 		taskIntent = "amend_profile"
@@ -24,15 +24,15 @@ func (o *Orchestrator) executeRoute(ctx context.Context, sink EventSink, st *sta
 		return o.executeClarificationRoute(ctx, sink, st, profilePatch, userQuestion, route.ClarificationQuestion)
 	}
 
-	// Qimen-primary lane: when the supervisor + policy gate have approved qimen as
-	// the primary domain for a timing or cross-domain task, execute qimen_dunjia as
-	// the mainline step rather than as a secondary supplement.
+	// 奇门主领域路径：当 supervisor + 策略门批准奇门作为
+	// 择时或跨领域任务的主领域时，将 qimen_dunjia 作为
+	// 主线步骤执行，而非作为辅助补充。
 	if route.PrimaryDomain == "qimen" && (taskIntent == "timing_followup" || taskIntent == "cross_domain_consult") {
 		return o.executeQimenPrimaryRoute(ctx, sink, st, profilePatch, userQuestion)
 	}
 
-	// Ziwei-primary lane: when supervisor + policy gate have approved ziwei as
-	// the primary domain, execute ziwei_calc as the mainline step.
+	// 紫微主领域路径：当 supervisor + 策略门批准紫微作为
+	// 主领域时，将 ziwei_calc 作为主线步骤执行。
 	if route.PrimaryDomain == "ziwei" {
 		return o.executeZiweiPrimaryRoute(ctx, sink, st, profilePatch, userQuestion)
 	}
@@ -51,8 +51,7 @@ func (o *Orchestrator) executeRoute(ctx context.Context, sink EventSink, st *sta
 	}
 }
 
-// executeClarificationRoute asks the clarification question when the route
-// requires it, or falls back to asking for missing profile fields.
+// executeClarificationRoute 在路由需要时询问澄清问题，否则回退到询问缺失的资料字段。
 func (o *Orchestrator) executeClarificationRoute(ctx context.Context, sink EventSink, st *state.SessionState, profilePatch map[string]any, userQuestion string, clarificationQuestion string) (string, string, error) {
 	candidate := st.Clone()
 	candidate.MergeProfile(profilePatch)
@@ -60,8 +59,8 @@ func (o *Orchestrator) executeClarificationRoute(ctx context.Context, sink Event
 		candidate.LastUserQuestion = userQuestion
 	}
 
-	// When the route explicitly requires clarification, do not answer directly
-	// from an existing chart. Ask the approved clarification question instead.
+	// 当路由明确要求澄清时，不直接从现有命盘回答
+	// 而是询问已批准的澄清问题。
 	if candidate.HasBaziResult() || candidate.IsProfileComplete() {
 		if strings.TrimSpace(clarificationQuestion) == "" {
 			clarificationQuestion = "请确认一下您的需求，我再为您详细分析。"
@@ -84,8 +83,7 @@ func (o *Orchestrator) executeClarificationRoute(ctx context.Context, sink Event
 	return "ask_missing_profile", text, err
 }
 
-// executeCollectProfileRoute handles collect_profile: reset profile/chart on
-// candidate, ask for missing fields, or run full reading when complete.
+// executeCollectProfileRoute 处理 collect_profile：重置候选会话的资料/命盘，询问缺失字段，或在资料完整时进行完整解读。
 func (o *Orchestrator) executeCollectProfileRoute(ctx context.Context, sink EventSink, st *state.SessionState, profilePatch map[string]any, userQuestion string) (string, string, error) {
 	candidate := st.Clone()
 	candidate.Profile = make(map[string]any)
@@ -110,8 +108,7 @@ func (o *Orchestrator) executeCollectProfileRoute(ctx context.Context, sink Even
 	return "full_reading", text, err
 }
 
-// executeAmendProfileRoute handles amend_profile: merge profile patch without
-// wiping chart, unless chart-affecting fields changed.
+// executeAmendProfileRoute 处理 amend_profile：合并资料补丁而不清空命盘，除非影响命盘的字段发生了变化。
 func (o *Orchestrator) executeAmendProfileRoute(ctx context.Context, sink EventSink, st *state.SessionState, profilePatch map[string]any, userQuestion string) (string, string, error) {
 	candidate := st.Clone()
 	changed := candidate.MergeProfile(profilePatch)
@@ -142,8 +139,7 @@ func (o *Orchestrator) executeAmendProfileRoute(ctx context.Context, sink EventS
 	return "followup_reading", text, err
 }
 
-// executeDirectBaziRoute handles direct_bazi: merge gender into candidate
-// and run direct bazi input analysis.
+// executeDirectBaziRoute 处理 direct_bazi：将性别合并到候选会话中，并运行直接八字输入分析。
 func (o *Orchestrator) executeDirectBaziRoute(ctx context.Context, sink EventSink, st *state.SessionState, profilePatch map[string]any, rawBazi []string) (string, string, error) {
 	candidate := st.Clone()
 	if g, ok := profilePatch["gender"]; ok {
@@ -156,8 +152,7 @@ func (o *Orchestrator) executeDirectBaziRoute(ctx context.Context, sink EventSin
 	return "direct_bazi", text, err
 }
 
-// executeFollowupRoute handles all followup task intents: reuse chart if
-// available, or fall through to profile collection / full reading.
+// executeFollowupRoute 处理所有跟进任务意图：有命盘时复用，否则回退到资料收集/完整解读。
 func (o *Orchestrator) executeFollowupRoute(ctx context.Context, sink EventSink, st *state.SessionState, userQuestion string, needsQimen bool) (string, string, error) {
 	candidate := st.Clone()
 	if userQuestion != "" {
@@ -190,11 +185,9 @@ func (o *Orchestrator) executeFollowupRoute(ctx context.Context, sink EventSink,
 	return "full_reading", text, err
 }
 
-// executeQimenPrimaryRoute handles qimen as the primary execution lane.
-// It invokes qimen_dunjia unconditionally (not gated by NeedsQimen flag) and
-// uses the qimen chart as the main data source for interpretation. Existing
-// BaziResult is reused as background context when available, but qimen primary
-// does not require a bazi chart to function.
+// executeQimenPrimaryRoute 处理奇门作为主执行领域的情况。
+// 无条件调用 qimen_dunjia（不受 NeedsQimen 标志控制），并将奇门盘作为解读的主要数据来源。
+// 当存在现有 BaziResult 时作为背景上下文复用，但奇门主领域不依赖八字命盘即可运行。
 func (o *Orchestrator) executeQimenPrimaryRoute(ctx context.Context, sink EventSink, st *state.SessionState, profilePatch map[string]any, userQuestion string) (string, string, error) {
 	candidate := st.Clone()
 	candidate.MergeProfile(profilePatch)
@@ -202,7 +195,7 @@ func (o *Orchestrator) executeQimenPrimaryRoute(ctx context.Context, sink EventS
 		candidate.LastUserQuestion = userQuestion
 	}
 
-	// 1. Execute qimen_dunjia as primary domain tool — always, not gated by NeedsQimen.
+	// 1. 执行 qimen_dunjia 作为主领域工具——始终执行，不受 NeedsQimen 标志控制。
 	var qimenData map[string]any
 	if qimenTool, ok := o.tools.Get("qimen_dunjia"); ok {
 		qmSpan := tracing.SpanFromContext(ctx, "qimen_dunjia", tracing.KindTool)
@@ -240,9 +233,9 @@ func (o *Orchestrator) executeQimenPrimaryRoute(ctx context.Context, sink EventS
 		}})
 	}
 
-	// 2. Generate answer by reusing existing infrastructure.
+	// 2. 通过复用现有基础设施生成回答。
 	if candidate.HasBaziResult() {
-		// Reuse existing bazi chart as background context, qimen data as primary.
+		// 复用现有八字命盘作为背景上下文，奇门数据作为主要数据源。
 		sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
 			"agent": "orchestrator", "text": "复用已有命盘，结合奇门盘分析...",
 		}})
@@ -254,10 +247,10 @@ func (o *Orchestrator) executeQimenPrimaryRoute(ctx context.Context, sink EventS
 		return "qimen_primary_reading", text, err
 	}
 
-	// No bazi chart — qimen primary can still produce an answer because
-	// qimen uses the current time, not birth time.
+	// 无八字命盘——奇门主领域仍可生成回答，因为
+	// 奇门使用当前时间，而非出生时间。
 	if candidate.IsProfileComplete() {
-		// Compute bazi for background context, then answer with qimen as primary.
+		// 计算八字作为背景上下文，然后以奇门为主生成回答。
 		sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
 			"agent": "orchestrator", "text": "开始排盘并结合奇门盘分析...",
 		}})
@@ -284,8 +277,8 @@ func (o *Orchestrator) executeQimenPrimaryRoute(ctx context.Context, sink EventS
 		return "qimen_primary_reading", text, err
 	}
 
-	// No profile and no chart — qimen chart was already emitted above.
-	// Answer directly based on the qimen chart; no birth info needed.
+	// 无资料且无命盘——奇门盘已在上面发出。
+	// 直接基于奇门盘回答，无需出生信息。
 	sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
 		"agent": "orchestrator", "text": "基于奇门盘分析当前时机...",
 	}})
@@ -294,8 +287,8 @@ func (o *Orchestrator) executeQimenPrimaryRoute(ctx context.Context, sink EventS
 	return "qimen_primary_reading", text, err
 }
 
-// executeZiweiPrimaryRoute handles ziwei as the primary domain.
-// Executes ziwei_calc tool and generates a reading with ziwei chart as primary context.
+// executeZiweiPrimaryRoute 处理紫微斗数作为主领域的情况。
+// 执行 ziwei_calc 工具，并以紫微命盘为主上下文生成解读。
 func (o *Orchestrator) executeZiweiPrimaryRoute(ctx context.Context, sink EventSink, st *state.SessionState, profilePatch map[string]any, userQuestion string) (string, string, error) {
 	candidate := st.Clone()
 	candidate.MergeProfile(profilePatch)
@@ -303,7 +296,7 @@ func (o *Orchestrator) executeZiweiPrimaryRoute(ctx context.Context, sink EventS
 		candidate.LastUserQuestion = userQuestion
 	}
 
-	// Must have complete profile for ziwei paipan.
+	// 必须有完整资料才能排紫微斗数命盘。
 	if !candidate.IsProfileComplete() {
 		sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
 			"agent": "orchestrator", "text": "需要出生信息才能排紫微斗数命盘，请提供出生年月日时和性别。",
@@ -314,7 +307,7 @@ func (o *Orchestrator) executeZiweiPrimaryRoute(ctx context.Context, sink EventS
 		return "ask_missing_profile", "需要出生信息才能排紫微斗数命盘", nil
 	}
 
-	// Execute ziwei_calc tool.
+	// 执行 ziwei_calc 工具。
 	var ziweiData map[string]any
 	if ziweiTool, ok := o.tools.Get("ziwei_calc"); ok {
 		zwSpan := tracing.SpanFromContext(ctx, "ziwei_calc", tracing.KindTool)
@@ -351,7 +344,7 @@ func (o *Orchestrator) executeZiweiPrimaryRoute(ctx context.Context, sink EventS
 		return "ziwei_primary_reading", "", nil
 	}
 
-	// Also compute bazi for background context if available.
+	// 同时计算八字作为背景上下文（如可用）。
 	if baziTool, ok := o.tools.Get("bazi_calc"); ok && !candidate.HasBaziResult() {
 		baziSpan := tracing.SpanFromContext(ctx, "bazi_calc", tracing.KindTool)
 		baziResult, baziErr := baziTool.Execute(ctx, candidate.Profile)
@@ -378,6 +371,9 @@ func (o *Orchestrator) executeZiweiPrimaryRoute(ctx context.Context, sink EventS
 }
 
 
+// executeParallelFortuneRoute 处理带奇门辅助的 fortune_followup 情况。
+// 如果缺少命盘则根据候选资料计算八字命盘，然后无条件运行当前时间的 qimen_dunjia，
+// 最后将两者合并为结合知识搜索上下文的综合解读。
 func (o *Orchestrator) executeParallelFortuneRoute(ctx context.Context, sink EventSink, st *state.SessionState, candidate *state.SessionState, userQuestion string) (string, string, error) {
 	if !candidate.IsProfileComplete() && !candidate.HasBaziResult() {
 		text, err := o.handleAsk(ctx, sink, candidate)

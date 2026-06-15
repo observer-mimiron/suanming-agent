@@ -1,3 +1,5 @@
+// Package bazi 提供八字四柱排盘、大运分析、神煞推算和用神分析的核心算法。
+// 基于 lunar-go 库实现天文历法计算，支持真太阳时校正和晚子时处理。
 package bazi
 
 import (
@@ -7,6 +9,8 @@ import (
 	"github.com/6tail/lunar-go/calendar"
 )
 
+// CalcTool 八字排盘核心工具。根据出生年月日时和性别，计算四柱八字，包含十神、纳音、旬空、
+// 藏干、地势、五行统计、神煞、大运等完整命盘信息。支持经度参数做真太阳时校正。
 type CalcTool struct{}
 
 func (t *CalcTool) Name() string        { return "bazi_calc" }
@@ -59,7 +63,7 @@ func (t *CalcTool) Execute(_ context.Context, params map[string]any) (any, error
 		h = solarMinutes / 60
 		minute = solarMinutes % 60
 		if h != origHour {
-			// adjusted — the birthday string below will reflect corrected date/hour
+			// 已校正 — 下方生日字符串使用修正后的日期时辰
 		}
 	}
 	// ---- 太阳时校正结束 ----

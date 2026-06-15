@@ -1,3 +1,4 @@
+// Package handler 提供 HTTP 请求处理层，负责任务编排器与 SSE 推送之间的桥接。
 package handler
 
 import (
@@ -15,7 +16,7 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
-// sseEventSink adapts sse.Sender to orchestrator.EventSink.
+// sseEventSink 将 sse.Sender 适配为 orchestrator.EventSink。
 type sseEventSink struct {
 	sw        sse.Sender
 	dbg       *os.File
@@ -45,19 +46,20 @@ type debugEntry struct {
 	Payload   any    `json:"payload"`
 }
 
-// ChatHandler handles HTTP chat requests.
+// ChatHandler 处理 HTTP 聊天请求，将编排器的 SSE 事件推送给前端。
 type ChatHandler struct {
 	orch      *orchestrator.Orchestrator
 	debugHTTP bool
 	debugDir  string
 }
 
-// NewChatHandler creates a ChatHandler.
+// NewChatHandler 创建用于处理 HTTP 聊天请求的 ChatHandler。
+// 如果 debugHTTP 为 true，会将 SSE 事件流水记录到 debugDir 目录下的 JSONL 文件中。
 func NewChatHandler(orch *orchestrator.Orchestrator, debugHTTP bool, debugDir string) *ChatHandler {
 	return &ChatHandler{orch: orch, debugHTTP: debugHTTP, debugDir: debugDir}
 }
 
-// HandleChat processes POST /api/chat requests.
+// HandleChat 处理 POST /api/chat 请求，解析消息后通过编排器运行完整对话流程。
 func (h *ChatHandler) HandleChat(c *gin.Context) {
 	var req struct {
 		Message   string `json:"message"`

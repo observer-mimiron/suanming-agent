@@ -9,6 +9,8 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
 
+// summarySystemPrompt 是用于 LLM 对话摘要的系统提示词。
+// 指示模型生成包含 4 个字段的结构化中文摘要，在对话轮次溢出时保留上下文。
 const summarySystemPrompt = `你是一个结构化摘要助手。将对话历史压缩为简洁的结构化摘要，与新发生的对话合并。
 
 已有摘要时，你必须在保留已有摘要关键信息的基础上补充新内容，而不是从头重写。
@@ -21,9 +23,9 @@ const summarySystemPrompt = `你是一个结构化摘要助手。将对话历史
 关键结论：已给出的重要分析结论和建议
 待解决问题：仍然未解答或需要跟进的问题`
 
-// summarizeTurns 将溢出的对话轮次压缩合并到 RunningSummary 中。
-// oldSummary 是已有的滚动摘要，turns 是需要新增压缩的轮次。
-// 失败时返回旧摘要和 false，不中断主流程。
+// summarizeTurns 将溢出的对话轮次合并到滚动摘要中。
+// 使用 flash LLM 生成包含 4 个字段的结构化摘要（出生资料、问题主线、关键结论、待解决问题）。
+// 失败时返回旧摘要和 false，从不中断主对话流程。
 func (o *Orchestrator) summarizeTurns(ctx context.Context, oldSummary string, turns []state.Turn) (string, bool) {
 	if len(turns) == 0 {
 		return oldSummary, true

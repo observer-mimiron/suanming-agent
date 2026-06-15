@@ -1,16 +1,20 @@
 package bazi
 
-// ShenshaItem represents a single shensha on a pillar.
+// ShenshaItem 神煞。表示命盘某一柱上的单个神煞，包含名称、吉凶属性（吉/凶/平）、推算依据和中文描述。
+// 神煞是八字命理中基于干支组合的符号化判断体系，如天乙贵人、桃花、驿马等。
 type ShenshaItem struct {
 	Name        string `json:"name"`
-	Tone        string `json:"tone"` // good | bad | neutral
+	Tone        string `json:"tone"` // 吉 | 凶 | 平
 	Basis       string `json:"basis"`
 	Description string `json:"description"`
 }
 
-// computeShensha computes natal shensha for each pillar.
-// gan/zhi are [year, month, day, time]; xunKong is the original xunKong per pillar.
-// Returns byPillar map and updated pillars with shensha field attached.
+// computeShensha 计算命盘神煞。基于年干、日干、年支、日支和时支之间的关系推算各类神煞。
+// gan/zhi 为[年柱, 月柱, 日柱, 时柱]的天干/地支数组；xunKong 为各柱的旬空信息。
+// 返回值 byPillar 是按柱分组的神煞列表，updated pillars 是追加了神煞字段的更新后的四柱。
+//
+// 包含的15种神煞：天乙贵人、桃花、驿马、华盖、孤辰、寡宿、文昌贵人、羊刃、禄神、劫煞、灾煞、
+// 将星、天罗地网、魁罡、空亡。每种均有特定的干支规则推算。
 func computeShensha(gan, zhi, xunKong []string, pillars []map[string]any) (map[string][]ShenshaItem, []map[string]any) {
 	dayGan := gan[2]
 	dayZhi := zhi[2]
@@ -21,7 +25,7 @@ func computeShensha(gan, zhi, xunKong []string, pillars []map[string]any) (map[s
 		"年柱": {}, "月柱": {}, "日柱": {}, "时柱": {},
 	}
 
-	// addByBranch adds a shensha to every pillar whose branch equals any target.
+	// addByBranch 将神煞添加到所有地支与目标匹配的柱上。
 	addByBranch := func(name, tone, basis, desc string, targets []string) {
 		for i, z := range zhi {
 			for _, t := range targets {
@@ -34,14 +38,14 @@ func computeShensha(gan, zhi, xunKong []string, pillars []map[string]any) (map[s
 		}
 	}
 
-	// addToDayPillar adds a shensha only to the day pillar.
+	// addToDayPillar 将神煞仅添加到日柱上。
 	addToDayPillar := func(name, tone, basis, desc string) {
 		byPillar["日柱"] = append(byPillar["日柱"], ShenshaItem{
 			Name: name, Tone: tone, Basis: basis, Description: desc,
 		})
 	}
 
-	// ---- rule-based shensha ----
+	// ---- 基于规则的神煞推算 ----
 
 	// 1. 天乙贵人 — 日干
 	tianYi := map[string][]string{
@@ -147,7 +151,7 @@ func computeShensha(gan, zhi, xunKong []string, pillars []map[string]any) (map[s
 		}
 	}
 
-	// Copy pillars and attach shensha
+	// 复制四柱并附加神煞信息
 	updated := make([]map[string]any, len(pillars))
 	for i, p := range pillars {
 		cp := make(map[string]any)

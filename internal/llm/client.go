@@ -1,3 +1,5 @@
+// Package llm 封装大语言模型客户端，提供统一的 Streaming / Generate / GenerateWithTool 接口。
+// 支持原生 HTTP 客户端（Native）和 Eino 框架（Eino）两种后端实现。
 package llm
 
 import (
@@ -14,25 +16,26 @@ import (
 	"time"
 )
 
+// Message 表示一条 LLM 对话消息，包含角色和内容。
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// TokenUsage reports token consumption for a single LLM call.
+// TokenUsage 报告一次 LLM 调用的 Token 消耗（输入和输出）。
 type TokenUsage struct {
 	Input  int `json:"input"`
 	Output int `json:"output"`
 }
 
-// ToolDef describes a tool available to the model for structured output.
+// ToolDef 描述一个可供模型调用的工具定义，用于结构化输出场景。
 type ToolDef struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	InputSchema any    `json:"input_schema"`
 }
 
-// Chat is the interface all LLM clients must implement.
+// Chat 是所有 LLM 客户端必须实现的统一接口，支持流式和非流式生成。
 type Chat interface {
 	Stream(ctx context.Context, systemPrompt string, messages []Message, onText func(string)) error
 	Generate(ctx context.Context, systemPrompt string, messages []Message) (string, TokenUsage, error)
@@ -46,6 +49,8 @@ type Client struct {
 	client  *http.Client
 }
 
+// NewClient 创建一个原生 HTTP LLM 客户端，使用 Anthropic 兼容 API。
+// 如果传入空值，则从环境变量 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL 读取。
 func NewClient(apiKey, baseURL, model string, temperature float64) *Client {
 	if apiKey == "" {
 		apiKey = os.Getenv("LLM_API_KEY")
@@ -59,7 +64,7 @@ func NewClient(apiKey, baseURL, model string, temperature float64) *Client {
 	if apiKey == "" {
 		log.Println("WARNING: LLM_API_KEY not set — LLM calls will fail")
 	}
-	_ = temperature // reserved for future use
+	_ = temperature // 保留供将来使用
 	return &Client{
 		baseURL: baseURL,
 		apiKey:  apiKey,
@@ -141,7 +146,7 @@ func (c *Client) ChatStream(systemPrompt string, messages []Message, onText func
 	}
 }
 
-// Chat sends a non-streaming request and returns the complete response text
+// Chat 发送非流式请求并返回完整的响应文本。
 func (c *Client) Chat(systemPrompt string, messages []Message) (string, error) {
 	if c.apiKey == "" {
 		return "", fmt.Errorf("LLM_API_KEY not set")
@@ -195,18 +200,18 @@ func (c *Client) Chat(systemPrompt string, messages []Message) (string, error) {
 	return "", nil
 }
 
-// Stream adapter for Chat interface.
+// Stream 是 Chat 接口中流式生成的实现，包装原生 ChatStream。
 func (c *Client) Stream(_ context.Context, systemPrompt string, messages []Message, onText func(string)) error {
 	return c.ChatStream(systemPrompt, messages, onText)
 }
 
-// Generate adapter for Chat interface.
+// Generate 是 Chat 接口中非流式文本生成的实现。
 func (c *Client) Generate(_ context.Context, systemPrompt string, messages []Message) (string, TokenUsage, error) {
 	text, err := c.Chat(systemPrompt, messages)
 	return text, TokenUsage{}, err
 }
 
-// GenerateWithTool adapter for Chat interface.
+// GenerateWithTool 是 Chat 接口中强制工具调用的实现，要求模型按 ToolDef 输出结构化 JSON。
 func (c *Client) GenerateWithTool(_ context.Context, systemPrompt string, messages []Message, _ ToolDef) (map[string]any, TokenUsage, error) {
 	text, err := c.Chat(systemPrompt, messages)
 	if err != nil {

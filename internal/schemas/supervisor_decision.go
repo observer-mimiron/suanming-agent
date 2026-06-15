@@ -1,7 +1,9 @@
+// Package schemas 暂与 domain_result.go 共享包注释，本文件定义 supervisor 的层次化路由决策结构。
+
 package schemas
 
-// SupervisorDecision is the structured output from the LLM supervisor.
-// It represents layered routing decisions: L0 intent, L1 domain, L2 task, L3 slots/hints.
+// SupervisorDecision 是 LLM supervisor 的结构化路由输出。
+// 包含四层决策：L0 对话意图、L1 领域、L2 任务、L3 槽位/提示。
 type SupervisorDecision struct {
 	ConversationIntent    string        `json:"conversation_intent"`
 	PrimaryDomain         string        `json:"primary_domain"`
@@ -15,7 +17,7 @@ type SupervisorDecision struct {
 	PolicyHints           PolicyHints   `json:"policy_hints"`
 }
 
-// DecisionSlots holds structured slot values extracted by the supervisor.
+// DecisionSlots 存储 supervisor 从用户消息中提取的结构化槽位值。
 type DecisionSlots struct {
 	Profile       map[string]any `json:"profile"`
 	QuestionText  string         `json:"question_text"`
@@ -24,7 +26,7 @@ type DecisionSlots struct {
 	Language      string         `json:"language"`
 }
 
-// PolicyHints are flags that inform the policy gate about optional behaviors.
+// PolicyHints 是通知策略门控的可选行为标志。
 type PolicyHints struct {
 	NeedsKnowledge         bool `json:"needs_knowledge"`
 	NeedsQimen             bool `json:"needs_qimen"`
@@ -32,7 +34,7 @@ type PolicyHints struct {
 	CanReuseCachedResult   bool `json:"can_reuse_cached_result"`
 }
 
-// Normalize applies safe defaults to a SupervisorDecision after parsing.
+// Normalize 为解析后的 SupervisorDecision 应用安全默认值。
 func (d *SupervisorDecision) Normalize() {
 	if d.ConversationIntent == "" {
 		d.ConversationIntent = "consult"

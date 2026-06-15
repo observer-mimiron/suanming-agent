@@ -6,7 +6,9 @@ import (
 	"github.com/6tail/lunar-go/calendar"
 )
 
-// BuildChart 紫微斗数排盘主函数
+// BuildChart 紫微斗数排盘主函数。整合安命宫身宫、定五行局、安紫微天府、安主星辅星、
+// 长生博士十二神、起大限、安杂曜等全部步骤，组装成完整的十二宫 ZiWeiChart 命盘。
+// 算法遵循传统紫微斗数规则（如五虎遁起寅宫天干、五鼠遁定时辰天干）。
 func BuildChart(solar *calendar.Solar, timeIndex int, gender string) (*ZiWeiChart, error) {
 	lunar := solar.GetLunar()
 	ec := lunar.GetEightChar()

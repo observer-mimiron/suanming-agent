@@ -1,6 +1,455 @@
 package supervisor
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	einocallbacks "github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components"
+	einomodel "github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
+	"github.com/wikiglobal/suanming-agent/internal/llm"
+	"github.com/wikiglobal/suanming-agent/internal/schemas"
+	"github.com/wikiglobal/suanming-agent/internal/state"
+	"github.com/wikiglobal/suanming-agent/internal/tracing"
+)
+
+type stubRouteEngine struct {
+	decideFn func(ctx context.Context, prompt, msg string) (schemas.SupervisorDecision, error)
+}
+
+func (s stubRouteEngine) Decide(ctx context.Context, prompt, msg string) (schemas.SupervisorDecision, error) {
+	return s.decideFn(ctx, prompt, msg)
+}
+
+type fakeToolCallingModel struct {
+	emitCallbacks bool
+	tools         []*schema.ToolInfo
+	generateFn    func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error)
+}
+
+func (m *fakeToolCallingModel) Generate(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
+	if m.emitCallbacks {
+		ctx = einocallbacks.EnsureRunInfo(ctx, "fakeToolCallingModel", components.ComponentOfChatModel)
+		ctx = einocallbacks.OnStart(ctx, &einomodel.CallbackInput{Messages: input})
+		msg, err := m.generateFn(ctx, input, opts...)
+		if err != nil {
+			einocallbacks.OnError(ctx, err)
+			return nil, err
+		}
+		einocallbacks.OnEnd(ctx, &einomodel.CallbackOutput{Message: msg})
+		return msg, nil
+	}
+	if m.generateFn != nil {
+		return m.generateFn(ctx, input, opts...)
+	}
+	return schema.AssistantMessage("unused", nil), nil
+}
+
+func (m *fakeToolCallingModel) Stream(_ context.Context, _ []*schema.Message, _ ...einomodel.Option) (*schema.StreamReader[*schema.Message], error) {
+	return nil, errors.New("stream not implemented in fakeToolCallingModel")
+}
+
+func (m *fakeToolCallingModel) WithTools(tools []*schema.ToolInfo) (einomodel.ToolCallingChatModel, error) {
+	m.tools = tools
+	return m, nil
+}
+
+func TestClientDecide_UsesInjectedRouteEngine(t *testing.T) {
+	origPromptLoader := loadSupervisorPrompt
+	loadSupervisorPrompt = func() (string, error) { return "test prompt", nil }
+	t.Cleanup(func() { loadSupervisorPrompt = origPromptLoader })
+
+	want := schemas.SupervisorDecision{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "bazi",
+		TaskIntent:         "interpret_chart",
+		Confidence:         0.9,
+	}
+	client := NewClient(&llm.NoopClient{}, WithRouteEngine(stubRouteEngine{
+		decideFn: func(ctx context.Context, prompt, msg string) (schemas.SupervisorDecision, error) {
+			if prompt == "test prompt" || prompt == "" {
+				t.Fatalf("prompt should include injected session context, got %q", prompt)
+			}
+			if msg != "看看事业" {
+				t.Fatalf("msg = %q, want 看看事业", msg)
+			}
+			return want, nil
+		},
+	}))
+
+	got, err := client.Decide(context.Background(), "看看事业", state.NewSession("s1"))
+	if err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+	if got.PrimaryDomain != want.PrimaryDomain || got.TaskIntent != want.TaskIntent {
+		t.Fatalf("Decide() = %+v, want %+v", got, want)
+	}
+}
+
+func TestClientDecide_RouteEngineFallsBackToTextDecide(t *testing.T) {
+	origPromptLoader := loadSupervisorPrompt
+	loadSupervisorPrompt = func() (string, error) { return "test prompt", nil }
+	t.Cleanup(func() { loadSupervisorPrompt = origPromptLoader })
+
+	flash := &llm.NoopClient{
+		GenerateFn: func(ctx context.Context, systemPrompt string, messages []llm.Message) (string, llm.TokenUsage, error) {
+			return `{
+				"conversation_intent":"consult",
+				"primary_domain":"bazi",
+				"task_intent":"interpret_chart",
+				"confidence":0.88,
+				"slots":{"profile":{},"question_text":"看看事业"},
+				"policy_hints":{"needs_knowledge":true}
+			}`, llm.TokenUsage{}, nil
+		},
+	}
+	client := NewClient(flash, WithRouteEngine(stubRouteEngine{
+		decideFn: func(ctx context.Context, prompt, msg string) (schemas.SupervisorDecision, error) {
+			return schemas.SupervisorDecision{}, errors.New("engine failed")
+		},
+	}))
+
+	got, err := client.Decide(context.Background(), "看看事业", state.NewSession("s1"))
+	if err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+	if got.TaskIntent != "interpret_chart" {
+		t.Fatalf("TaskIntent = %q, want interpret_chart", got.TaskIntent)
+	}
+}
+
+func TestADKRouteEngine_DecideReturnsStructuredDecision(t *testing.T) {
+	model := &fakeToolCallingModel{
+		generateFn: func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
+			return schema.AssistantMessage("calling output", []schema.ToolCall{
+				{
+					ID:   "call-1",
+					Type: "function",
+					Function: schema.FunctionCall{
+						Name: "output",
+						Arguments: `{
+							"conversation_intent":"consult",
+							"primary_domain":"bazi",
+							"task_intent":"collect_profile",
+							"confidence":0.93,
+							"slots":{
+								"profile":{"year":1990,"month":5,"day":20,"hour":8,"gender":"男","birthplace":"北京"},
+								"question_text":""
+							},
+							"policy_hints":{"needs_knowledge":true}
+						}`,
+					},
+				},
+			}), nil
+		},
+	}
+
+	engine, err := NewADKRouteEngine(context.Background(), model)
+	if err != nil {
+		t.Fatalf("NewADKRouteEngine() error = %v", err)
+	}
+
+	got, err := engine.Decide(context.Background(), "系统提示", "我1990年5月20日早上8点，男，北京")
+	if err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+	if got.TaskIntent != "collect_profile" {
+		t.Fatalf("TaskIntent = %q, want collect_profile", got.TaskIntent)
+	}
+	if got.Slots.Profile["birthplace"] != "北京" {
+		t.Fatalf("birthplace = %v, want 北京", got.Slots.Profile["birthplace"])
+	}
+}
+
+func TestClientDecide_EinoCallbackTracingEmitsSupervisorModelSpan(t *testing.T) {
+	einocallbacks.InitCallbackHandlers(nil)
+	t.Cleanup(func() { einocallbacks.InitCallbackHandlers(nil) })
+	einocallbacks.AppendGlobalHandlers(tracing.NewEinoTraceCallbackHandler())
+
+	origPromptLoader := loadSupervisorPrompt
+	loadSupervisorPrompt = func() (string, error) { return "test prompt", nil }
+	t.Cleanup(func() { loadSupervisorPrompt = origPromptLoader })
+
+	model := &fakeToolCallingModel{
+		emitCallbacks: true,
+		generateFn: func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
+			return schema.AssistantMessage("calling output", []schema.ToolCall{
+				{
+					ID:   "call-1",
+					Type: "function",
+					Function: schema.FunctionCall{
+						Name: decisionToolName,
+						Arguments: `{
+							"conversation_intent":"consult",
+							"primary_domain":"bazi",
+							"task_intent":"collect_profile",
+							"confidence":0.93,
+							"slots":{
+								"profile":{"year":1990,"month":5,"day":20,"hour":8,"gender":"男","birthplace":"北京"},
+								"question_text":""
+							},
+							"policy_hints":{"needs_knowledge":true}
+						}`,
+					},
+				},
+			}), nil
+		},
+	}
+
+	client := NewClient(llm.NewEinoChat(model))
+	rt := tracing.NewRealTracer(nil)
+	ctx, trace := rt.StartTrace(context.Background(), "chat.turn")
+	defer trace.End()
+
+	_, err := client.Decide(ctx, "我1990年5月20日早上8点，男，北京", state.NewSession("s1"))
+	if err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+
+	tr := tracing.TraceFromContext(ctx)
+	if tr == nil {
+		t.Fatal("TraceFromContext returned nil")
+	}
+	var count int
+	for _, span := range tr.Spans {
+		if span.Name == "supervisor_model" && span.Kind == tracing.KindLLM {
+			count++
+		}
+	}
+	if count < 1 {
+		t.Fatalf("supervisor_model span count = %d, want >= 1", count)
+	}
+}
+
+func TestADKRouteEngine_DecideSelfCorrectsAfterValidationError(t *testing.T) {
+	callCount := 0
+	model := &fakeToolCallingModel{
+		generateFn: func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
+			callCount++
+			switch callCount {
+			case 1:
+				return schema.AssistantMessage("calling output", []schema.ToolCall{
+					{
+						ID:   "call-1",
+						Type: "function",
+						Function: schema.FunctionCall{
+							Name: decisionToolName,
+							Arguments: `{
+								"conversation_intent":"consult",
+								"primary_domain":"bazi",
+								"task_intent":"collect_profile",
+								"confidence":0.72,
+								"slots":{"profile":{},"question_text":""},
+								"policy_hints":{"needs_knowledge":true}
+							}`,
+						},
+					},
+				}), nil
+			case 2:
+				last := input[len(input)-1]
+				if last.Role != schema.User {
+					t.Fatalf("last message role = %s, want user", last.Role)
+				}
+				if !strings.Contains(last.Content, "系统纠错反馈") {
+					t.Fatalf("retry message = %q, want correction marker", last.Content)
+				}
+				if !strings.Contains(last.Content, "slots.profile") {
+					t.Fatalf("retry message = %q, want slots.profile guidance", last.Content)
+				}
+				return schema.AssistantMessage("calling output again", []schema.ToolCall{
+					{
+						ID:   "call-2",
+						Type: "function",
+						Function: schema.FunctionCall{
+							Name: decisionToolName,
+							Arguments: `{
+								"conversation_intent":"consult",
+								"primary_domain":"bazi",
+								"task_intent":"collect_profile",
+								"confidence":0.94,
+								"slots":{
+									"profile":{"year":1990,"month":5,"day":20,"hour":8,"gender":"男","birthplace":"北京"},
+									"question_text":""
+								},
+								"policy_hints":{"needs_knowledge":true}
+							}`,
+						},
+					},
+				}), nil
+			default:
+				t.Fatalf("unexpected Generate call #%d", callCount)
+				return nil, nil
+			}
+		},
+	}
+
+	engine, err := NewADKRouteEngine(context.Background(), model)
+	if err != nil {
+		t.Fatalf("NewADKRouteEngine() error = %v", err)
+	}
+
+	got, err := engine.Decide(context.Background(), "系统提示", "我1990年5月20日早上8点，男，北京")
+	if err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+	if callCount != 2 {
+		t.Fatalf("Generate call count = %d, want 2", callCount)
+	}
+	if got.TaskIntent != "collect_profile" {
+		t.Fatalf("TaskIntent = %q, want collect_profile", got.TaskIntent)
+	}
+	if got.Slots.Profile["birthplace"] != "北京" {
+		t.Fatalf("birthplace = %v, want 北京", got.Slots.Profile["birthplace"])
+	}
+}
+
+func TestADKRouteEngine_DecideEmitsSupervisorModelSpan(t *testing.T) {
+	einocallbacks.InitCallbackHandlers(nil)
+	t.Cleanup(func() { einocallbacks.InitCallbackHandlers(nil) })
+	einocallbacks.AppendGlobalHandlers(tracing.NewEinoTraceCallbackHandler())
+
+	model := &fakeToolCallingModel{
+		emitCallbacks: true,
+		generateFn: func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
+			return schema.AssistantMessage("calling output", []schema.ToolCall{
+				{
+					ID:   "call-1",
+					Type: "function",
+					Function: schema.FunctionCall{
+						Name: decisionToolName,
+						Arguments: `{
+							"conversation_intent":"consult",
+							"primary_domain":"bazi",
+							"task_intent":"collect_profile",
+							"confidence":0.93,
+							"slots":{
+								"profile":{"year":1990,"month":5,"day":20,"hour":8,"gender":"男","birthplace":"北京"},
+								"question_text":""
+							},
+							"policy_hints":{"needs_knowledge":true}
+						}`,
+					},
+				},
+			}), nil
+		},
+	}
+
+	engine, err := NewADKRouteEngine(context.Background(), model)
+	if err != nil {
+		t.Fatalf("NewADKRouteEngine() error = %v", err)
+	}
+
+	rt := tracing.NewRealTracer(nil)
+	ctx, trace := rt.StartTrace(context.Background(), "chat.turn")
+	defer trace.End()
+
+	_, err = engine.Decide(ctx, "系统提示", "我1990年5月20日早上8点，男，北京")
+	if err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+
+	tr := tracing.TraceFromContext(ctx)
+	if tr == nil {
+		t.Fatal("TraceFromContext returned nil")
+	}
+	var count int
+	for _, span := range tr.Spans {
+		if span.Name == "supervisor_model" && span.Kind == tracing.KindLLM {
+			count++
+		}
+	}
+	if count < 1 {
+		t.Fatalf("supervisor_model span count = %d, want >= 1", count)
+	}
+}
+
+func TestADKRouteEngine_DecideStopsAfterSecondValidationError(t *testing.T) {
+	callCount := 0
+	model := &fakeToolCallingModel{
+		generateFn: func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
+			callCount++
+			if callCount == 2 {
+				last := input[len(input)-1]
+				if last.Role != schema.User {
+					t.Fatalf("last message role = %s, want user", last.Role)
+				}
+				if !strings.Contains(last.Content, "系统纠错反馈") {
+					t.Fatalf("retry message = %q, want correction marker", last.Content)
+				}
+			}
+			return schema.AssistantMessage("calling output", []schema.ToolCall{
+				{
+					ID:   "call-retry",
+					Type: "function",
+					Function: schema.FunctionCall{
+						Name: decisionToolName,
+						Arguments: `{
+							"conversation_intent":"consult",
+							"primary_domain":"bazi",
+							"task_intent":"collect_profile",
+							"confidence":0.72,
+							"slots":{"profile":{},"question_text":""},
+							"policy_hints":{"needs_knowledge":true}
+						}`,
+					},
+				},
+			}), nil
+		},
+	}
+
+	engine, err := NewADKRouteEngine(context.Background(), model)
+	if err != nil {
+		t.Fatalf("NewADKRouteEngine() error = %v", err)
+	}
+
+	_, err = engine.Decide(context.Background(), "系统提示", "我1990年5月20日早上8点，男，北京")
+	if err == nil {
+		t.Fatal("Decide() error = nil, want validation failure after retry exhaustion")
+	}
+	if callCount != 2 {
+		t.Fatalf("Generate call count = %d, want 2", callCount)
+	}
+	if !strings.Contains(err.Error(), "slots.profile") {
+		t.Fatalf("Decide() error = %q, want slots.profile guidance", err.Error())
+	}
+}
+
+func TestADKRouteEngine_DecideOnlyUsesModelRetryOnNonValidationError(t *testing.T) {
+	callCount := 0
+	var seenCorrectionFeedback bool
+	model := &fakeToolCallingModel{
+		generateFn: func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
+			callCount++
+			last := input[len(input)-1]
+			if strings.Contains(last.Content, "系统纠错反馈") {
+				seenCorrectionFeedback = true
+			}
+			return nil, errors.New("upstream model unavailable")
+		},
+	}
+
+	engine, err := NewADKRouteEngine(context.Background(), model)
+	if err != nil {
+		t.Fatalf("NewADKRouteEngine() error = %v", err)
+	}
+
+	_, err = engine.Decide(context.Background(), "系统提示", "看看事业")
+	if err == nil {
+		t.Fatal("Decide() error = nil, want upstream model error")
+	}
+	if callCount != 3 {
+		t.Fatalf("Generate call count = %d, want 3 from ModelRetryConfig", callCount)
+	}
+	if seenCorrectionFeedback {
+		t.Fatal("non-validation error should not trigger outer correction retry message")
+	}
+	if !strings.Contains(err.Error(), "upstream model unavailable") {
+		t.Fatalf("Decide() error = %q, want upstream model unavailable", err.Error())
+	}
+}
 
 func TestParseDecision_ValidJSON(t *testing.T) {
 	raw := `{
@@ -189,6 +638,24 @@ func TestParseAndValidate_ValidNonCollectProfilePasses(t *testing.T) {
 	}
 }
 
+func TestDecisionRetryPrompt_IncludesValidationGuidance(t *testing.T) {
+	got := decisionRetryPrompt(errors.New("bad json"))
+	want := "返回的 JSON 有误: bad json。请重新返回完整的 JSON，特别注意 slots.profile 必须从用户原始消息中提取实际值，不要用示例值或空对象。"
+	if got != want {
+		t.Fatalf("decisionRetryPrompt() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildDecisionTool_UsesSharedMetadata(t *testing.T) {
+	tool := buildDecisionTool()
+	if tool.Name != decisionToolName {
+		t.Fatalf("tool.Name = %q, want %q", tool.Name, decisionToolName)
+	}
+	if tool.Description != decisionToolDescription {
+		t.Fatalf("tool.Description = %q, want %q", tool.Description, decisionToolDescription)
+	}
+}
+
 func TestParseDecision_QimenSecondaryDomain(t *testing.T) {
 	raw := `{
 		"conversation_intent": "consult",
@@ -206,4 +673,3 @@ func TestParseDecision_QimenSecondaryDomain(t *testing.T) {
 		t.Fatalf("SecondaryDomains: got %v, want [qimen]", got.SecondaryDomains)
 	}
 }
-

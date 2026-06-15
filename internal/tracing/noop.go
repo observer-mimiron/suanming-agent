@@ -1,3 +1,5 @@
+// Package tracing 暂与 tracing.go 共享包注释，本文件提供空操作 Tracer 实现，使调用方无需空值检查。
+
 package tracing
 
 import "context"
@@ -22,8 +24,8 @@ func (noopTracer) StartTrace(ctx context.Context, _ string) (context.Context, Tr
 	return ctx, noopTrace{}
 }
 
-// NewNoopTracer returns a Tracer whose methods are no-ops.
-// Always returns non-nil handles so callers never need nil checks.
+// NewNoopTracer 返回一个所有方法均为空操作的 Tracer。
+// 始终返回非空句柄，调用方无需进行空值检查。
 func NewNoopTracer() Tracer {
 	return noopTracer{}
 }

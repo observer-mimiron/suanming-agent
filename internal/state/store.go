@@ -1,3 +1,5 @@
+// Package state 暂与 locker.go 共享包注释，本文件提供 Store 接口和 MemoryStore 实现。
+
 package state
 
 import (
@@ -7,29 +9,29 @@ import (
 	"sync"
 )
 
-// Store manages session state persistence.
+// Store 是会话状态持久化的统一接口。
 type Store interface {
 	LoadOrCreate(id string) *SessionState
 	Save(st *SessionState) error
 }
 
-// MemoryStore is an in-memory implementation of Store with optional file persistence.
+// MemoryStore 是 Store 的内存实现，可选地支持 JSON 文件持久化。
 type MemoryStore struct {
 	mu       sync.RWMutex
 	sessions map[string]*SessionState
 	dir      string // if non-empty, persist sessions to this directory
 }
 
-// NewMemoryStore creates a new MemoryStore without persistence.
+// NewMemoryStore 创建一个不带持久化的纯内存会话存储。
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{sessions: make(map[string]*SessionState)}
 }
 
-// NewPersistentStore creates a MemoryStore that persists sessions as JSON files.
+// NewPersistentStore 创建一个将会话持久化为 JSON 文件的 MemoryStore。
 func NewPersistentStore(dir string) *MemoryStore {
 	os.MkdirAll(dir, 0755)
 	s := &MemoryStore{sessions: make(map[string]*SessionState), dir: dir}
-	// Load existing sessions from disk
+	// 从磁盘加载已有会话
 	files, _ := os.ReadDir(dir)
 	for _, f := range files {
 		if filepath.Ext(f.Name()) != ".json" {
@@ -48,6 +50,7 @@ func NewPersistentStore(dir string) *MemoryStore {
 	return s
 }
 
+// LoadOrCreate 根据会话 ID 加载已有状态，若不存在则创建一个新会话。
 func (s *MemoryStore) LoadOrCreate(id string) *SessionState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -59,6 +62,7 @@ func (s *MemoryStore) LoadOrCreate(id string) *SessionState {
 	return st
 }
 
+// Save 将会话状态持久化到磁盘（仅在创建时指定了持久化目录时生效）。
 func (s *MemoryStore) Save(st *SessionState) error {
 	if s.dir == "" {
 		return nil

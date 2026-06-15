@@ -1,8 +1,10 @@
+// Package tracing 暂与 tracing.go 共享包注释，本文件定义 TurnTrace（单次对话的完整追踪）及其面向用户的 TraceDigest。
+
 package tracing
 
 import "time"
 
-// SpanKind follows OpenInference semantic conventions.
+// SpanKind 遵循 OpenInference 语义约定的 Span 类型。
 type SpanKind string
 
 const (
@@ -13,7 +15,7 @@ const (
 	KindLLM       SpanKind = "LLM"
 )
 
-// TraceSpan represents a single unit of work within a trace.
+// TraceSpan 表示一次追踪中的一个工作单元。
 type TraceSpan struct {
 	SpanID        string         `json:"span_id"`
 	ParentSpanID  string         `json:"parent_span_id,omitempty"`
@@ -29,7 +31,7 @@ type TraceSpan struct {
 	Attributes    map[string]any `json:"attributes,omitempty"`
 }
 
-// TurnTrace is the top-level trace for a single chat turn.
+// TurnTrace 是一次对话轮次的顶层追踪记录。
 type TurnTrace struct {
 	TraceID     string         `json:"trace_id"`
 	SessionID   string         `json:"session_id"`
@@ -42,11 +44,11 @@ type TurnTrace struct {
 	Spans       []TraceSpan    `json:"spans"`
 }
 
-// AddSpan appends a child span to the trace.
+// AddSpan 向追踪追加一个子 span。
 func (t *TurnTrace) AddSpan(s TraceSpan) { t.Spans = append(t.Spans, s) }
 
-// BuildDigest returns a user-facing TraceDigest from the TurnTrace.
-// Only safe-to-show fields are included; no CoT, no raw prompts, no internal params.
+// BuildDigest 从 TurnTrace 生成面向用户的 TraceDigest。
+// 仅包含可安全展示的字段，不含 CoT、原始提示词和内部参数。
 func (t *TurnTrace) BuildDigest() TraceDigest {
 	var totalMs int64
 	if !t.EndedAt.IsZero() {
@@ -60,7 +62,7 @@ func (t *TurnTrace) BuildDigest() TraceDigest {
 	steps := make([]TraceStepDigest, 0, len(t.Spans))
 
 	for _, s := range t.Spans {
-		// Skip the root agent span itself — it's not a step
+		// 跳过根 agent span 自身——它不是一个步骤
 		if s.Kind == KindAgent {
 			continue
 		}
@@ -100,7 +102,7 @@ func (t *TurnTrace) BuildDigest() TraceDigest {
 	}
 }
 
-// stepLabel returns the human-readable label for a span name.
+// stepLabel 根据 span 名称返回用户可读的中文标签。
 func stepLabel(name string) string {
 	m := map[string]string{
 		"classify_and_extract": "意图识别",
@@ -113,11 +115,12 @@ func stepLabel(name string) string {
 		"llm_generate":         "命理解读",
 		"reuse_bazi_result":    "复用命盘",
 		"parse_direct_bazi":    "解析八字",
-	"supervisor_decision":  "路由决策",
-	"policy_gate":          "策略校验",
-	"domain_dispatch":      "领域调度",
-	"specialist_bazi":      "八字分析",
-	"specialist_qimen":     "奇门分析",
+		"supervisor_decision":  "路由决策",
+		"supervisor_model":     "路由模型",
+		"policy_gate":          "策略校验",
+		"domain_dispatch":      "领域调度",
+		"specialist_bazi":      "八字分析",
+		"specialist_qimen":     "奇门分析",
 	}
 	if label, ok := m[name]; ok {
 		return label
@@ -125,8 +128,8 @@ func stepLabel(name string) string {
 	return name
 }
 
-// TraceDigest is a user-facing summary derived from TurnTrace.
-// Only safe-to-show fields; no CoT, no raw prompts, no internal params.
+// TraceDigest 是从 TurnTrace 生成的面向用户摘要。
+// 仅包含可安全展示的字段，不含 CoT、原始提示词和内部参数。
 type TraceDigest struct {
 	TraceID  string            `json:"trace_id"`
 	TurnType string            `json:"turn_type"`
@@ -135,7 +138,7 @@ type TraceDigest struct {
 	Steps    []TraceStepDigest `json:"steps"`
 }
 
-// TraceStepDigest is a single user-visible step in the trace digest.
+// TraceStepDigest 是 TraceDigest 中的一个用户可见步骤。
 type TraceStepDigest struct {
 	Label  string         `json:"label"`
 	Kind   SpanKind       `json:"kind"`

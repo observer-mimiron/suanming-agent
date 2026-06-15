@@ -1,3 +1,5 @@
+// Package mcp 实现 Model Context Protocol 客户端，用于连接知识库服务进行语义搜索。
+// 同时支持通用 MCP 搜索协议和本地知识库 REST API 两种检索方式，带自动降级。
 package mcp
 
 import (
@@ -15,10 +17,12 @@ type Client struct {
 	client  *http.Client
 }
 
+// NewClient 创建一个 MCP 客户端，连接到指定 baseURL 的知识库服务。
 func NewClient(baseURL string) *Client {
 	return &Client{baseURL: baseURL, client: &http.Client{Timeout: 5 * time.Second}}
 }
 
+// Passage 是一条知识库检索结果，包含文本内容和来源标识。
 type Passage struct {
 	Content string `json:"content"`
 	Source  string `json:"source"`
@@ -33,17 +37,17 @@ func (c *Client) Search(query string, topK int) ([]Passage, error) {
 	}
 	resp, err := c.client.Post(c.baseURL+"/search", "application/json", bytes.NewReader(jsonBody))
 	if err != nil {
-		return c.SearchKnowledge(query, topK) // fallback
+		return c.SearchKnowledge(query, topK) // 降级搜索
 	}
 	defer resp.Body.Close()
 	var result struct {
 		Passages []Passage `json:"passages"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return c.SearchKnowledge(query, topK) // fallback
+		return c.SearchKnowledge(query, topK) // 降级搜索
 	}
 	if len(result.Passages) == 0 {
-		return c.SearchKnowledge(query, topK) // fallback
+		return c.SearchKnowledge(query, topK) // 降级搜索
 	}
 	return result.Passages, nil
 }

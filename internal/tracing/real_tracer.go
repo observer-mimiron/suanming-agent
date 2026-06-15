@@ -1,3 +1,5 @@
+// Package tracing 暂与 tracing.go 共享包注释，本文件提供真实的追踪实现，包含 Span 树构建和可选的磁盘持久化。
+
 package tracing
 
 import (
@@ -8,15 +10,15 @@ import (
 	"time"
 )
 
-// realTracer implements Tracer by collecting TurnTraces in memory and
-// optionally persisting them through a Collector.
+// realTracer 是 Tracer 的真实实现，在内存中收集 TurnTrace，
+// 并可选择通过 Collector 持久化到磁盘。
 type realTracer struct {
 	mu        sync.Mutex
 	collector *FileCollector
 }
 
-// NewRealTracer creates a Tracer that collects traces and writes to file.
-// Pass collector=nil to skip persistence (tracing still works for UI digest).
+// NewRealTracer 创建一个真实 Tracer，收集追踪数据并可选的写入文件。
+// collector 传 nil 则跳过持久化（追踪仍可用于前端展示）。
 func NewRealTracer(collector *FileCollector) Tracer {
 	return &realTracer{collector: collector}
 }
@@ -46,13 +48,13 @@ func (r *realTracer) finish(t *TurnTrace) {
 	defer r.mu.Unlock()
 	if r.collector != nil {
 		if err := r.collector.Save(t); err != nil {
-			// Non-fatal: trace collection is best-effort
+			// 非致命：追踪收集尽力而为，失败不影响主流程
 			_ = err
 		}
 	}
 }
 
-// realTrace implements Trace.
+// realTrace 是 Trace 接口的实现。
 type realTrace struct {
 	turn   *TurnTrace
 	spanID string
@@ -93,7 +95,7 @@ func (rt *realTrace) End() {
 			rt.status = "ok"
 		}
 	}
-	// Update the root span entry in the trace
+	// 更新追踪中的根 span 条目
 	rt.turn.EndedAt = rt.end
 	rt.turn.Status = rt.status
 	if rt.turn.Spans[0].SpanID == rt.spanID {
@@ -121,7 +123,7 @@ func (rt *realTrace) toSpan() TraceSpan {
 	}
 }
 
-// realSpan implements Span.
+// realSpan 是 Span 接口的实现。
 type realSpan struct {
 	turn   *TurnTrace
 	spanID string
@@ -185,8 +187,8 @@ func (rs *realSpan) toSpan() TraceSpan {
 	}
 }
 
-// SpanFromContext creates a child span attached to the TurnTrace in ctx.
-// Returns a noop span (never nil) when no trace is in context.
+// SpanFromContext 在 ctx 中找到 TurnTrace 并创建其下的子 span。
+// 当上下文中没有追踪时返回 noop span（不会返回 nil）。
 func SpanFromContext(ctx context.Context, name string, kind SpanKind) Span {
 	t := TraceFromContext(ctx)
 	if t == nil {
