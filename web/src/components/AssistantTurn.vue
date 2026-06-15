@@ -5,15 +5,22 @@
       <span class="turn-meta" v-if="vm.process">{{ fmtMs(vm.process.trace.total_ms) }}</span>
     </div>
 
-    <!-- Thinking + tool chain: vertical timeline -->
+    <!-- Thinking + tool chain: collapsible timeline -->
     <div v-if="vm.thoughts.length || vm.toolCalls.length" class="turn-chain">
-      <div class="chain-line"></div>
-      <div class="chain-items">
-        <div v-for="(t, i) in vm.thoughts" :key="'th-' + i" class="chain-thought">{{ t }}</div>
-        <div v-for="(tc, i) in vm.toolCalls" :key="'tc-' + i" class="chain-tool">
-          <Wrench :size="12" class="tool-icon" />
-          <span class="tool-name">{{ tc.name }}</span>
-          <code v-if="tc.arguments" class="tool-args">{{ tc.arguments }}</code>
+      <div class="chain-toggle" @click="showChain = !showChain">
+        <span class="chain-toggle-icon">{{ showChain ? '▾' : '▸' }}</span>
+        <span v-if="vm.thoughts.length" class="chain-badge">思考 {{ vm.thoughts.length }}</span>
+        <span v-if="vm.toolCalls.length" class="chain-badge">工具 {{ vm.toolCalls.length }}</span>
+      </div>
+      <div v-if="showChain" class="chain-body">
+        <div class="chain-line"></div>
+        <div class="chain-items">
+          <div v-for="(t, i) in vm.thoughts" :key="'th-' + i" class="chain-thought">{{ t }}</div>
+          <div v-for="(tc, i) in vm.toolCalls" :key="'tc-' + i" class="chain-tool" @click="tc._show = !tc._show">
+            <Wrench :size="11" class="tool-icon" />
+            <span class="tool-name">{{ tc.name }}</span>
+            <span v-if="tc._show && tc.arguments" class="tool-args-full">{{ tc.arguments }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -31,9 +38,9 @@
     <section v-if="vm.answerBlocks.length" class="turn-zone turn-answer">
       <div class="answer-content markdown-body" v-html="renderedAnswer" />
       <div class="answer-actions">
-        <button class="act-btn" @click="copyAnswer">
-          <CheckCheck v-if="copied" :size="14" />
-          <Copy v-else :size="14" />
+        <button class="act-btn" @click="copyAnswer" :title="copied ? '已复制' : '复制'">
+          <CheckCheck v-if="copied" :size="13" />
+          <Copy v-else :size="13" />
         </button>
       </div>
     </section>
@@ -77,6 +84,7 @@ const md = new MarkdownIt({ html: false, breaks: true, linkify: true })
 const vm = computed(() => buildAssistantTurnViewModel(props.message))
 const renderedAnswer = computed(() => md.render(vm.value.answerBlocks.join('\n\n')))
 const copied = ref(false)
+const showChain = ref(true)
 
 async function copyAnswer() {
   await navigator.clipboard.writeText(vm.value.answerBlocks.join('\n\n'))
@@ -114,18 +122,44 @@ function fmtMs(ms: number): string {
   color: var(--text-muted);
 }
 
-/* Vertical timeline chain */
+/* Collapsible chain */
 .turn-chain {
-  display: flex;
-  gap: 10px;
   margin-bottom: 14px;
   padding: 0 8px;
+}
+.chain-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  user-select: none;
+  transition: background 0.12s;
+}
+.chain-toggle:hover { background: var(--bg-hover); }
+.chain-toggle-icon { font-size: 9px; width: 10px; text-align: center; }
+.chain-badge {
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.chain-body {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  padding-left: 4px;
 }
 .chain-line {
   width: 2px;
   background: var(--border);
   border-radius: 1px;
   flex-shrink: 0;
+  align-self: stretch;
 }
 .chain-items {
   flex: 1;
@@ -138,27 +172,32 @@ function fmtMs(ms: number): string {
   color: var(--text-muted);
   font-style: italic;
   line-height: 1.5;
+  padding: 2px 0;
 }
 .chain-tool {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
   font-size: 12px;
   padding: 4px 8px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.12s;
 }
+.chain-tool:hover { border-color: var(--accent); }
 .tool-icon { color: var(--accent-dim); flex-shrink: 0; }
 .tool-name { color: var(--text-secondary); font-weight: 500; }
-.tool-args {
+.tool-args-full {
+  width: 100%;
   font-family: var(--mono);
   font-size: 10px;
   color: var(--text-muted);
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 4px 0 0 17px;
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
 .turn-zone { margin-bottom: 12px; }
@@ -189,22 +228,27 @@ function fmtMs(ms: number): string {
 
 .answer-actions {
   display: flex;
-  gap: 9px;
-  padding: 6px 8px 0;
+  gap: 6px;
+  padding: 8px 8px 0;
 }
 .act-btn {
-  width: 28px; height: 28px;
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
+  width: 26px; height: 26px;
+  border: none;
+  background: transparent;
   color: var(--text-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   transition: all 0.15s;
+  opacity: 0.5;
 }
-.act-btn:hover { color: var(--accent-dim); border-color: var(--accent); }
+.act-btn:hover {
+  opacity: 1;
+  color: var(--accent-dim);
+  background: var(--bg-hover);
+}
 
 .turn-errors { padding: 0 8px; margin-top: 8px; }
 .turn-error-item { color: #c47a6a; font-size: 13px; padding: 4px 0; }

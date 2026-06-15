@@ -25,9 +25,11 @@ defineProps<{message:ChatMessage}>()
   margin-left: auto;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  padding: 12px 16px;
-  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  border-radius: 14px;
   color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.55;
 }
 .error-msg { color: #c47a6a; padding: 8px 0; }
 </style>

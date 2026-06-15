@@ -109,30 +109,46 @@ async function handleSend(t?: string) {
 }
 .empty-input :deep(.n-input) {
   --n-height: 52px;
-  --n-border-radius: 14px;
+  --n-border-radius: 16px;
+  --n-bg-color: var(--bg-secondary);
+  --n-border-color: var(--border);
+  --n-text-color: var(--text-primary);
+  --n-placeholder-color: var(--text-muted);
 }
 .chat-body {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  align-items: center;
 }
 .messages {
   flex: 1;
-  padding: 24px;
+  width: 100%;
+  max-width: 680px;
+  padding: 24px 24px 0;
 }
 .input-row {
+  width: 100%;
+  max-width: 680px;
   padding: 16px 24px;
 }
 .chat-input {
   border-top: 1px solid var(--border);
 }
+.chat-input :deep(.n-input) {
+  --n-bg-color: var(--bg-secondary);
+  --n-border-color: var(--border);
+  --n-text-color: var(--text-primary);
+  --n-placeholder-color: var(--text-muted);
+  --n-border-radius: 14px;
+}
 .send-btn {
-  width: 36px; height: 36px;
+  width: 34px; height: 34px;
   border-radius: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid #d4ccc0;
   background: transparent;
-  color: var(--text-muted);
+  color: #b0a89c;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -142,13 +158,15 @@ async function handleSend(t?: string) {
 }
 .send-btn.active {
   border-color: var(--accent);
-  color: var(--accent-dim);
+  color: var(--accent);
+  background: rgba(184,149,106,0.08);
 }
 .send-btn:hover:not(:disabled) {
   background: var(--bg-hover);
+  color: var(--accent-dim);
 }
 .send-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.3;
   cursor: default;
 }
 </style>
