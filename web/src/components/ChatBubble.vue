@@ -13,14 +13,21 @@
 <script setup lang="ts">
 import type { ChatMessage } from '../types/chat'
 import TextSegment from './TextSegment.vue'
-import ThinkingSegment from './ThinkingSegment.vue'
-import ToolCallSegment from './ToolCallSegment.vue'
 import BaziChartCard from './BaziChartCard.vue'
 import KnowledgeSourceCard from './KnowledgeSourceCard.vue'
 defineProps<{message:ChatMessage}>()
 </script>
 <style scoped>
-.bubble.assistant{max-width:85%;text-align:left}
-.bubble.user{text-align:right;max-width:70%;margin-left:auto;background:var(--n-color-target);padding:12px 16px;border-radius:12px}
-.error-msg{color:#C44B3C;padding:8px 0}
+.bubble.assistant { max-width: 85%; text-align: left; }
+.bubble.user {
+  text-align: left;
+  max-width: 70%;
+  margin-left: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.error-msg { color: #c47a6a; padding: 8px 0; }
 </style>

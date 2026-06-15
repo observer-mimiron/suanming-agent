@@ -17,34 +17,28 @@
 <style scoped>
 .result-block {
   margin: 0 0 14px;
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
   overflow: hidden;
+  transition: box-shadow 0.2s;
 }
-
+.result-block:hover {
+  box-shadow: var(--shadow-card);
+}
 .result-block__header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px 0;
+  padding: 14px 16px 0;
 }
-
-.result-block__icon {
-  display: flex;
-  align-items: center;
-  color: var(--accent);
-  flex-shrink: 0;
-}
-
 .result-block__title {
-  font-size: 13px;
+  font-family: var(--serif);
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-secondary);
-  letter-spacing: 0.02em;
 }
-
 .result-block__body {
-  padding: 12px 16px 16px;
+  padding: 14px 16px 16px;
 }
 </style>
