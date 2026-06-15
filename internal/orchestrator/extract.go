@@ -8,14 +8,12 @@ import (
 	"time"
 
 	"github.com/wikiglobal/suanming-agent/internal/llm"
-	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
 
-
-// classifyAndExtract uses LLM to determine user intent and extract birth info.
-// Returns: action, profile patch, question text, needsQimen, rawBazi.
-// Actions: "new_profile" | "update_profile" | "followup" | "incomplete" | "bazi_input"
+// classifyAndExtract 使用 LLM 判断用户意图并提取出生信息。
+// 返回：action, profile patch, question text, needsQimen, rawBazi。
+// 动作："new_profile" | "update_profile" | "followup" | "incomplete" | "bazi_input"
 func (o *Orchestrator) classifyAndExtract(ctx context.Context, msg string, st *state.SessionState) (string, map[string]any, string, bool, []string) {
 	profileJSON, _ := json.Marshal(st.Profile)
 
@@ -90,16 +88,16 @@ func (o *Orchestrator) classifyAndExtract(ctx context.Context, msg string, st *s
 	}
 
 	var result struct {
-		Action       string  `json:"action"`
-		Year         float64 `json:"year"`
-		Month        float64 `json:"month"`
-		Day          float64 `json:"day"`
-		Hour         float64 `json:"hour"`
-		Minute       float64 `json:"minute"`
-		Gender       string  `json:"gender"`
-		CalendarType string  `json:"calendar_type"`
-		Birthplace   string  `json:"birthplace"`
-		Longitude    float64 `json:"longitude"`
+		Action         string  `json:"action"`
+		Year           float64 `json:"year"`
+		Month          float64 `json:"month"`
+		Day            float64 `json:"day"`
+		Hour           float64 `json:"hour"`
+		Minute         float64 `json:"minute"`
+		Gender         string  `json:"gender"`
+		CalendarType   string  `json:"calendar_type"`
+		Birthplace     string  `json:"birthplace"`
+		Longitude      float64 `json:"longitude"`
 		NeedsQimen     bool    `json:"needs_qimen"`
 		NeedsKnowledge bool    `json:"needs_knowledge"`
 		Question       string  `json:"question"`
@@ -153,7 +151,7 @@ func (o *Orchestrator) classifyAndExtract(ctx context.Context, msg string, st *s
 	if question == "" {
 		question = msg
 	}
-	// For bazi_input, extract the 4 gan-zhi pairs from the message using regex
+	// 对于 bazi_input，使用正则从消息中提取 4 个干支对
 	var rawBazi []string
 	if action == "bazi_input" {
 		rawBazi = extractBaziPillars(msg)
@@ -161,57 +159,14 @@ func (o *Orchestrator) classifyAndExtract(ctx context.Context, msg string, st *s
 	return action, patch, question, result.NeedsQimen, rawBazi
 }
 
-// baziPairRe matches a single gan-zhi pair like "甲申" or "乙巳".
+// baziPairRe 匹配单个干支对，如"甲申"或"乙巳"。
 var baziPairRe = regexp.MustCompile(`([甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥])`)
 
-// extractBaziPillars extracts the first 4 gan-zhi pairs from a message.
+// extractBaziPillars 从消息中提取前 4 个干支对。
 func extractBaziPillars(msg string) []string {
 	matches := baziPairRe.FindAllString(msg, -1)
 	if len(matches) < 4 {
 		return nil
 	}
 	return matches[:4]
-}
-
-// bridgeDecision converts a policy-approved route into the legacy action-based routing tuple.
-// It must receive the ApprovedRoute (post-policy-gate), not the raw SupervisorDecision,
-// so that low-confidence clarification, domain downgrades, and other policy overrides
-// are enforced in the live turn flow.
-func bridgeDecision(route policy.ApprovedRoute, msg string) (action string, patch map[string]any, question string, needsQimen bool, rawBazi []string) {
-	patch = route.Slots.Profile
-	if patch == nil {
-		patch = map[string]any{}
-	}
-	question = route.Slots.QuestionText
-	if question == "" {
-		question = msg
-	}
-	needsQimen = route.PolicyHints.NeedsQimen
-
-	// If the policy gate forced clarification, short-circuit to incomplete.
-	if route.NeedsClarification {
-		return "incomplete", patch, question, needsQimen, rawBazi
-	}
-
-	switch route.TaskIntent {
-	case "collect_profile":
-		action = "new_profile"
-	case "amend_profile":
-		action = "update_profile"
-	case "direct_bazi":
-		action = "bazi_input"
-		rawBazi = extractBaziPillars(msg)
-	case "interpret_chart":
-		action = "followup"
-	case "fortune_followup":
-		action = "followup"
-		needsQimen = true
-	case "timing_followup", "cross_domain_consult":
-		action = "followup"
-		needsQimen = true
-	default:
-		action = "followup"
-	}
-
-	return action, patch, question, needsQimen, rawBazi
 }
