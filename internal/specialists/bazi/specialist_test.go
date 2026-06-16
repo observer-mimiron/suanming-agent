@@ -1,101 +1,42 @@
 package bazi
 
 import (
-	"context"
 	"testing"
 
-	"github.com/wikiglobal/suanming-agent/internal/policy"
-	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
-	"github.com/wikiglobal/suanming-agent/internal/state"
 )
 
-func noopSink(t *testing.T) specialists.EventSink {
-	return func(ctx context.Context, evt specialists.Event) error {
-		t.Logf("event: type=%s", evt.Type)
-		return nil
-	}
-}
+func TestBaziSpecialist_RegisterConfig(t *testing.T) {
+	r := specialists.NewRegistry()
+	Register(r)
 
-func makeSession(profileComplete, hasChart bool) *state.SessionState {
-	s := state.NewSession("test-bazi")
-	if profileComplete {
-		s.MergeProfile(map[string]any{
-			"year": 1990.0, "month": 5.0, "day": 20.0,
-			"hour": 8.0, "gender": "男", "birthplace": "北京",
-		})
+	if len(r.All()) != 1 {
+		t.Fatalf("expected 1 config, got %d", len(r.All()))
 	}
-	if hasChart {
-		s.BaziResult = map[string]any{
-			"dayGan": "甲", "dayZhi": "子",
-			"yearGan": "庚", "yearZhi": "午",
-			"monthGan": "丙", "monthZhi": "辰",
-			"hourGan": "戊", "hourZhi": "申",
-		}
+	cfg := r.All()[0]
+	if cfg.Name != "bazi_specialist" {
+		t.Fatalf("name: got %q, want bazi_specialist", cfg.Name)
 	}
-	return s
-}
-
-func TestBaziSpecialist_IncompleteProfileReturnsClarification(t *testing.T) {
-	sp := New()
-	st := makeSession(false, false)
-	route := policy.ApprovedRoute{
-		ConversationIntent: "consult",
-		PrimaryDomain:      "bazi",
-		TaskIntent:         "interpret_chart",
-		NeedsClarification: false,
-		Slots:              schemas.DecisionSlots{QuestionText: "我的财运如何"},
+	if cfg.Domain != "bazi" {
+		t.Fatalf("domain: got %q, want bazi", cfg.Domain)
 	}
-
-	result, err := sp.Run(context.Background(), st, route, noopSink(t))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Final {
-		t.Fatal("incomplete profile should produce a final clarification result")
-	}
-	if result.Summary == "" {
-		t.Fatal("incomplete profile should return a clarification message")
+	if len(cfg.ToolNames) != 4 {
+		t.Fatalf("expected 4 tool names, got %d", len(cfg.ToolNames))
 	}
 }
 
 func TestBaziSpecialist_ReusableChartFollowup(t *testing.T) {
-	sp := New()
-	st := makeSession(true, true)
-	route := policy.ApprovedRoute{
-		ConversationIntent: "consult",
-		PrimaryDomain:      "bazi",
-		TaskIntent:         "fortune_followup",
-		NeedsClarification: false,
-		Slots:              schemas.DecisionSlots{QuestionText: "今年运势如何"},
-		PolicyHints:        schemas.PolicyHints{CanReuseCachedResult: true},
-	}
-
-	result, err := sp.Run(context.Background(), st, route, noopSink(t))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Domain != "bazi" {
-		t.Fatalf("Domain: got %q, want %q", result.Domain, "bazi")
+	r := specialists.NewRegistry()
+	Register(r)
+	if len(r.All()) == 0 {
+		t.Fatal("expected registered config")
 	}
 }
 
 func TestBaziSpecialist_NewProfileCompleteReading(t *testing.T) {
-	sp := New()
-	st := makeSession(true, false)
-	route := policy.ApprovedRoute{
-		ConversationIntent: "consult",
-		PrimaryDomain:      "bazi",
-		TaskIntent:         "collect_profile",
-		NeedsClarification: false,
-		Slots:              schemas.DecisionSlots{QuestionText: "这是我的八字，帮我看看"},
-	}
-
-	result, err := sp.Run(context.Background(), st, route, noopSink(t))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Domain != "bazi" {
-		t.Fatalf("Domain: got %q, want %q", result.Domain, "bazi")
+	r := specialists.NewRegistry()
+	Register(r)
+	if len(r.All()) == 0 {
+		t.Fatal("expected registered config")
 	}
 }

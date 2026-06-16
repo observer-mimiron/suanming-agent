@@ -8,7 +8,8 @@ import (
 
 func TestBuildContainer_WiresSupervisorAndSpecialists(t *testing.T) {
 	t.Setenv("LLM_API_KEY", "test-key")
-	assertContainerWiring(t, BuildContainer())
+	c := BuildContainer()
+	assertContainerWiring(t, c)
 }
 
 func TestBuildContainer_WiresADKSupervisorEngine(t *testing.T) {
@@ -55,15 +56,11 @@ func assertContainerWiring(t *testing.T, c *Container) {
 	if runtimeField.IsNil() {
 		t.Fatal("expected runtime executor to be wired")
 	}
+
+	// 验证 AgentAsTool 架构：specialist registry 已注册配置
 	runtimeValue := reflect.NewAt(runtimeField.Type(), unsafe.Pointer(runtimeField.UnsafeAddr())).Elem().Elem()
-
-	baziField := runtimeValue.FieldByName("baziSp")
-	if baziField.IsNil() {
-		t.Fatal("expected bazi specialist to be wired")
-	}
-
-	qimenField := runtimeValue.FieldByName("qimenSp")
-	if qimenField.IsNil() {
-		t.Fatal("expected qimen specialist to be wired")
+	srField := runtimeValue.FieldByName("specialistRegistry")
+	if srField.IsNil() {
+		t.Fatal("expected specialist registry to be wired")
 	}
 }

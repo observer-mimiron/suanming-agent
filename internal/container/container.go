@@ -10,15 +10,13 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
 	"github.com/wikiglobal/suanming-agent/internal/orchestrator"
-	"github.com/wikiglobal/suanming-agent/internal/specialists/bazi"
-	qimenSp "github.com/wikiglobal/suanming-agent/internal/specialists/qimen"
-	"github.com/wikiglobal/suanming-agent/internal/specialists/ziwei"
+	appRuntime "github.com/wikiglobal/suanming-agent/internal/runtime"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/supervisor"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
 	baziCalc "github.com/wikiglobal/suanming-agent/internal/tools/bazi"
-	appRuntime "github.com/wikiglobal/suanming-agent/internal/runtime"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
+	ziweiTools "github.com/wikiglobal/suanming-agent/internal/tools/ziwei"
 )
 
 // Container 持有所有顶层组件（配置、路由、处理器）。
@@ -61,6 +59,7 @@ func BuildContainer() *Container {
 	reg.Register(&tools.YongShenTool{})
 	reg.Register(&tools.DayunAnalyzer{})
 	reg.Register(&tools.QimenTool{})
+	reg.Register(&ziweiTools.ZiWeiCalcTool{})
 	reg.Register(tools.NewKnowledgeSearchTool(mcpClient))
 
 	// 会话存储 + 锁
@@ -90,7 +89,6 @@ func BuildContainer() *Container {
 	}
 	executor.SetLLMModel(cfg.LLMModel)
 	executor.SetHistoryLimit(cfg.ConversationLimit)
-	executor.SetSpecialists(bazi.New(), qimenSp.New(), ziwei.New())
 
 	// Orchestrator — 会话生命周期管理，注入已构建的执行器。
 	orch := orchestrator.New(executor, flashClient, store, locker, tracer)
@@ -99,7 +97,6 @@ func BuildContainer() *Container {
 	routeEngine := mustNewSupervisorRouteEngine(cfg, flashModel)
 	supervisorClient := supervisor.NewClient(flashClient, supervisor.WithRouteEngine(routeEngine))
 	orch.SetSupervisor(supervisorClient)
-
 
 	// 处理器
 	debugDir := "logs/debug"

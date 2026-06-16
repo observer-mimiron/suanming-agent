@@ -12,7 +12,7 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	appRuntime "github.com/wikiglobal/suanming-agent/internal/runtime"
-	"github.com/wikiglobal/suanming-agent/internal/specialists"
+	
 	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
@@ -46,10 +46,6 @@ func (o *Orchestrator) SetLLMModel(model string) { o.runtime.SetLLMModel(model) 
 // SetSupervisor 注入 supervisor 客户端用于阶段一路由。
 func (o *Orchestrator) SetSupervisor(sv RouteAdvisor) { o.supervisor = sv }
 
-// SetSpecialists 注入八字、奇门和紫微斗数领域专家。
-func (o *Orchestrator) SetSpecialists(baziSp, qimenSp, ziweiSp specialists.DomainHandler) {
-	o.runtime.SetSpecialists(baziSp, qimenSp, ziweiSp)
-}
 
 // Run 处理会话中的一条用户消息。这是主入口点。
 //
