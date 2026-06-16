@@ -22,6 +22,7 @@ type Config struct {
 	DebugHTTP      bool
 	DebugTrace     bool   // 为 true 时，将 TurnTrace 持久化到 logs/traces/ 目录
 	PromptMode     string // "soft"（默认）或 "direct" — 直接模式用于基准测试
+	ConversationLimit int  // 传入 agent 的最近对话消息条数上限，默认 10
 }
 
 // Load 从环境变量读取并返回应用配置。
@@ -44,6 +45,7 @@ func Load() *Config {
 		ListenAddr:     getEnv("LISTEN_ADDR", ":8080"),
 		DebugHTTP:      os.Getenv("DEBUG_HTTP") == "1",
 		DebugTrace:     os.Getenv("DEBUG_TRACE") == "1",
+		ConversationLimit: getEnvInt("CONVERSATION_LIMIT", 10),
 		PromptMode:     mode,
 	}
 }
@@ -63,6 +65,19 @@ func getEnvFloat(key string, fallback float64) float64 {
 	var f float64
 	if _, err := fmt.Sscanf(v, "%f", &f); err == nil && f >= 0 && f <= 1 {
 		return f
+	}
+	return fallback
+}
+
+// getEnvInt 从环境变量读取整数配置，若无效或不存在则返回 fallback。
+func getEnvInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	var n int
+	if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+		return n
 	}
 	return fallback
 }

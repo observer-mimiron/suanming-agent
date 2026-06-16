@@ -10,12 +10,10 @@ import (
 	"fmt"
 
 	"github.com/wikiglobal/suanming-agent/internal/llm"
-	"github.com/wikiglobal/suanming-agent/internal/mcp"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	appRuntime "github.com/wikiglobal/suanming-agent/internal/runtime"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
 	"github.com/wikiglobal/suanming-agent/internal/state"
-	"github.com/wikiglobal/suanming-agent/internal/tools"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
@@ -31,8 +29,7 @@ type Orchestrator struct {
 }
 
 // New 使用给定的依赖创建 Orchestrator。
-func New(reg *tools.Registry, llmClient llm.Chat, flashClient llm.Chat, store state.Store, locker state.Locker, tracer tracing.Tracer, promptMode string) *Orchestrator {
-	executor := appRuntime.NewExecutor(reg, llmClient, tracer, promptMode)
+func New(executor *appRuntime.Executor, flashClient llm.Chat, store state.Store, locker state.Locker, tracer tracing.Tracer) *Orchestrator {
 	return &Orchestrator{
 		store:         store,
 		locker:        locker,
@@ -104,11 +101,7 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 }
 
 func (o *Orchestrator) executeRoute(ctx context.Context, sink EventSink, st *state.SessionState, route policy.ApprovedRoute, message string) (string, string, error) {
-	return o.runtime.ExecuteRoute(ctx, sink, st, route, message)
-}
-
-func (o *Orchestrator) streamInterpretation(ctx context.Context, sink EventSink, st *state.SessionState, passages []mcp.Passage, primaryDomain string) (string, error) {
-	return o.runtime.StreamInterpretation(ctx, sink, st, passages, primaryDomain)
+	return o.runtime.Execute(ctx, sink, st, route, message)
 }
 
 // emitTraceDigest 从 TurnTrace 构建摘要并通过 component SSE 事件发送。

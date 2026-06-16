@@ -9,19 +9,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
 
 // Builder 负责构建知识检索查询和解读 prompt。
 type Builder struct {
-	
+	llm        llm.Chat
 	promptMode string
 }
 
 // NewBuilder 创建 prompt builder。
-func NewBuilder(promptMode string) *Builder {
-	return &Builder{promptMode: promptMode}
+func NewBuilder(chat llm.Chat, promptMode string) *Builder {
+	return &Builder{llm: chat, promptMode: promptMode}
 }
 
 // CurrentQuestion 返回当前轮应该送给模型的用户问题。
@@ -248,45 +249,18 @@ func (b *Builder) BuildQimenKnowledgeQuery(question string, qimenData map[string
 	return query
 }
 
-// BuildAgentInstruction 为 ADK ChatModelAgent 构建系统指令。
-func (b *Builder) BuildAgentInstruction(st *state.SessionState, primaryDomain string) string {
-	tpl := b.selectPrompt(st, primaryDomain)
-
-	prompt := string(tpl) + `
-
-## 运行时上下文
-
-当前日期：` + time.Now().Format("2006-01-02") + `
-
-### 可用工具及执行建议
-
-你拥有以下工具，请根据当前需求选择合适的工具并按合适的顺序调用：
-
-1. **bazi_calc** — 根据出生时间排八字四柱命盘。需要完整的年/月/日/时/性别。输出 JSON 含 pillars、dayGan、wuxing、dayun 等。
-2. **yongshen** — 分析日主强弱、取用神忌神。需要先调用 bazi_calc 获得日主和月令。
-3. **dayun_analyzer** — 分析大运走势、各步大运的起止时间。需要先调用 bazi_calc。
-4. **qimen_dunjia** — 排奇门遁甲盘，分析当前时空的吉凶方位、门星神组合。
-5. **ziwei_calc** — 排紫微斗数命盘，包括十二宫星曜分布、四化飞星。需要完整的出生年月日时和性别。
-6. **knowledge_search** — 从命理古籍知识库（含《渊海子平》《滴天髓》《子平真诠》等）中检索相关原文。建议在给出关键论断前先调用此工具获取经典依据。
-
-### 执行建议
-
-- **八字分析流程：** 先 bazi_calc 排盘，然后可调用 yongshen/dayun_analyzer 补充分析，再用 knowledge_search 查古籍，最后综合解读。
-- **奇门分析流程：** 先 qimen_dunjia 排盘，用 knowledge_search 查相关典籍，最后分析时空吉凶。
-- **紫微分析流程：** 先 ziwei_calc 排盘，用 knowledge_search 查相关典籍，最后解读命盘。
-- 你可以根据实际情况调整顺序或跳过不必要的步骤。
-- 除非命盘已有（session 中提供了），否则不要跳过排盘直接分析。`
-
-	if st.RunningSummary != "" {
-		prompt += "\n### 会话摘要\n\n" + st.RunningSummary + "\n"
-	}
-	return prompt
-}
-
 func (b *Builder) extractSearchKeywords(ctx context.Context, question string, chartContext string) string {
-	_ = ctx
-	_ = chartContext
-	return question
+	prompt := "用户正在咨询八字命理，命主为" + chartContext + "。根据用户当前问题，提炼3-5个需要从命理古籍中检索的关键词（如格局名、十神关系、调候要点等），用空格分隔。只返回关键词，不要任何解释。\n问题：" + question
+	messages := []llm.Message{{Role: "user", Content: question}}
+	resp, _, err := b.llm.Generate(ctx, prompt, messages)
+	if err != nil {
+		return question
+	}
+	keywords := strings.TrimSpace(resp)
+	if len(keywords) > 80 {
+		keywords = keywords[:80]
+	}
+	return keywords
 }
 
 func (b *Builder) selectPrompt(st *state.SessionState, primaryDomain string) []byte {

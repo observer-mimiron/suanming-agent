@@ -3,6 +3,7 @@ package runtime
 import (
 	"testing"
 
+	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
 
@@ -27,7 +28,7 @@ func TestBuildKnowledgeQuery_QimenWithoutBaziUsesQimenTerms(t *testing.T) {
 		"ju_text":    "阳遁三局",
 	}
 
-	builder := NewBuilder("soft")
+	builder := NewBuilder(&llm.NoopClient{}, "soft")
 	got := builder.BuildKnowledgeQuery(nil, st, "qimen")
 	if got == "" {
 		t.Fatal("BuildKnowledgeQuery should return qimen terms")

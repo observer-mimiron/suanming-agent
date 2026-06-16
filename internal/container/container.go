@@ -17,6 +17,7 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/supervisor"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
 	baziCalc "github.com/wikiglobal/suanming-agent/internal/tools/bazi"
+	appRuntime "github.com/wikiglobal/suanming-agent/internal/runtime"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
@@ -37,12 +38,6 @@ func BuildContainer() *Container {
 	if llmTemp <= 0 {
 		llmTemp = 0.3
 	}
-	llmClient := mustNewChatClient(cfg, llm.FactoryConfig{
-		APIKey:      cfg.LLMApiKey,
-		BaseURL:     cfg.LLMBaseURL,
-		Model:       cfg.LLMModel,
-		Temperature: llmTemp,
-	})
 
 	// LLM 快速客户端（用于分类/提取）— 确定性输出，不启用思考。
 	flashModel := cfg.LLMFlashModel
@@ -79,17 +74,32 @@ func BuildContainer() *Container {
 	}
 	tracer := tracing.NewRealTracer(collector)
 
-	//orchestrator 负责整体对话流程控制，注入工具注册表、LLM 客户端、会话存储、锁和追踪器。
-	orch := orchestrator.New(reg, llmClient, flashClient, store, locker, tracer, cfg.PromptMode)
-	orch.SetLLMModel(cfg.LLMModel)
+	// 运行时执行器 — 使用 ADK ChatModelAgent 动态调度工具。
+	runtimeModel, err := llm.NewToolCallingModel(context.Background(), llm.FactoryConfig{
+		APIKey:      cfg.LLMApiKey,
+		BaseURL:     cfg.LLMBaseURL,
+		Model:       cfg.LLMModel,
+		Temperature: llmTemp,
+	})
+	if err != nil {
+		panic(err)
+	}
+	executor, err := appRuntime.NewExecutor(reg, runtimeModel, cfg.PromptMode)
+	if err != nil {
+		panic(err)
+	}
+	executor.SetLLMModel(cfg.LLMModel)
+	executor.SetHistoryLimit(cfg.ConversationLimit)
+	executor.SetSpecialists(bazi.New(), qimenSp.New(), ziwei.New())
+
+	// Orchestrator — 会话生命周期管理，注入已构建的执行器。
+	orch := orchestrator.New(executor, flashClient, store, locker, tracer)
 
 	// Supervisor 客户端固定使用 ADK route engine；外层 text fallback 仍由 Go supervisor 保留。
 	routeEngine := mustNewSupervisorRouteEngine(cfg, flashModel)
 	supervisorClient := supervisor.NewClient(flashClient, supervisor.WithRouteEngine(routeEngine))
 	orch.SetSupervisor(supervisorClient)
 
-	// 领域专家 — 注入到编排器中用于阶段一分发。
-	orch.SetSpecialists(bazi.New(), qimenSp.New(), ziwei.New())
 
 	// 处理器
 	debugDir := "logs/debug"

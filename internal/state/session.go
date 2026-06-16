@@ -12,7 +12,7 @@ type Turn struct {
 }
 
 // MaxRecentTurns 是 RecentTurns 保留窗口大小（约 4 轮问答）。
-const MaxRecentTurns = 8
+const MaxRecentTurns = 30
 
 // RoutingSnapshot 记录写入会话状态的上一次 supervisor 路由决策。
 type RoutingSnapshot struct {

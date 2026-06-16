@@ -11,32 +11,6 @@ func TestBuildContainer_WiresSupervisorAndSpecialists(t *testing.T) {
 	assertContainerWiring(t, BuildContainer())
 }
 
-func TestBuildContainer_UsesDedicatedFlashClient(t *testing.T) {
-	t.Setenv("LLM_API_KEY", "test-key")
-	t.Setenv("LLM_FLASH_MODEL", "")
-
-	c := BuildContainer()
-
-	handlerValue := reflect.ValueOf(c.Handler).Elem()
-	orchField := handlerValue.FieldByName("orch")
-	orchValue := reflect.NewAt(orchField.Type(), unsafe.Pointer(orchField.UnsafeAddr())).Elem().Elem()
-
-	runtimeField := reflect.NewAt(orchValue.FieldByName("runtime").Type(), unsafe.Pointer(orchValue.FieldByName("runtime").UnsafeAddr())).Elem()
-	if runtimeField.IsNil() {
-		t.Fatal("expected runtime executor to be present")
-	}
-	runtimeValue := runtimeField.Elem()
-	llmField := reflect.NewAt(runtimeValue.FieldByName("llm").Type(), unsafe.Pointer(runtimeValue.FieldByName("llm").UnsafeAddr())).Elem()
-	flashField := reflect.NewAt(orchValue.FieldByName("flash").Type(), unsafe.Pointer(orchValue.FieldByName("flash").UnsafeAddr())).Elem()
-
-	if llmField.IsNil() || flashField.IsNil() {
-		t.Fatal("expected llm and flash clients to be present")
-	}
-	if llmField.Interface() == flashField.Interface() {
-		t.Fatal("expected flash client to be a dedicated instance, not the same as main llm client")
-	}
-}
-
 func TestBuildContainer_WiresADKSupervisorEngine(t *testing.T) {
 	t.Setenv("LLM_API_KEY", "test-key")
 
