@@ -12,7 +12,7 @@ func makeSession(profileComplete, hasBazi, hasZiwei bool) *state.SessionState {
 	s := state.NewSession("test-session")
 	if profileComplete {
 		s.MergeProfile(map[string]any{
-			"year": 1990.0, "month": 5.0, "day": 20.0,
+			"birthplace": "北京", "year": 1990.0, "month": 5.0, "day": 20.0,
 			"hour": 8.0, "gender": "男",
 		})
 	}
