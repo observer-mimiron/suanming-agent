@@ -219,3 +219,34 @@ func buildAdapters(reg *tools.Registry) ([]tool.BaseTool, error) {
 
 	return adapters, nil
 }
+
+// BuildAdaptersFor 根据请求的工具名称列表创建 Eino BaseTool 适配器。
+//
+// 未在 registry 中注册的工具会被静默跳过。
+// 返回的适配器可直接注入到 Eino Agent 工具集合。
+func BuildAdaptersFor(reg *tools.Registry, names []string) ([]tool.BaseTool, error) {
+	builders := map[string]func() (tool.BaseTool, error){
+		"bazi_calc":       func() (tool.BaseTool, error) { return newBaziCalcAdapter(reg) },
+		"yongshen":        func() (tool.BaseTool, error) { return newYongshenAdapter(reg) },
+		"dayun_analyzer":  func() (tool.BaseTool, error) { return newDayunAdapter(reg) },
+		"qimen_dunjia":    func() (tool.BaseTool, error) { return newQimenAdapter(reg) },
+		"ziwei_calc":      func() (tool.BaseTool, error) { return newZiweiAdapter(reg) },
+		"knowledge_search": func() (tool.BaseTool, error) { return newKnowledgeSearchAdapter(reg) },
+	}
+	adapters := make([]tool.BaseTool, 0, len(names))
+	for _, name := range names {
+		if _, ok := reg.Get(name); !ok {
+			continue
+		}
+		build, ok := builders[name]
+		if !ok {
+			continue
+		}
+		t, err := build()
+		if err != nil {
+			return nil, err
+		}
+		adapters = append(adapters, t)
+	}
+	return adapters, nil
+}
