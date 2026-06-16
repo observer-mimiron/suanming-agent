@@ -59,8 +59,8 @@ type SessionState struct {
 	ConversationStage   string         // "collecting" | "ready" | "completed"
 	ConversationSummary string
 	LastUserQuestion    string
-	NeedsQimen     bool // set by classifyAndExtract, consumed by handleFollowupReading
-	NeedsKnowledge bool // set by classifyAndExtract: whether to run knowledge search
+	NeedsQimen     bool // set by the approved route / specialist dispatch, consumed by followup execution
+	NeedsKnowledge bool // legacy flag kept for compatibility with existing session snapshots
 
 	// 上下文工程第一阶段：会话内最近多轮对话 + 滚动摘要
 	RecentTurns    []Turn `json:"recent_turns,omitempty"`
@@ -197,6 +197,12 @@ func (s *SessionState) Clone() *SessionState {
 		clone.QimenResult = make(map[string]any, len(s.QimenResult))
 		for k, v := range s.QimenResult {
 			clone.QimenResult[k] = v
+		}
+	}
+	if s.ZiWeiResult != nil {
+		clone.ZiWeiResult = make(map[string]any, len(s.ZiWeiResult))
+		for k, v := range s.ZiWeiResult {
+			clone.ZiWeiResult[k] = v
 		}
 	}
 	if len(s.RecentTurns) > 0 {
