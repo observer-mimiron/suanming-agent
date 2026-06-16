@@ -175,6 +175,7 @@ cd web && npm run build        # 生产构建
 - 2026-06-13：Eino 迁移先落前两步：`llm.Chat` 底座切 classic Eino，工具注册表补 Eino 兼容视图；保留当前 supervisor / orchestrator 主控与 deterministic tool dispatch。
 - 2026-06-16：原生 HTTP LLM client 与 `LLM_BACKEND` 双后端分支已删除，运行时正式收口为 Eino-only；这是后续继续清理 supervisor / tool 兼容层之前的阶段性状态。
 - 2026-06-16：supervisor 的 `classic|adk` 切换、`SUPERVISOR_ENGINE` 配置、`llm.Chat.GenerateWithTool` 接口和 registry 的 Eino tool 兼容导出已删除；当前后端仅保留 Eino runtime + ADK route engine 一条主线。
+- 2026-06-16：执行层从单一 fortune_teller Agent 迁移为 Supervisor Agent + AgentAsTool + Specialist Agent 架构。父 Agent 被 ApprovedRoute 约束，线程安全。确定性 preflight 替代 DomainHandler 薄状态机。specialists 包只承载 Config/Registry，DomainHandler 已删除。
 - 2026-06-13：supervisor 的 structured routing 不与主回答 client 共用同一个 DeepSeek thinking 配置；独立 flash/no-thinking client 更稳，也更接近“路由模型”和“回答模型”职责分离。
 - 2026-06-13：当 LLM 路由把“已含出生时间的首轮消息”误判成 followup/interpret 时，由 Go 侧按消息内容做一次确定性纠偏，优先保证首轮排盘主链可达。
 - 2026-06-13：Phase 3 不直接让 `ChatModelAgent` 吞掉整套 supervisor 逻辑，而是只替换 layer-1 structured route 执行器；`textDecide / fallbackExtract / safeFallback` 仍保留在 Go 侧，避免把多层降级语义误简化成单一 retry。
