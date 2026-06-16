@@ -28,10 +28,12 @@ type DecisionSlots struct {
 
 // PolicyHints 是通知策略门控的可选行为标志。
 type PolicyHints struct {
-	NeedsKnowledge         bool `json:"needs_knowledge"`
-	NeedsQimen             bool `json:"needs_qimen"`
-	CanReuseSessionProfile bool `json:"can_reuse_session_profile"`
-	CanReuseCachedResult   bool `json:"can_reuse_cached_result"`
+	NeedsKnowledge         bool   `json:"needs_knowledge"`
+	NeedsQimen             bool   `json:"needs_qimen"`
+	QimenMode              string `json:"qimen_mode,omitempty"`
+	ProfileRequirement     string `json:"profile_requirement,omitempty"`
+	CanReuseSessionProfile bool   `json:"can_reuse_session_profile"`
+	CanReuseCachedResult   bool   `json:"can_reuse_cached_result"`
 }
 
 // Normalize 为解析后的 SupervisorDecision 应用安全默认值。
@@ -53,5 +55,18 @@ func (d *SupervisorDecision) Normalize() {
 	}
 	if d.Slots.Profile == nil {
 		d.Slots.Profile = map[string]any{}
+	}
+	if d.PolicyHints.QimenMode == "" {
+		switch {
+		case d.PrimaryDomain == "qimen":
+			d.PolicyHints.QimenMode = "primary"
+		case d.PolicyHints.NeedsQimen:
+			d.PolicyHints.QimenMode = "supplement"
+		default:
+			d.PolicyHints.QimenMode = "none"
+		}
+	}
+	if d.PolicyHints.ProfileRequirement == "" && d.PolicyHints.QimenMode == "primary" && d.PrimaryDomain == "qimen" {
+		d.PolicyHints.ProfileRequirement = "none"
 	}
 }

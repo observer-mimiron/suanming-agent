@@ -62,7 +62,15 @@
 
     <!-- Loading (only one in the app) -->
     <div v-if="isLoading" class="turn-loading">
-      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <div class="celestial-loader">
+        <div class="star-center"></div>
+        <div class="orbit inner-orbit">
+          <div class="planet p1"></div>
+        </div>
+        <div class="orbit outer-orbit">
+          <div class="planet p2"></div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -84,7 +92,7 @@ const md = new MarkdownIt({ html: false, breaks: true, linkify: true })
 const vm = computed(() => buildAssistantTurnViewModel(props.message))
 const renderedAnswer = computed(() => md.render(vm.value.answerBlocks.join('\n\n')))
 const copied = ref(false)
-const showChain = ref(true)
+const showChain = ref(false)
 
 async function copyAnswer() {
   await navigator.clipboard.writeText(vm.value.answerBlocks.join('\n\n'))
@@ -253,19 +261,64 @@ function fmtMs(ms: number): string {
 
 .turn-loading {
   display: flex;
-  gap: 5px;
-  padding: 8px 8px;
+  padding: 12px 8px;
+  align-items: center;
 }
-.turn-loading .dot {
-  width: 5px; height: 5px;
-  background: var(--accent);
+.celestial-loader {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.star-center {
+  width: 4px;
+  height: 4px;
+  background-color: var(--accent);
   border-radius: 50%;
-  animation: blink 1.4s infinite both;
+  box-shadow: 0 0 6px var(--accent);
 }
-.turn-loading .dot:nth-child(2) { animation-delay: 0.2s; }
-.turn-loading .dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes blink {
-  0%, 80%, 100% { opacity: 0.2; }
-  40% { opacity: 1; }
+.orbit {
+  position: absolute;
+  border: 1px dashed var(--border);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.inner-orbit {
+  width: 18px;
+  height: 18px;
+  animation: rotate-orbit 4s linear infinite;
+}
+.outer-orbit {
+  width: 30px;
+  height: 30px;
+  animation: rotate-orbit 7s linear infinite reverse;
+}
+.planet {
+  position: absolute;
+  width: 3.5px;
+  height: 3.5px;
+  background-color: var(--accent);
+  border-radius: 50%;
+}
+.p1 {
+  top: -2px;
+  box-shadow: 0 0 4px var(--accent);
+}
+.p2 {
+  bottom: -2.5px;
+  background-color: var(--accent-dim);
+}
+
+@keyframes rotate-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

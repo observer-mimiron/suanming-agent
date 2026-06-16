@@ -1,0 +1,23 @@
+{
+  "bm25": [
+    {"query":"十神","expect_min":3,"desc":"核心术语搜索"},
+    {"query":"甲木","expect_min":3,"desc":"天干搜索"},
+    {"query":"子平真诠","expect_min":1,"desc":"古籍名称搜索"},
+    {"query":"调候用神","expect_min":2,"desc":"专业术语搜索"},
+    {"query":"婚姻","expect_min":4,"desc":"高频词搜索"}
+  ],
+  "vector": [
+    {"query":"怎么看一个人的财运","expect_min":2,"desc":"语义搜索-财运"},
+    {"query":"五行相生相克的关系","expect_min":3,"desc":"语义搜索-五行"},
+    {"query":"出生日期怎么算八字","expect_min":2,"desc":"语义搜索-排盘"},
+    {"query":"什么八字的人容易离婚","expect_min":2,"desc":"语义搜索-婚姻"},
+    {"query":"脾胃不好和八字有关系吗","expect_min":1,"desc":"语义搜索-健康"}
+  ],
+  "llm": [
+    {"question":"什么是八字中的十神","expect_keywords":["十神","比肩","劫财","食神"],"desc":"基础概念问答"},
+    {"question":"甲木日主生于正月，用神取什么","expect_keywords":["丙","癸","调候"],"desc":"调候用神问答"},
+    {"question":"子平真诠和渊海子平的主要区别是什么","expect_keywords":["格局","月令","明代","宋代"],"desc":"古籍对比问答"},
+    {"question":"比劫夺财代表什么","expect_keywords":["破财","竞争","合伙"],"desc":"十神组合问答"},
+    {"question":"1983年11月1日生男命，学历和职业可能是什么","expect_keywords":["博士","工程师","上市公司"],"desc":"命例推理问答"}
+  ]
+}

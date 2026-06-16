@@ -152,3 +152,56 @@ func TestGate_QimenAsPrimaryForTiming(t *testing.T) {
 		t.Fatalf("qimen should be allowed as primary for timing: got %q", route.PrimaryDomain)
 	}
 }
+
+func TestGate_QimenPrimaryWithoutProfileAllowedWhenProfileRequirementNone(t *testing.T) {
+	st := makeSession(false, false)
+	d := schemas.SupervisorDecision{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "qimen",
+		TaskIntent:         "fortune_followup",
+		Confidence:         0.9,
+		Slots: schemas.DecisionSlots{
+			QuestionText: "今天运气怎么样",
+			TimeScope:    "今天",
+		},
+		PolicyHints: schemas.PolicyHints{
+			NeedsQimen:         true,
+			QimenMode:          "primary",
+			ProfileRequirement: "none",
+		},
+	}
+	d.Normalize()
+
+	route := Apply(d, st)
+	if route.NeedsClarification {
+		t.Fatal("qimen primary without profile_requirement should not force clarification")
+	}
+	if route.PrimaryDomain != "qimen" {
+		t.Fatalf("PrimaryDomain: got %q, want qimen", route.PrimaryDomain)
+	}
+}
+
+func TestGate_QimenPrimaryWithProfileRequirementFullStillClarifies(t *testing.T) {
+	st := makeSession(false, false)
+	d := schemas.SupervisorDecision{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "qimen",
+		TaskIntent:         "fortune_followup",
+		Confidence:         0.9,
+		Slots: schemas.DecisionSlots{
+			QuestionText: "结合我的命盘看今天运气怎么样",
+			TimeScope:    "今天",
+		},
+		PolicyHints: schemas.PolicyHints{
+			NeedsQimen:         true,
+			QimenMode:          "primary",
+			ProfileRequirement: "full",
+		},
+	}
+	d.Normalize()
+
+	route := Apply(d, st)
+	if !route.NeedsClarification {
+		t.Fatal("qimen primary with full profile requirement should still force clarification")
+	}
+}

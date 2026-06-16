@@ -1,10 +1,7 @@
-// Package llm 暂与 client.go 共享包注释，本文件提供工厂函数和配置类型。
-
 package llm
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"strings"
 
@@ -17,13 +14,8 @@ type FactoryConfig struct {
 	APIKey          string
 	BaseURL         string
 	Model           string
-	Backend         string
 	Temperature     float64
 	DisableThinking bool
-}
-
-var newNativeChatClient = func(cfg FactoryConfig) Chat {
-	return NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model, cfg.Temperature)
 }
 
 var newEinoToolCallingChatModel = func(ctx context.Context, cfg FactoryConfig) (einomodel.ToolCallingChatModel, error) {
@@ -45,44 +37,18 @@ var newEinoToolCallingChatModel = func(ctx context.Context, cfg FactoryConfig) (
 	})
 }
 
-// NewToolCallingModel 根据后端类型创建 ToolCallingChatModel。
-// 当前仅支持 "eino" 后端；"native" 后端不支持 ToolCallingChatModel 接口。
+// NewToolCallingModel 创建 Eino ToolCallingChatModel，用于 supervisor ADK route engine 等需要 tool calling 的场景。
 func NewToolCallingModel(ctx context.Context, cfg FactoryConfig) (einomodel.ToolCallingChatModel, error) {
-	backend := strings.TrimSpace(cfg.Backend)
-	if backend == "" {
-		backend = "eino"
-	}
-
-	switch backend {
-	case "eino":
-		return newEinoToolCallingChatModel(ctx, cfg)
-	case "native":
-		return nil, fmt.Errorf("backend %q does not expose ToolCallingChatModel", backend)
-	default:
-		return nil, fmt.Errorf("unsupported LLM_BACKEND %q", backend)
-	}
+	return newEinoToolCallingChatModel(ctx, cfg)
 }
 
-// NewChatClient 根据后端类型创建 Chat 接口实现。
-// "native" 返回原生 HTTP 客户端；"eino" 返回 EinoChat 包装。
+// NewChatClient 创建基于 Eino ChatModel 的 Chat 接口实现。
 func NewChatClient(ctx context.Context, cfg FactoryConfig) (Chat, error) {
-	backend := strings.TrimSpace(cfg.Backend)
-	if backend == "" {
-		backend = "eino"
+	model, err := newEinoToolCallingChatModel(ctx, cfg)
+	if err != nil {
+		return nil, err
 	}
-
-	switch backend {
-	case "native":
-		return newNativeChatClient(cfg), nil
-	case "eino":
-		model, err := newEinoToolCallingChatModel(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		return NewEinoChat(model), nil
-	default:
-		return nil, fmt.Errorf("unsupported LLM_BACKEND %q", backend)
-	}
+	return NewEinoChat(model), nil
 }
 
 func normalizeEinoBaseURL(baseURL string) string {

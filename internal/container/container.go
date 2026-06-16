@@ -3,9 +3,6 @@ package container
 
 import (
 	"context"
-	"fmt"
-	"log"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wikiglobal/suanming-agent/internal/config"
@@ -19,6 +16,7 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/supervisor"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
+	baziCalc "github.com/wikiglobal/suanming-agent/internal/tools/bazi"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
@@ -32,9 +30,7 @@ type Container struct {
 // BuildContainer 按依赖顺序组装全部组件并返回根容器。
 func BuildContainer() *Container {
 	cfg := config.Load()
-	if strings.EqualFold(cfg.LLMBackend, "eino") {
-		tracing.InstallEinoCallbackTracing()
-	}
+	tracing.InstallEinoCallbackTracing()
 
 	// LLM 客户端（主模型，用于解读）— 低温度参数以保证一致性
 	llmTemp := cfg.LLMTemperature
@@ -45,7 +41,6 @@ func BuildContainer() *Container {
 		APIKey:      cfg.LLMApiKey,
 		BaseURL:     cfg.LLMBaseURL,
 		Model:       cfg.LLMModel,
-		Backend:     cfg.LLMBackend,
 		Temperature: llmTemp,
 	})
 
@@ -58,7 +53,6 @@ func BuildContainer() *Container {
 		APIKey:          cfg.LLMApiKey,
 		BaseURL:         cfg.LLMBaseURL,
 		Model:           flashModel,
-		Backend:         cfg.LLMBackend,
 		Temperature:     0.0,
 		DisableThinking: true,
 	})
@@ -68,7 +62,7 @@ func BuildContainer() *Container {
 
 	// 工具注册表
 	reg := tools.NewRegistry()
-	reg.Register(&tools.BaziCalcTool{})
+	reg.Register(&baziCalc.CalcTool{})
 	reg.Register(&tools.YongShenTool{})
 	reg.Register(&tools.DayunAnalyzer{})
 	reg.Register(&tools.QimenTool{})
@@ -84,20 +78,14 @@ func BuildContainer() *Container {
 		collector = tracing.NewFileCollector("logs/traces")
 	}
 	tracer := tracing.NewRealTracer(collector)
+
+	//orchestrator 负责整体对话流程控制，注入工具注册表、LLM 客户端、会话存储、锁和追踪器。
 	orch := orchestrator.New(reg, llmClient, flashClient, store, locker, tracer, cfg.PromptMode)
 	orch.SetLLMModel(cfg.LLMModel)
 
-	// Supervisor 客户端 — 使用快速模型进行路由决策。
-	supervisorOpts := []supervisor.ClientOption{}
-	if routeEngine, err := buildSupervisorRouteEngine(cfg, flashModel); err != nil {
-		if strings.EqualFold(cfg.SupervisorEngine, "adk") {
-			panic(err)
-		}
-		log.Printf("[container] supervisor ADK engine unavailable, falling back to classic structuredDecide: %v", err)
-	} else if routeEngine != nil {
-		supervisorOpts = append(supervisorOpts, supervisor.WithRouteEngine(routeEngine))
-	}
-	supervisorClient := supervisor.NewClient(flashClient, supervisorOpts...)
+	// Supervisor 客户端固定使用 ADK route engine；外层 text fallback 仍由 Go supervisor 保留。
+	routeEngine := mustNewSupervisorRouteEngine(cfg, flashModel)
+	supervisorClient := supervisor.NewClient(flashClient, supervisor.WithRouteEngine(routeEngine))
 	orch.SetSupervisor(supervisorClient)
 
 	// 领域专家 — 注入到编排器中用于阶段一分发。
@@ -143,38 +131,21 @@ func mustNewChatClient(_ *config.Config, factoryCfg llm.FactoryConfig) llm.Chat 
 	return client
 }
 
-func buildSupervisorRouteEngine(cfg *config.Config, flashModel string) (supervisor.RouteEngine, error) {
-	mode := strings.ToLower(strings.TrimSpace(cfg.SupervisorEngine))
-	if mode == "" {
-		mode = "auto"
-	}
-
-	switch mode {
-	case "classic":
-		return nil, nil
-	case "auto":
-		if !strings.EqualFold(cfg.LLMBackend, "eino") {
-			return nil, nil
-		}
-	case "adk":
-		if !strings.EqualFold(cfg.LLMBackend, "eino") {
-			return nil, fmt.Errorf("SUPERVISOR_ENGINE=adk requires LLM_BACKEND=eino, got %q", cfg.LLMBackend)
-		}
-	default:
-		return nil, fmt.Errorf("unsupported SUPERVISOR_ENGINE %q", cfg.SupervisorEngine)
-	}
-
+func mustNewSupervisorRouteEngine(cfg *config.Config, flashModel string) supervisor.RouteEngine {
 	model, err := llm.NewToolCallingModel(context.Background(), llm.FactoryConfig{
 		APIKey:          cfg.LLMApiKey,
 		BaseURL:         cfg.LLMBaseURL,
 		Model:           flashModel,
-		Backend:         cfg.LLMBackend,
 		Temperature:     0.0,
 		DisableThinking: true,
 	})
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
-	return supervisor.NewADKRouteEngine(context.Background(), model)
+	engine, err := supervisor.NewADKRouteEngine(context.Background(), model)
+	if err != nil {
+		panic(err)
+	}
+	return engine
 }

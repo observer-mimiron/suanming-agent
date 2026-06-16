@@ -7,7 +7,7 @@
         <n-input
           v-model:value="inputText"
           placeholder="请输入出生年月日时..."
-          @keydown.enter="handleSend"
+          @keydown.enter="() => handleSend()"
           size="large"
         >
           <template #suffix>
@@ -15,7 +15,7 @@
               class="send-btn"
               :class="{ active: inputText.trim() }"
               :disabled="!inputText.trim()"
-              @click="handleSend"
+              @click="() => handleSend()"
             >
               <ArrowUp :size="18" />
             </button>
@@ -28,35 +28,39 @@
     <template v-else>
       <div class="chat-body">
         <n-scrollbar ref="scrollRef" class="messages">
-          <template v-for="msg in messages" :key="msg.id">
-            <AssistantTurn
-              v-if="msg.role === 'assistant'"
-              :message="msg"
-              :isLoading="isLoading && msg === messages[messages.length - 1]"
-            />
-            <ChatBubble v-else :message="msg" />
-          </template>
+          <div class="messages-inner">
+            <template v-for="msg in messages" :key="msg.id">
+              <AssistantTurn
+                v-if="msg.role === 'assistant'"
+                :message="msg"
+                :isLoading="isLoading && msg === messages[messages.length - 1]"
+              />
+              <ChatBubble v-else :message="msg" />
+            </template>
+          </div>
         </n-scrollbar>
       </div>
-      <div class="input-row chat-input">
-        <n-input
-          v-model:value="inputText"
-          placeholder="继续提问..."
-          :disabled="isLoading"
-          @keydown.enter="handleSend"
-          size="large"
-        >
-          <template #suffix>
-            <button
-              class="send-btn"
-              :class="{ active: inputText.trim() }"
-              :disabled="!inputText.trim() || isLoading"
-              @click="handleSend"
-            >
-              <ArrowUp :size="18" />
-            </button>
-          </template>
-        </n-input>
+      <div class="chat-input">
+        <div class="input-row">
+          <n-input
+            v-model:value="inputText"
+            placeholder="继续提问..."
+            :disabled="isLoading"
+            @keydown.enter="() => handleSend()"
+            size="large"
+          >
+            <template #suffix>
+              <button
+                class="send-btn"
+                :class="{ active: inputText.trim() }"
+                :disabled="!inputText.trim() || isLoading"
+                @click="() => handleSend()"
+              >
+                <ArrowUp :size="18" />
+              </button>
+            </template>
+          </n-input>
+        </div>
       </div>
     </template>
   </div>
@@ -101,11 +105,14 @@ async function handleSend(t?: string) {
   align-items: center;
   justify-content: center;
   gap: 32px;
-  padding: 24px;
+  padding: 48px 32px;
+  box-sizing: border-box;
+  width: 100%;
 }
 .empty-input {
   width: 100%;
   max-width: 520px;
+  padding: 0;
 }
 .empty-input :deep(.n-input) {
   --n-height: 52px;
@@ -114,34 +121,63 @@ async function handleSend(t?: string) {
   --n-border-color: var(--border);
   --n-text-color: var(--text-primary);
   --n-placeholder-color: var(--text-muted);
+  transition: all 0.2s ease-in-out;
+}
+.empty-input :deep(.n-input:focus-within) {
+  --n-border-color: var(--accent) !important;
+  box-shadow: var(--shadow-glow) !important;
 }
 .chat-body {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  align-items: center;
+  width: 100%;
 }
 .messages {
   flex: 1;
   width: 100%;
-  max-width: 680px;
-  padding: 32px 20px 0;
+}
+.messages-inner {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 32px 32px 80px;
+  box-sizing: border-box;
+  width: 100%;
 }
 .input-row {
   width: 100%;
-  max-width: 680px;
-  padding: 16px 20px;
+  max-width: 920px;
+  padding: 16px 32px;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 .chat-input {
+  width: 100%;
   border-top: 1px solid var(--border);
+  background: var(--bg);
 }
 .chat-input :deep(.n-input) {
+  --n-height: 52px;
+  --n-border-radius: 16px;
   --n-bg-color: var(--bg-secondary);
   --n-border-color: var(--border);
   --n-text-color: var(--text-primary);
   --n-placeholder-color: var(--text-muted);
-  --n-border-radius: 14px;
+  transition: all 0.2s ease-in-out;
+}
+.chat-input :deep(.n-input:focus-within) {
+  --n-border-color: var(--accent) !important;
+  box-shadow: var(--shadow-glow) !important;
+}
+
+@media (max-width: 680px) {
+  .messages-inner {
+    padding: 32px 20px 80px;
+  }
+  .input-row {
+    padding: 16px 20px;
+  }
 }
 .send-btn {
   width: 34px; height: 34px;

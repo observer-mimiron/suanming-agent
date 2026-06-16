@@ -2,8 +2,6 @@ package tools
 
 import (
 	"context"
-
-	"github.com/cloudwego/eino/schema"
 )
 
 // DayunAnalyzer 大运分析工具。根据八字日主和用神喜忌，对每步大运标注十神类型和吉凶评价（大吉/凶/平）。
@@ -11,27 +9,6 @@ type DayunAnalyzer struct{}
 
 func (t *DayunAnalyzer) Name() string        { return "dayun_analyzer" }
 func (t *DayunAnalyzer) Description() string { return "分析每个大运的吉凶和十神类型" }
-func (t *DayunAnalyzer) EinoToolInfo() *schema.ToolInfo {
-	return &schema.ToolInfo{
-		Name: t.Name(),
-		Desc: t.Description(),
-		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-			"dayun": {
-				Type: schema.Array,
-				Desc: "大运列表，每项至少包含 startAge、endAge、ganZhi",
-				ElemInfo: &schema.ParameterInfo{
-					Type: schema.Object,
-				},
-				Required: true,
-			},
-			"bazi_result": {
-				Type:     schema.Object,
-				Desc:     "八字分析结果，至少包含 dayGan 和 yongshen",
-				Required: true,
-			},
-		}),
-	}
-}
 
 func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, error) {
 	dayun, _ := params["dayun"].([]map[string]any)

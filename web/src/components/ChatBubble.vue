@@ -21,10 +21,14 @@ defineProps<{message:ChatMessage}>()
   border: 1px solid var(--border);
   padding: 10px 16px;
   border-radius: 14px;
-  color: #2d2a28;
+  color: var(--text-primary) !important;
   font-size: 14px;
   line-height: 1.55;
   font-weight: 450;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+}
+.bubble.user :deep(.text) {
+  color: var(--text-primary) !important;
 }
 .error-msg { color: #c47a6a; padding: 8px 0; }
 </style>

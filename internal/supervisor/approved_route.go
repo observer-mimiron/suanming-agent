@@ -1,0 +1,105 @@
+package supervisor
+
+import (
+	"context"
+	"log"
+	"regexp"
+
+	"github.com/wikiglobal/suanming-agent/internal/policy"
+	"github.com/wikiglobal/suanming-agent/internal/state"
+)
+
+// Approve 是 supervisor 的外部入口：决策 → 策略应用 → 规范化，返回可直接执行的路由。
+//
+// 这是 orchestrator 调用的主方法。内部依次执行：
+//  1. Decide：三层防御的 LLM 决策（约束解码 → 文本生成 → 安全回退）
+//  2. policy.Apply：将 SupervisorDecision 转换为 ApprovedRoute，注入策略默认值
+//  3. normalizeApprovedRoute：基于当前会话状态做确定性修正（如已有资料时 collect_profile → amend_profile）
+//
+// 即使 Decide 返回 error（降级回退），也会返回一个保守的 ApprovedRoute 而非 nil，
+// 确保 orchestrator 始终有可执行的路由。
+func (c *Client) Approve(ctx context.Context, msg string, st *state.SessionState) (policy.ApprovedRoute, error) {
+	decision, err := c.Decide(ctx, msg, st)
+	route := policy.Apply(decision, st)
+	route = c.normalizeApprovedRoute(ctx, msg, st, route)
+	return route, err
+}
+
+// normalizeApprovedRoute 根据当前会话状态对 LLM 产出的路由做确定性修正。
+//
+// LLM 决策可能忽略已有的会话上下文（如已知用户出生信息却仍然判定 collect_profile），
+// 本函数用硬规则修正这些情况，不依赖模型判断：
+//
+//   - 已有资料时 collect_profile → amend_profile（补充而非重新采集）
+//   - 已有命盘时 collect_profile → fortune_followup（除非消息确实包含新出生时间）
+//   - 消息包含出生时间但模型未识别 → 回填 profile 并强制 collect_profile
+//
+// 这些修正是纯确定性的，不涉及 LLM 调用，保证关键路由决策的稳定性。
+func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *state.SessionState, route policy.ApprovedRoute) policy.ApprovedRoute {
+	if route.TaskIntent == "collect_profile" && len(st.Profile) > 0 {
+		route.TaskIntent = "amend_profile"
+		route.PolicyHints.CanReuseSessionProfile = true
+		if st.HasBaziResult() {
+			route.PolicyHints.CanReuseCachedResult = true
+		}
+	}
+
+	if route.TaskIntent == "collect_profile" && st.HasBaziResult() && containsBirthTime(msg) {
+		// keep collect_profile if user really gave new birth-time info
+	} else if route.TaskIntent == "collect_profile" && st.HasBaziResult() {
+		route.TaskIntent = "fortune_followup"
+		route.PolicyHints.CanReuseCachedResult = true
+		route.PolicyHints.CanReuseSessionProfile = true
+	}
+
+	profileReady := st.IsProfileComplete() || st.HasBaziResult()
+	if !profileReady && containsBirthTime(msg) &&
+		route.TaskIntent != "collect_profile" &&
+		route.TaskIntent != "amend_profile" &&
+		route.TaskIntent != "direct_bazi" {
+		c.backfillRouteProfile(ctx, msg, st, &route)
+		route.TaskIntent = "collect_profile"
+		route.NeedsClarification = false
+		route.ClarificationQuestion = ""
+	}
+
+	return route
+}
+
+// backfillRouteProfile 当 LLM 漏提取出生信息但消息中明显包含时，用简化提取链补齐。
+//
+// 触发条件：normalizeApprovedRoute 检测到消息包含出生时间但模型返回的 route 中没有 profile 数据。
+// 使用 fallbackExtract 的简化提示词做一次轻量提取，仅回填缺失字段，不覆盖已有值。
+// 这是一个"补丁"操作——正常流程中 LLM 应在首次决策时完成提取。
+func (c *Client) backfillRouteProfile(ctx context.Context, msg string, st *state.SessionState, route *policy.ApprovedRoute) {
+	if route.Slots.Profile == nil {
+		route.Slots.Profile = make(map[string]any)
+	}
+	if len(route.Slots.Profile) > 0 {
+		return
+	}
+
+	patch, question, err := c.ExtractProfile(ctx, msg, st)
+	if err != nil {
+		log.Printf("[supervisor] profile backfill failed: %v", err)
+		return
+	}
+	for k, v := range patch {
+		if _, exists := route.Slots.Profile[k]; !exists {
+			route.Slots.Profile[k] = v
+		}
+	}
+	if route.Slots.QuestionText == "" || route.Slots.QuestionText == msg {
+		route.Slots.QuestionText = question
+	}
+}
+
+// birthTimeRe 匹配中文消息中可能包含出生时间的模式。
+// 覆盖：中文年月格式(2020年3月)、数字日期格式(2020-03)、农历/阴历关键词、农历月份别名。
+var birthTimeRe = regexp.MustCompile(`\d{4}\s*年.*\d{1,2}\s*月|\d{4}[-/]\d{1,2}|农历|阴历|正月|腊月`)
+
+// containsBirthTime 快速检测用户消息是否可能包含出生时间信息。
+// 用于 normalizeApprovedRoute 中判断是否需要触发 profile 回填逻辑。
+func containsBirthTime(msg string) bool {
+	return birthTimeRe.MatchString(msg)
+}

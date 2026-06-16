@@ -5,10 +5,7 @@ package tools
 
 import (
 	"context"
-	"sort"
 	"sync"
-
-	einotool "github.com/cloudwego/eino/components/tool"
 )
 
 // Tool 命理工具接口，每个工具需提供名称、描述和执行方法。
@@ -20,30 +17,22 @@ type Tool interface {
 
 // Registry 工具注册中心，管理所有命理工具的注册与查询。
 type Registry struct {
-	mu        sync.RWMutex
-	tools     map[string]Tool
-	einoTools map[string]einotool.InvokableTool
+	mu    sync.RWMutex
+	tools map[string]Tool
 }
 
 // NewRegistry 创建并初始化一个新的工具注册中心。
 func NewRegistry() *Registry {
 	return &Registry{
-		tools:     make(map[string]Tool),
-		einoTools: make(map[string]einotool.InvokableTool),
+		tools: make(map[string]Tool),
 	}
 }
 
-// Register 注册一个命理工具。如果工具实现了 EinoDescriber 接口，会自动创建对应的 Eino Tool 适配。
+// Register 注册一个命理工具。
 func (r *Registry) Register(t Tool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tools[t.Name()] = t
-	if describer, ok := t.(EinoDescriber); ok {
-		r.einoTools[t.Name()] = &legacyToolAdapter{
-			tool: t,
-			info: describer.EinoToolInfo(),
-		}
-	}
 }
 
 // Get 根据工具名称查询已注册的工具。
@@ -61,24 +50,6 @@ func (r *Registry) List() []Tool {
 	list := make([]Tool, 0, len(r.tools))
 	for _, t := range r.tools {
 		list = append(list, t)
-	}
-	return list
-}
-
-// EinoTools 返回按名称排序的 Eino Tool 列表，供 LLM Agent 使用。
-func (r *Registry) EinoTools() []einotool.InvokableTool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	names := make([]string, 0, len(r.einoTools))
-	for name := range r.einoTools {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	list := make([]einotool.InvokableTool, 0, len(names))
-	for _, name := range names {
-		list = append(list, r.einoTools[name])
 	}
 	return list
 }

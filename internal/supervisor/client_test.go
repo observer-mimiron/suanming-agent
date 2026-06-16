@@ -164,66 +164,6 @@ func TestADKRouteEngine_DecideReturnsStructuredDecision(t *testing.T) {
 	}
 }
 
-func TestClientDecide_EinoCallbackTracingEmitsSupervisorModelSpan(t *testing.T) {
-	einocallbacks.InitCallbackHandlers(nil)
-	t.Cleanup(func() { einocallbacks.InitCallbackHandlers(nil) })
-	einocallbacks.AppendGlobalHandlers(tracing.NewEinoTraceCallbackHandler())
-
-	origPromptLoader := loadSupervisorPrompt
-	loadSupervisorPrompt = func() (string, error) { return "test prompt", nil }
-	t.Cleanup(func() { loadSupervisorPrompt = origPromptLoader })
-
-	model := &fakeToolCallingModel{
-		emitCallbacks: true,
-		generateFn: func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
-			return schema.AssistantMessage("calling output", []schema.ToolCall{
-				{
-					ID:   "call-1",
-					Type: "function",
-					Function: schema.FunctionCall{
-						Name: decisionToolName,
-						Arguments: `{
-							"conversation_intent":"consult",
-							"primary_domain":"bazi",
-							"task_intent":"collect_profile",
-							"confidence":0.93,
-							"slots":{
-								"profile":{"year":1990,"month":5,"day":20,"hour":8,"gender":"男","birthplace":"北京"},
-								"question_text":""
-							},
-							"policy_hints":{"needs_knowledge":true}
-						}`,
-					},
-				},
-			}), nil
-		},
-	}
-
-	client := NewClient(llm.NewEinoChat(model))
-	rt := tracing.NewRealTracer(nil)
-	ctx, trace := rt.StartTrace(context.Background(), "chat.turn")
-	defer trace.End()
-
-	_, err := client.Decide(ctx, "我1990年5月20日早上8点，男，北京", state.NewSession("s1"))
-	if err != nil {
-		t.Fatalf("Decide() error = %v", err)
-	}
-
-	tr := tracing.TraceFromContext(ctx)
-	if tr == nil {
-		t.Fatal("TraceFromContext returned nil")
-	}
-	var count int
-	for _, span := range tr.Spans {
-		if span.Name == "supervisor_model" && span.Kind == tracing.KindLLM {
-			count++
-		}
-	}
-	if count < 1 {
-		t.Fatalf("supervisor_model span count = %d, want >= 1", count)
-	}
-}
-
 func TestADKRouteEngine_DecideSelfCorrectsAfterValidationError(t *testing.T) {
 	callCount := 0
 	model := &fakeToolCallingModel{
@@ -643,16 +583,6 @@ func TestDecisionRetryPrompt_IncludesValidationGuidance(t *testing.T) {
 	want := "返回的 JSON 有误: bad json。请重新返回完整的 JSON，特别注意 slots.profile 必须从用户原始消息中提取实际值，不要用示例值或空对象。"
 	if got != want {
 		t.Fatalf("decisionRetryPrompt() = %q, want %q", got, want)
-	}
-}
-
-func TestBuildDecisionTool_UsesSharedMetadata(t *testing.T) {
-	tool := buildDecisionTool()
-	if tool.Name != decisionToolName {
-		t.Fatalf("tool.Name = %q, want %q", tool.Name, decisionToolName)
-	}
-	if tool.Description != decisionToolDescription {
-		t.Fatalf("tool.Description = %q, want %q", tool.Description, decisionToolDescription)
 	}
 }
 

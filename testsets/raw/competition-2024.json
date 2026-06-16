@@ -1,0 +1,74 @@
+{
+  "source": "香港青年术数家协会 2024甲辰年第15届全球算命师大赛 官方答案",
+  "year": 2024,
+  "total_questions": 40,
+  "answer_key": "BBDCC DCDCA BABAC BAADA BCBBB ABDBD CDDDD BCADC",
+  "cases": [
+    {
+      "id": "case-2024-01",
+      "birth": {"gender": "女", "year": 1980, "month": 8, "day": 24, "hour": 16, "minute": 30, "location": "广东", "raw": "1980年8月24日16:30，女，广东"},
+      "questions": [
+        {"q": 1, "question": "出身情况？", "answer": "B", "answer_text": "出身普通，虽不捉襟见肘，可惜盈余不多"},
+        {"q": 2, "question": "学历情况？", "answer": "B", "answer_text": "只有中学程度学历"},
+        {"q": 3, "question": "配偶工作状况？", "answer": "D", "answer_text": "配偶经商，成多于败，颇有盈余，对家庭很有助力"},
+        {"q": 4, "question": "子息状况？", "answer": "C", "answer_text": "只有一子，2004甲申年出世"},
+        {"q": 5, "question": "2022年婚姻经历？", "answer": "C", "answer_text": "丈夫之前已有外遇，2022年被命主发现，但得到命主原谅，至今未离婚"}
+      ]
+    },
+    {
+      "id": "case-2024-02",
+      "birth": {"gender": "男", "year": 1972, "month": 1, "day": 8, "hour": 12, "location": "潮汕", "raw": "1972年1月8日午时，男，潮汕"},
+      "questions": [
+        {"q": 6, "question": "性格？", "answer": "D", "answer_text": "乐于交际，独处亦自得其乐"},
+        {"q": 7, "question": "婚姻？", "answer": "C", "answer_text": "24-33岁娶妻，妻子情绪化"},
+        {"q": 8, "question": "事业？", "answer": "D", "answer_text": "成功商人，零售起家"},
+        {"q": 9, "question": "母亲于哪年去世？", "answer": "C", "answer_text": "2011年"},
+        {"q": 10, "question": "田宅运？", "answer": "A", "answer_text": "买卖房产得厚利"}
+      ]
+    },
+    {
+      "id": "case-2024-03",
+      "birth": {"gender": "男", "year": 1961, "month": 12, "day": 30, "hour": 2, "location": "", "raw": "1961年12月30日02:00，男"},
+      "questions": [
+        {"q": 11, "question": "出身？", "answer": "B", "answer_text": ""},
+        {"q": 12, "question": "学历？", "answer": "A", "answer_text": ""},
+        {"q": 13, "question": "职业？", "answer": "B", "answer_text": ""},
+        {"q": 14, "question": "婚姻？", "answer": "A", "answer_text": ""},
+        {"q": 15, "question": "健康？", "answer": "C", "answer_text": ""}
+      ]
+    },
+    {
+      "id": "case-2024-04",
+      "birth": {"gender": "女", "year": 1983, "month": 10, "day": 28, "hour": 1, "location": "", "raw": "1983年10月28日丑时，女"},
+      "questions": [
+        {"q": 16, "question": "出身？", "answer": "B", "answer_text": ""},
+        {"q": 17, "question": "学历？", "answer": "A", "answer_text": ""},
+        {"q": 18, "question": "职业？", "answer": "A", "answer_text": ""},
+        {"q": 19, "question": "婚姻？", "answer": "D", "answer_text": ""},
+        {"q": 20, "question": "健康？", "answer": "A", "answer_text": ""}
+      ]
+    },
+    {
+      "id": "case-2024-07",
+      "birth": {"gender": "女", "year": 1980, "month": 9, "day": 21, "hour": 11, "minute": 25, "location": "马来西亚", "raw": "1980年9月21日11:25，女，马来西亚"},
+      "questions": [
+        {"q": 31, "question": "出身？", "answer": "C", "answer_text": ""},
+        {"q": 32, "question": "学历？", "answer": "D", "answer_text": ""},
+        {"q": 33, "question": "职业？", "answer": "D", "answer_text": ""},
+        {"q": 34, "question": "婚姻？", "answer": "D", "answer_text": ""},
+        {"q": 35, "question": "健康？", "answer": "D", "answer_text": ""}
+      ]
+    },
+    {
+      "id": "case-2024-08",
+      "birth": {"gender": "男", "year": 2007, "month": 1, "day": 31, "hour": 9, "location": "马来西亚", "raw": "2007年1月31日巳时，男，马来西亚"},
+      "questions": [
+        {"q": 36, "question": "出身？", "answer": "B", "answer_text": ""},
+        {"q": 37, "question": "学历？", "answer": "C", "answer_text": ""},
+        {"q": 38, "question": "职业？", "answer": "A", "answer_text": ""},
+        {"q": 39, "question": "婚姻？", "answer": "D", "answer_text": ""},
+        {"q": 40, "question": "健康？", "answer": "C", "answer_text": ""}
+      ]
+    }
+  ]
+}

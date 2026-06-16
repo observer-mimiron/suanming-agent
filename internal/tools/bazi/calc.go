@@ -13,8 +13,10 @@ import (
 // 藏干、地势、五行统计、神煞、大运等完整命盘信息。支持经度参数做真太阳时校正。
 type CalcTool struct{}
 
-func (t *CalcTool) Name() string        { return "bazi_calc" }
-func (t *CalcTool) Description() string { return "计算八字排盘，输入出生年月日时+性别，可选longitude(经度)做真太阳时校正" }
+func (t *CalcTool) Name() string { return "bazi_calc" }
+func (t *CalcTool) Description() string {
+	return "计算八字排盘，输入出生年月日时+性别，可选longitude(经度)做真太阳时校正"
+}
 
 func (t *CalcTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	year, ok := params["year"].(float64)
@@ -88,15 +90,15 @@ func (t *CalcTool) Execute(_ context.Context, params map[string]any) (any, error
 	pillars := make([]map[string]any, 4)
 	for i := 0; i < 4; i++ {
 		pillars[i] = map[string]any{
-			"name":       names[i],
-			"stem":       gan[i],
-			"branch":     zhi[i],
-			"shiShen":    shiShenGan[i],
-			"naYin":      naYin[i],
-			"xunKong":    xunKong[i],
-			"diShi":      diShi[i],
-			"xun":        xun[i],
-			"hideGan":    hideGan[i],
+			"name":    names[i],
+			"stem":    gan[i],
+			"branch":  zhi[i],
+			"shiShen": shiShenGan[i],
+			"naYin":   naYin[i],
+			"xunKong": xunKong[i],
+			"diShi":   diShi[i],
+			"xun":     xun[i],
+			"hideGan": hideGan[i],
 		}
 	}
 
@@ -156,20 +158,20 @@ func (t *CalcTool) Execute(_ context.Context, params map[string]any) (any, error
 	}
 
 	return map[string]any{
-		"pillars":    pillars,
-		"dayGan":     ec.GetDayGan(),
-		"dayGanWuxing": ec.GetDayWuXing(),
-		"wuxing":     wuxing,
-		"dayun":      dayun,
-		"gender":     gender,
-		"birthday":   fmt.Sprintf("%d-%02d-%02d %02d:%02d", y, m, d, h, minute),
-		"mingGong":   ec.GetMingGong(),
-		"mingGongNaYin": ec.GetMingGongNaYin(),
-		"shenGong":   ec.GetShenGong(),
-		"shenGongNaYin": ec.GetShenGongNaYin(),
-		"taiYuan":    ec.GetTaiYuan(),
-		"taiYuanNaYin": ec.GetTaiYuanNaYin(),
-		"lunarDate":        fmt.Sprintf("%s年%s月%s日", lunar.GetYearInGanZhi(), lunar.GetMonthInGanZhi(), lunar.GetDayInGanZhi()),
-		"shensha_summary":  shenshaSummary,
+		"pillars":         pillars,
+		"dayGan":          ec.GetDayGan(),
+		"dayGanWuxing":    ec.GetDayWuXing(),
+		"wuxing":          wuxing,
+		"dayun":           dayun,
+		"gender":          gender,
+		"birthday":        fmt.Sprintf("%d-%02d-%02d %02d:%02d", y, m, d, h, minute),
+		"mingGong":        ec.GetMingGong(),
+		"mingGongNaYin":   ec.GetMingGongNaYin(),
+		"shenGong":        ec.GetShenGong(),
+		"shenGongNaYin":   ec.GetShenGongNaYin(),
+		"taiYuan":         ec.GetTaiYuan(),
+		"taiYuanNaYin":    ec.GetTaiYuanNaYin(),
+		"lunarDate":       fmt.Sprintf("%s年%s月%s日", lunar.GetYearInGanZhi(), lunar.GetMonthInGanZhi(), lunar.GetDayInGanZhi()),
+		"shensha_summary": shenshaSummary,
 	}, nil
 }

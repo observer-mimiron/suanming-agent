@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -139,66 +138,6 @@ func TestEinoChatStream_FiltersReasoningChunks(t *testing.T) {
 	}
 	if got, want := strings.Join(chunks, ""), "visible"; got != want {
 		t.Fatalf("stream output = %q, want %q", got, want)
-	}
-}
-
-func TestEinoChatGenerateWithTool_ParsesFirstToolCallArguments(t *testing.T) {
-	var toolNames []string
-	model := &fakeToolCallingChatModel{}
-	model.emitCallbacks = true
-	model.generateFn = func(_ context.Context, _ []*schema.Message, _ ...einomodel.Option) (*schema.Message, error) {
-		return &schema.Message{
-			Role: schema.Assistant,
-			ToolCalls: []schema.ToolCall{
-				{
-					ID:   "call-1",
-					Type: "function",
-					Function: schema.FunctionCall{
-						Name:      "output",
-						Arguments: `{"answer":"yes","score":0.9}`,
-					},
-				},
-			},
-			ResponseMeta: &schema.ResponseMeta{
-				Usage: &schema.TokenUsage{
-					PromptTokens:     5,
-					CompletionTokens: 3,
-				},
-			},
-		}, nil
-	}
-	model.streamFn = func(context.Context, []*schema.Message, ...einomodel.Option) (*schema.StreamReader[*schema.Message], error) {
-		return nil, nil
-	}
-	model.withToolsFn = func(tools []*schema.ToolInfo) (einomodel.ToolCallingChatModel, error) {
-		for _, ti := range tools {
-			toolNames = append(toolNames, ti.Name)
-		}
-		return model, nil
-	}
-
-	chat := NewEinoChat(model)
-	got, usage, err := chat.GenerateWithTool(context.Background(), "system", []Message{{Role: "user", Content: "hi"}}, ToolDef{
-		Name:        "output",
-		Description: "structured result",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"answer": map[string]any{"type": "string"},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("GenerateWithTool error = %v", err)
-	}
-	if !reflect.DeepEqual(toolNames, []string{"output"}) {
-		t.Fatalf("toolNames = %v, want [output]", toolNames)
-	}
-	if got["answer"] != "yes" {
-		t.Fatalf("answer = %v, want yes", got["answer"])
-	}
-	if usage != (TokenUsage{Input: 5, Output: 3}) {
-		t.Fatalf("usage = %+v, want %+v", usage, TokenUsage{Input: 5, Output: 3})
 	}
 }
 

@@ -222,6 +222,22 @@ type SessionState struct {
 | 日期署名 | `// 2024-01-01 by zhangsan` | git blame 可追溯 |
 | 情绪化注释 | `// 这里很 hacky，没办法` | 应改为说明为什么必须 hacky |
 
+## 项目技能
+
+本项目的 AI 技能定义在 `.claude/skills/` 目录下。所有 AI 编码助手启动时应自动加载该目录中的技能文件。
+
+| 技能 | 路径 | 用途 |
+|------|------|------|
+| `eino-guide` | `.claude/skills/eino-guide/SKILL.md` | Eino 框架概述、概念和导航 |
+| `eino-component` | `.claude/skills/eino-component/SKILL.md` | Eino 组件选择、配置和使用（ChatModel/Tool/Embedding/Retriever 等） |
+| `eino-compose` | `.claude/skills/eino-compose/SKILL.md` | Eino 编排：Graph、Chain、Workflow |
+| `eino-agent` | `.claude/skills/eino-agent/SKILL.md` | Eino ADK Agent 构建、中间件、Runner |
+| `test-bazi-accuracy` | `.claude/skills/test-bazi-accuracy.md` | 八字准确率测试 |
+
+**Claude Code 用户：** 以上技能通过 `Skill` 工具调用，技能名与目录名一致（如 `eino-agent`、`test-bazi-accuracy`）。
+
+**Codex 用户：** 请从对应路径加载技能文件作为指令上下文。
+
 ## 参考资源
 
 **`eino-agent/`** — Eino 框架源码与示例。开发时参考：

@@ -8,6 +8,7 @@ import (
 
 	einocallbacks "github.com/cloudwego/eino/callbacks"
 	einomodel "github.com/cloudwego/eino/components/model"
+	einoretriever "github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/schema"
 	einoutils "github.com/cloudwego/eino/utils/callbacks"
 )
@@ -93,6 +94,40 @@ func NewEinoTraceCallbackHandler() einocallbacks.Handler {
 				return ctx
 			},
 		}).
+		Retriever(&einoutils.RetrieverCallbackHandler{
+			OnStart: func(ctx context.Context, info *einocallbacks.RunInfo, input *einoretriever.CallbackInput) context.Context {
+				name := "retriever"
+				if info != nil {
+					if info.Name != "" {
+						name = info.Name
+					} else if info.Type != "" {
+						name = info.Type
+					}
+				}
+
+				span := SpanFromContext(ctx, name, KindRetriever)
+				if input != nil {
+					if input.Query != "" {
+						span.SetAttribute("query", input.Query)
+					}
+					if input.TopK > 0 {
+						span.SetAttribute("top_k", input.TopK)
+					}
+					if input.Filter != "" {
+						span.SetAttribute("filter", input.Filter)
+					}
+				}
+				return context.WithValue(ctx, einoCallbackSpanKey_, span)
+			},
+			OnEnd: func(ctx context.Context, _ *einocallbacks.RunInfo, output *einoretriever.CallbackOutput) context.Context {
+				finishEinoRetrieverSpan(ctx, output)
+				return ctx
+			},
+			OnError: func(ctx context.Context, _ *einocallbacks.RunInfo, err error) context.Context {
+				finishEinoRetrieverErrorSpan(ctx, err)
+				return ctx
+			},
+		}).
 		Handler()
 }
 
@@ -108,6 +143,62 @@ func finishEinoCallbackSpan(ctx context.Context, err error, usage *einomodel.Tok
 		span.RecordError(err)
 		span.SetStatus("error")
 	}
+	span.End()
+}
+
+func finishEinoRetrieverSpan(ctx context.Context, output *einoretriever.CallbackOutput) {
+	span := einoSpanFromContext(ctx)
+	if span == nil {
+		return
+	}
+
+	hits := 0
+	hasExplicitHits := false
+	if output != nil {
+		if output.Docs != nil {
+			hits = len(output.Docs)
+		}
+		if output.Extra != nil {
+			if v, ok := output.Extra["hits"]; ok {
+				hasExplicitHits = true
+				span.SetAttribute("hits", v)
+				if n, ok := v.(int); ok {
+					hits = n
+				}
+			}
+			if v, ok := output.Extra["degrade_reason"]; ok {
+				span.SetAttribute("degrade_reason", v)
+			}
+			if v, ok := output.Extra["status"].(string); ok && v != "" {
+				span.SetStatus(v)
+			}
+		} else {
+			span.SetAttribute("hits", hits)
+		}
+	}
+
+	if !hasExplicitHits {
+		span.SetAttribute("hits", hits)
+	}
+	if hits == 0 {
+		span.SetStatus("degraded")
+		if output == nil || output.Extra == nil || output.Extra["degrade_reason"] == nil {
+			span.SetAttribute("degrade_reason", "no_results")
+		}
+	}
+	span.End()
+}
+
+func finishEinoRetrieverErrorSpan(ctx context.Context, err error) {
+	span := einoSpanFromContext(ctx)
+	if span == nil {
+		return
+	}
+	span.SetAttribute("hits", 0)
+	if err != nil {
+		span.RecordError(err)
+	}
+	span.SetStatus("degraded")
 	span.End()
 }
 

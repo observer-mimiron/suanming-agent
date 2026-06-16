@@ -6,6 +6,7 @@ package qimen
 import (
 	"context"
 
+	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -25,7 +26,13 @@ func (s *Specialist) Name() string {
 }
 
 // isTimingRelevant 判断路由是否包含择时相关问题。目前通过 PolicyHints.NeedsQimen 标记和 TaskIntent 判断。
-func isTimingRelevant(route specialists.ApprovedRoute) bool {
+func isTimingRelevant(route policy.ApprovedRoute) bool {
+	switch route.PolicyHints.QimenMode {
+	case "primary", "supplement":
+		return true
+	case "none":
+		return false
+	}
 	if route.PolicyHints.NeedsQimen {
 		return true
 	}
@@ -38,7 +45,7 @@ func isTimingRelevant(route specialists.ApprovedRoute) bool {
 
 // Run 执行奇门专家流程。Phase 1 中始终返回辅助结果（Final=false），
 // 作为八字主线的补充，不会替代主线。非择时路由直接跳过（返回空 domain）。
-func (s *Specialist) Run(ctx context.Context, st *state.SessionState, route specialists.ApprovedRoute, sink specialists.EventSink) (schemas.DomainResult, error) {
+func (s *Specialist) Run(ctx context.Context, st *state.SessionState, route policy.ApprovedRoute, sink specialists.EventSink) (schemas.DomainResult, error) {
 	if sink != nil {
 		sink(ctx, specialists.Event{Type: "specialist_qimen", Data: route.TaskIntent})
 	}
@@ -54,7 +61,7 @@ func (s *Specialist) Run(ctx context.Context, st *state.SessionState, route spec
 	// 阶段一：奇门结果始终为补充性质。
 	// 编排器负责实际的奇门工具调用和 SSE 推送。
 	return schemas.DomainResult{
-		Domain: "qimen",
+		Domain:  "qimen",
 		Summary: "qimen timing supplement",
 		StructuredData: map[string]any{
 			"stage":      "supplemental",

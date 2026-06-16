@@ -1,0 +1,51 @@
+{
+  "source": "香港青年术数家协会 2023癸卯年第14届全球算命师大赛 官方答案",
+  "year": 2023,
+  "total_questions": 40,
+  "cases": [
+    {
+      "id": "case-2023-01",
+      "birth": {"gender": "女", "year": 1966, "month": 10, "day": 18, "hour": 23, "minute": 15, "location": "香港", "raw": "1966年10月18日23:15，女，香港"},
+      "questions": [
+        {"q": 1, "question": "性格特征？", "answer": "B", "answer_text": "喜欢投诉，常说自己苦，易发脾气，不易信人"},
+        {"q": 2, "question": "行业？", "answer": "C", "answer_text": "地产生意"},
+        {"q": 3, "question": "叔叔（出家人）哪年跳楼亡？", "answer": "B", "answer_text": "1984年"},
+        {"q": 4, "question": "婚姻与学历？", "answer": "A", "answer_text": "单身，从未结过婚，没有子女。大学毕业"},
+        {"q": 5, "question": "2008年至今的命运？", "answer": "D", "answer_text": "突然全身多病，穷困潦倒，住公屋"}
+      ]
+    },
+    {
+      "id": "case-2023-03",
+      "birth": {"gender": "男", "year": 1986, "month": 4, "day": 24, "hour": 21, "minute": 30, "location": "马来西亚", "raw": "1986年4月24日21:30，男，马来西亚"},
+      "questions": [
+        {"q": 11, "question": "哪年结婚？", "answer": "D", "answer_text": "2016年"},
+        {"q": 12, "question": "两个男孩出生年份？", "answer": "D", "answer_text": "2017与2022"},
+        {"q": 13, "question": "目前财运？", "answer": "C", "answer_text": "财运顺畅，每月收入都有增长"},
+        {"q": 14, "question": "婚姻感情？", "answer": "C", "answer_text": "婚姻美满"},
+        {"q": 15, "question": "职业？", "answer": "D", "answer_text": "命理风水顾问"}
+      ]
+    },
+    {
+      "id": "case-2023-07",
+      "birth": {"gender": "女", "year": 2002, "month": 6, "day": 1, "hour": 8, "minute": 30, "location": "香港", "raw": "2002年6月1日08:30，女，香港"},
+      "questions": [
+        {"q": 31, "question": "出身贫富？", "answer": "B", "answer_text": "贫穷家庭出身"},
+        {"q": 32, "question": "学历？", "answer": "D", "answer_text": "中六毕业"},
+        {"q": 33, "question": "恋爱年份？", "answer": "C", "answer_text": "2020年"},
+        {"q": 34, "question": "2022年姻缘？", "answer": "D", "answer_text": "分手"},
+        {"q": 35, "question": "2022年大事？", "answer": "A", "answer_text": "事业上有好机遇，参加比赛得奖"}
+      ]
+    },
+    {
+      "id": "case-2023-08",
+      "birth": {"gender": "男", "year": 1980, "month": 7, "day": 11, "hour": 9, "location": "香港", "raw": "1980年7月11日巳时，男，香港"},
+      "questions": [
+        {"q": 36, "question": "第一次结婚？", "answer": "C", "answer_text": "2005年"},
+        {"q": 37, "question": "第二次结婚？", "answer": "C", "answer_text": "2013年"},
+        {"q": 38, "question": "职业？", "answer": "B", "answer_text": "物流公司老板"},
+        {"q": 39, "question": "性格特征？", "answer": "B", "answer_text": "鬼主意多，做事喜欢走捷径，耍小聪明"},
+        {"q": 40, "question": "丙戌大运财政？", "answer": "D", "answer_text": "刚开始平稳，后来为家人还债而负债累累"}
+      ]
+    }
+  ]
+}

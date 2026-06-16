@@ -1,6 +1,6 @@
 # 命理大师
 
-面向技术实现的命理 Agent 项目，当前采用 **Go 主控 runtime + Eino 渐进接入** 的混合架构，覆盖 **八字（Bazi）**、**奇门（Qimen）**、**紫微（Ziwei）** 三个领域。Go 继续拥有确定性控制边界：`orchestrator` 事件循环、`policy gate`、会话状态、工具调度时机、SSE 协议与最终响应组装都由 Go 主控；Eino 只逐步替换基础设施层：底层 LLM backend、工具兼容视图、supervisor 的 layer-1 ADK RouteEngine，以及 callback tracing。当前 supervisor 为混合路由模型：ADK 承载结构化 route decide，Go 保留 `textDecide`、`fallbackExtract` 和 `safeFallback` 作为外层降级防线。
+面向技术实现的命理 Agent 项目，当前采用 **Go 主控 runtime + Eino 基础设施** 的混合架构，覆盖 **八字（Bazi）**、**奇门（Qimen）**、**紫微（Ziwei）** 三个领域。Go 继续拥有确定性控制边界：`orchestrator` 事件循环、`policy gate`、会话状态、工具调度时机、SSE 协议与最终响应组装都由 Go 主控；Eino 负责底层 LLM backend、supervisor 的 layer-1 ADK RouteEngine 和 callback tracing。当前 supervisor 运行面已收口为单一路由模型：ADK 承载结构化 route decide，Go 保留 `textDecide`、`fallbackExtract` 和 `safeFallback` 作为外层降级防线。
 
 ## 运行时控制边界
 
@@ -12,13 +12,11 @@
 | Tool dispatch timing | Go | Go decides *when* tools run |
 | SSE protocol | Go | 8 event types, structured streaming |
 | Final response assembly | Go | Prompt construction + LLM call scheduling |
-| LLM backend | Eino / Go | Dual: `native` and `eino`; default `eino` |
-| Tool views | Eino-compatible | `InvokableTool` views; Go still dispatches |
+| LLM backend | Eino | Single Eino ChatModel backend |
+| Tool execution | Go | Go runtime keeps explicit dispatch timing |
 | Supervisor L1 routing | Eino ADK | Hybrid: ADK RouteEngine for structured decide |
-| Callback tracing | Eino | ChatModel spans; `TurnTrace` stays Go-owned |
+| Callback tracing | Eino | Framework events feed a Go-owned `TurnTrace` envelope |
 | Graph 迁移 | Eino | 延后，等待真实 fan-out / branching 需求 |
-
-推荐配置：`LLM_BACKEND=eino` + `SUPERVISOR_ENGINE=auto`。
 
 ---
 
@@ -51,7 +49,7 @@
 │                       Orchestrator.Run()                        │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │ ① Supervisor 路由 (classic / ADK RouteEngine)            │   │
+│  │ ① Supervisor 路由 (ADK RouteEngine)                      │   │
 │  │                                                         │   │
 │  │  用户消息 ──→ RouteEngine (Flash Model) ──→ Decision      │   │
 │  │                                           │              │   │
@@ -260,10 +258,10 @@ App.vue
 | 奇门 | 时家奇门（拆补法），原生 Go 实现 |
 | 紫微 | 原生 Go 实现（框架就绪） |
 | 知识检索 | 自建知识库 MCP (:3100)，古籍原文，权威分级 ⭐1-5 |
-| LLM | DeepSeek（`native / eino` 双后端，可切换） |
+| LLM | DeepSeek（Eino ChatModel backend） |
 | 流式 | SSE（结构化事件流） |
 | 持久化 | JSON 文件存储 + 内存锁并发控制 |
-| 追踪 | TurnTrace + Eino callbacks（ChatModel spans） |
+| 追踪 | TurnTrace + Eino callbacks（`knowledge_search` retriever 已接入；后续再扩到 generic tool / graph events） |
 
 ---
 
@@ -292,9 +290,7 @@ make dev
 | `LLM_API_KEY` | ✓ | — | LLM API 密钥 |
 | `LLM_BASE_URL` | | `api.deepseek.com/anthropic` | API 地址 |
 | `LLM_MODEL` | | `deepseek-v4-pro` | 主模型 |
-| `LLM_BACKEND` | | `eino` | `eino` 或 `native` |
 | `LLM_FLASH_MODEL` | | 同主模型 | 快速模型（Supervisor 路由用） |
-| `SUPERVISOR_ENGINE` | | `auto` | `auto` / `classic` / `adk` |
 | `LLM_TEMPERATURE` | | `0.3` | 主回答模型温度 |
 | `KNOWLEDGE_MCP_URL` | | `http://localhost:3100` | 知识库地址 |
 | `DEBUG_TRACE` | | `0` | `1` 启用 TurnTrace 文件记录 |
@@ -312,7 +308,7 @@ suanming-agent/
 │   ├── config/                # 环境变量读取
 │   ├── container/             # DI 容器，组装所有组件
 │   ├── handler/               # HTTP handler + SSE 适配
-│   ├── llm/                   # native / Eino backend 工厂与适配层
+│   ├── llm/                   # Eino backend 工厂与适配层
 │   ├── mcp/                   # 知识库 MCP 客户端
 │   ├── orchestrator/          # 核心编排：Run() + 路由 + prompt 构建
 │   ├── policy/                # 策略网关 + 确定性状态修正
@@ -320,8 +316,8 @@ suanming-agent/
 │   ├── specialists/           # bazi / qimen / ziwei 领域专家
 │   ├── sse/                   # SSE 流式推送封装
 │   ├── state/                 # 会话状态 + 持久化 + 并发锁
-│   ├── supervisor/            # classic + ADK RouteEngine 混合路由
-│   ├── tools/                 # 工具注册表 + Eino 兼容层 + 各工具实现
+│   ├── supervisor/            # ADK RouteEngine + Go fallback 路由
+│   ├── tools/                 # 工具注册表 + 各工具实现
 │   └── tracing/               # TurnTrace + Eino callback tracing
 ├── knowledge/                 # 知识库子项目 (端口 :3100)
 │   ├── wiki/                  # 命理古籍原文 (gitignored)
@@ -361,10 +357,10 @@ cd web && npx vitest run                # 前端测试
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 0 — Classic Go | Orchestrator, policy gate, session store, SSE, tool dispatch | ✅ Complete |
-| 1 — LLM Backend | `llm.Chat` dual backend: `native` \| `eino` | ✅ Complete |
-| 2 — Tool Compatibility | Core tools expose `InvokableTool` views; Go retains dispatch timing | ✅ Complete |
-| 3 — Supervisor L1 | ADK RouteEngine for structured decide; `SUPERVISOR_ENGINE=auto\|classic\|adk` | ✅ Complete |
-| 4 — Callback Tracing | Eino callbacks cover main answer + supervisor model calls; `TurnTrace` unchanged | 🔄 In progress |
+| 1 — LLM Backend | `llm.Chat` via Eino ChatModel | ✅ Complete |
+| 2 — Tool Compatibility | Go retains explicit tool dispatch timing | ✅ Complete |
+| 3 — Supervisor L1 | ADK RouteEngine for structured decide | ✅ Complete |
+| 4 — Callback Tracing | Eino callbacks cover main answer + supervisor model calls; `knowledge_search` retriever already uses framework-first trace source | 🔄 In progress |
 | 5 — Graph | `compose.Graph` migration | ⏸️ Deferred |
 
 **当前领域状态**：八字已形成完整主链；奇门已具备 timing primary lane；紫微维持 bounded specialist skeleton。

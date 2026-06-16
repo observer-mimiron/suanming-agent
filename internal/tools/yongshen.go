@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/6tail/lunar-go/calendar"
-	"github.com/cloudwego/eino/schema"
 )
 
 // YongShenTool 用神推算工具。根据八字四柱的天干地支，通过月令得时、通根数量、印星生扶等维度分析日主强弱，
@@ -14,19 +13,6 @@ type YongShenTool struct{}
 
 func (t *YongShenTool) Name() string        { return "yongshen" }
 func (t *YongShenTool) Description() string { return "分析日主强弱并推荐用神喜忌" }
-func (t *YongShenTool) EinoToolInfo() *schema.ToolInfo {
-	return &schema.ToolInfo{
-		Name: t.Name(),
-		Desc: t.Description(),
-		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-			"year":   {Type: schema.Number, Desc: "出生年，1900-2100", Required: true},
-			"month":  {Type: schema.Number, Desc: "出生月，1-12", Required: true},
-			"day":    {Type: schema.Number, Desc: "出生日，1-31", Required: true},
-			"hour":   {Type: schema.Number, Desc: "出生小时，0-23", Required: true},
-			"gender": {Type: schema.String, Desc: "性别，男或女", Enum: []string{"男", "女"}},
-		}),
-	}
-}
 
 func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	year, _ := params["year"].(float64)
@@ -171,8 +157,8 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 		}
 	default: // 身弱, 身弱极, 中和
 		// 身弱需生扶
-		yongShen = append(yongShen, generates[dayWx])        // 印星
-		yongShen = append(yongShen, dayWx)                    // 比劫
+		yongShen = append(yongShen, generates[dayWx]) // 印星
+		yongShen = append(yongShen, dayWx)            // 比劫
 	}
 
 	// 调候判断：冬生需火暖局（寒木向阳），夏生需水润局（调候为急）

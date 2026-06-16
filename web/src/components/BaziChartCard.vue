@@ -7,12 +7,34 @@
 
     <!-- Four Pillars as sprite cards -->
     <div class="bz-pillars">
-      <div v-for="(p, i) in pillars" :key="p.name" class="bz-pillar" :style="{ animationDelay: i * 80 + 'ms' }">
-        <div class="bz-p-label">{{ p.name }}</div>
-        <ElementSprite :element="pillarElement(p)" :size="44" class="bz-p-sprite" />
-        <div class="bz-p-ganzhi">{{ p.stem }}{{ p.branch }}</div>
-        <div class="bz-p-shishen">{{ p.shiShen }}</div>
-        <div class="bz-p-nayin">{{ p.naYin }}</div>
+      <div
+        v-for="(p, i) in pillars"
+        :key="p.name"
+        class="bz-pillar"
+        :style="{ animationDelay: i * 80 + 'ms' }"
+        @mousemove="handleTilt"
+        @mouseleave="resetTilt"
+      >
+        <!-- 四角几何包角 -->
+        <span class="corner-dot tl"></span>
+        <span class="corner-dot tr"></span>
+        <span class="corner-dot bl"></span>
+        <span class="corner-dot br"></span>
+
+        <!-- 纸牌内边双线框 -->
+        <div class="bz-pillar-inner">
+          <div class="bz-p-label">{{ p.name }}</div>
+          <ElementSprite :element="pillarElement(p)" :size="44" class="bz-p-sprite" />
+          <div class="bz-p-ganzhi">{{ p.stem }}{{ p.branch }}</div>
+          <div class="bz-p-shishen">{{ p.shiShen }}</div>
+          <div class="bz-p-nayin">{{ p.naYin }}</div>
+          <!-- 神煞小徽章 -->
+          <div v-if="p.shensha && p.shensha.length" class="bz-p-shensha">
+            <span v-for="ss in p.shensha" :key="ss.name" :class="['bz-ss-badge', ss.tone]">
+              {{ ss.name }}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -59,11 +81,23 @@
       </div>
     </div>
 
-    <!-- Dayun chips -->
-    <div class="bz-dayun">
-      <span v-for="(d, i) in dayun" :key="i" class="bz-dy-tag" :class="{ active: i === currentDayunIdx }">
-        {{ d.startAge }}-{{ d.endAge }}岁 {{ d.ganZhi }}
-      </span>
+    <!-- Fate Timeline for Dayun -->
+    <div class="bz-dayun-timeline">
+      <div class="bz-timeline-line"></div>
+      <div class="bz-timeline-nodes">
+        <div
+          v-for="(d, i) in dayun"
+          :key="i"
+          class="bz-timeline-node"
+          :class="{ active: i === currentDayunIdx }"
+        >
+          <span class="bz-node-age">{{ d.startAge }}-{{ d.endAge }}岁</span>
+          <div class="bz-node-dot">
+            <span class="bz-node-dot-inner"></span>
+          </div>
+          <span class="bz-node-ganzhi">{{ d.ganZhi }}</span>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -72,19 +106,57 @@
 import { computed } from 'vue'
 import ElementSprite from './sprites/ElementSprite.vue'
 
+interface Pillar {
+  name: string
+  stem: string
+  branch: string
+  shiShen: string
+  naYin: string
+  xunKong?: string
+  diShi?: string
+  xun?: string
+  hideGan?: string[]
+  shensha?: { name: string; tone: string }[]
+}
+
+interface Dayun {
+  startAge: number
+  endAge: number
+  ganZhi: string
+}
+
 const props = defineProps<{ data: any }>()
-const pillars = computed(() => props.data?.pillars || [])
+const pillars = computed<Pillar[]>(() => props.data?.pillars || [])
 const dayGan = computed(() => props.data?.dayGan || '')
 const dayGanWuxing = computed(() => props.data?.dayGanWuxing || '')
 const lunarDate = computed(() => props.data?.lunarDate || '')
-const wuxing = computed(() => props.data?.wuxing || {})
-const dayun = computed(() => props.data?.dayun || [])
+const wuxing = computed<Record<string, number>>(() => props.data?.wuxing || {})
+const dayun = computed<Dayun[]>(() => props.data?.dayun || [])
 const mingGong = computed(() => props.data?.mingGong || '')
 const mingGongNaYin = computed(() => props.data?.mingGongNaYin || '')
 const shenGong = computed(() => props.data?.shenGong || '')
 const shenGongNaYin = computed(() => props.data?.shenGongNaYin || '')
 const taiYuan = computed(() => props.data?.taiYuan || '')
 const taiYuanNaYin = computed(() => props.data?.taiYuanNaYin || '')
+
+function handleTilt(e: MouseEvent) {
+  const el = e.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const y = e.clientY - rect.top
+  const xc = rect.width / 2
+  const yc = rect.height / 2
+  const rotateY = ((x - xc) / xc) * 8
+  const rotateX = -((y - yc) / yc) * 8
+  el.style.transform = `perspective(600px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-4px)`
+  el.style.boxShadow = `0 10px 20px rgba(0, 0, 0, 0.08), 0 0 12px var(--accent-bg)`
+}
+
+function resetTilt(e: MouseEvent) {
+  const el = e.currentTarget as HTMLElement
+  el.style.transform = `perspective(600px) rotateX(0deg) rotateY(0deg) translateY(0)`
+  el.style.boxShadow = ``
+}
 
 // 天干→五行
 const stemWuxing: Record<string, string> = {
@@ -141,18 +213,82 @@ const currentDayunIdx = computed(() => {
   margin-bottom: 16px;
 }
 .bz-pillar {
+  position: relative;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 22px 10px 16px;
+  padding: 4px;
   text-align: center;
   opacity: 0;
+  overflow: hidden;
+  transform-style: preserve-3d;
   animation: pillar-in 0.4s cubic-bezier(0.22,0.61,0.36,1) forwards;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.2s ease;
+}
+.bz-pillar::after {
+  content: "";
+  position: absolute;
+  top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background: linear-gradient(
+    115deg,
+    transparent 40%,
+    rgba(212, 175, 55, 0.08) 48%,
+    rgba(255, 255, 255, 0.15) 50%,
+    rgba(212, 175, 55, 0.08) 52%,
+    transparent 60%
+  );
+  transform: translate(-30%, -30%);
+  pointer-events: none;
+  opacity: 0;
+}
+.bz-pillar:hover::after {
+  transform: translate(15%, 15%);
+  transition: transform 0.8s cubic-bezier(0.19, 1, 0.22, 1);
+  opacity: 1;
+}
+.bz-pillar-inner {
+  border: 1px dashed var(--border-light);
+  border-radius: calc(var(--radius-md) - 3px);
+  padding: 18px 6px 12px;
+  height: 100%;
+  box-sizing: border-box;
+}
+/* 几何直角 L 包角 (现代塔罗风格) */
+.corner-dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  opacity: 0.3;
+}
+.corner-dot.tl {
+  top: 6px; left: 6px;
+  border-top: 1px solid var(--accent);
+  border-left: 1px solid var(--accent);
+}
+.corner-dot.tr {
+  top: 6px; right: 6px;
+  border-top: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
+}
+.corner-dot.bl {
+  bottom: 6px; left: 6px;
+  border-bottom: 1px solid var(--accent);
+  border-left: 1px solid var(--accent);
+}
+.corner-dot.br {
+  bottom: 6px; right: 6px;
+  border-bottom: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
+}
+.bz-pillar:hover .corner-dot {
+  opacity: 0.8;
 }
 .bz-pillar:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-card);
+  /* hover shadow will be set dynamically via JS client, providing fallback here */
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08), 0 0 12px var(--accent-bg);
 }
 @keyframes pillar-in {
   from { opacity: 0; transform: translateY(8px); }
@@ -177,6 +313,36 @@ const currentDayunIdx = computed(() => {
 }
 .bz-p-shishen { font-size: 12px; color: var(--accent-dim); font-weight: 500; }
 .bz-p-nayin { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* 神煞小徽章 */
+.bz-p-shensha {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 10px;
+  border-top: 1px dashed var(--border-light);
+  padding-top: 8px;
+}
+.bz-ss-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+.bz-ss-badge.good {
+  background: var(--accent-bg);
+  color: var(--accent-dim);
+}
+.bz-ss-badge.neutral {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+.bz-ss-badge.bad {
+  background: rgba(196, 122, 106, 0.08);
+  color: var(--wx-fire);
+}
 
 .bz-table {
   width: 100%;
@@ -243,19 +409,103 @@ const currentDayunIdx = computed(() => {
 .bz-wx-fill.wx-water { background: var(--wx-water); }
 .bz-wx-count { width: 18px; text-align: right; font-weight: 500; color: var(--text-secondary); }
 
-.bz-dayun { display: flex; flex-wrap: wrap; gap: 6px; }
-.bz-dy-tag {
-  padding: 5px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 500;
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
+/* 命运时间轴 (Fate Timeline) */
+.bz-dayun-timeline {
+  position: relative;
+  margin-top: 24px;
+  padding: 12px 0 16px;
+  overflow-x: auto;
+  scrollbar-width: none; /* 隐藏 Firefox 滚动条 */
 }
-.bz-dy-tag.active {
-  background: var(--accent-bg);
-  border-color: var(--accent);
+.bz-dayun-timeline::-webkit-scrollbar {
+  display: none; /* 隐藏 Chrome/Safari 滚动条 */
+}
+.bz-timeline-line {
+  position: absolute;
+  top: 35px;
+  left: 4%;
+  width: 92%;
+  height: 1px;
+  background: var(--border);
+  z-index: 1;
+}
+.bz-timeline-nodes {
+  display: flex;
+  justify-content: space-between;
+  position: relative;
+  z-index: 2;
+  min-width: 540px;
+  padding: 0 8px;
+}
+.bz-timeline-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  flex: 1;
+  transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.bz-node-age {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+.bz-node-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+  transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+}
+.bz-node-dot-inner {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background-color 0.2s;
+}
+.bz-node-ganzhi {
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  line-height: 1.2;
+  transition: color 0.2s, font-size 0.2s;
+}
+
+/* 命运轴高亮与 hover 交互 */
+.bz-timeline-node:hover {
+  transform: translateY(-2px);
+}
+.bz-timeline-node:hover .bz-node-dot {
+  border-color: var(--accent-dim);
+}
+.bz-timeline-node:hover .bz-node-ganzhi {
+  color: var(--text-primary);
+}
+
+.bz-timeline-node.active .bz-node-age {
   color: var(--accent-dim);
+  font-weight: 600;
+}
+.bz-timeline-node.active .bz-node-dot {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  box-shadow: 0 0 8px rgba(184, 149, 106, 0.5);
+}
+.bz-timeline-node.active .bz-node-dot-inner {
+  background: var(--accent);
+}
+.bz-timeline-node.active .bz-node-ganzhi {
+  color: var(--accent);
+  font-size: 17px;
 }
 </style>

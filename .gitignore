@@ -36,7 +36,6 @@ eino-agent/
 
 # 开发文档与测试集（不入库）
 docs/
-testsets/
 .claude/
 .agents/
 

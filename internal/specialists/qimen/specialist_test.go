@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -20,7 +21,7 @@ func TestQimenSpecialist_TimingRouteInvokesQimen(t *testing.T) {
 	sp := New()
 	st := state.NewSession("test-qimen-timing")
 	st.BaziResult = map[string]any{"dayGan": "甲"}
-	route := specialists.ApprovedRoute{
+	route := policy.ApprovedRoute{
 		ConversationIntent: "consult",
 		PrimaryDomain:      "bazi",
 		SecondaryDomains:   []string{"qimen"},
@@ -41,7 +42,7 @@ func TestQimenSpecialist_TimingRouteInvokesQimen(t *testing.T) {
 func TestQimenSpecialist_NonTimingRouteSkipsQimen(t *testing.T) {
 	sp := New()
 	st := state.NewSession("test-qimen-nontiming")
-	route := specialists.ApprovedRoute{
+	route := policy.ApprovedRoute{
 		ConversationIntent: "consult",
 		PrimaryDomain:      "bazi",
 		TaskIntent:         "interpret_chart",
@@ -62,7 +63,7 @@ func TestQimenSpecialist_SupplementalNotReplacement(t *testing.T) {
 	sp := New()
 	st := state.NewSession("test-qimen-supplement")
 	st.BaziResult = map[string]any{"dayGan": "甲"}
-	route := specialists.ApprovedRoute{
+	route := policy.ApprovedRoute{
 		ConversationIntent: "consult",
 		PrimaryDomain:      "bazi",
 		SecondaryDomains:   []string{"qimen"},

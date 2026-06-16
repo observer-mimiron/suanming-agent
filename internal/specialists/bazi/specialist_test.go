@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -38,12 +39,12 @@ func makeSession(profileComplete, hasChart bool) *state.SessionState {
 func TestBaziSpecialist_IncompleteProfileReturnsClarification(t *testing.T) {
 	sp := New()
 	st := makeSession(false, false)
-	route := specialists.ApprovedRoute{
-		ConversationIntent:    "consult",
-		PrimaryDomain:         "bazi",
-		TaskIntent:            "interpret_chart",
-		NeedsClarification:    false,
-		Slots:                 schemas.DecisionSlots{QuestionText: "我的财运如何"},
+	route := policy.ApprovedRoute{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "bazi",
+		TaskIntent:         "interpret_chart",
+		NeedsClarification: false,
+		Slots:              schemas.DecisionSlots{QuestionText: "我的财运如何"},
 	}
 
 	result, err := sp.Run(context.Background(), st, route, noopSink(t))
@@ -61,13 +62,13 @@ func TestBaziSpecialist_IncompleteProfileReturnsClarification(t *testing.T) {
 func TestBaziSpecialist_ReusableChartFollowup(t *testing.T) {
 	sp := New()
 	st := makeSession(true, true)
-	route := specialists.ApprovedRoute{
-		ConversationIntent:    "consult",
-		PrimaryDomain:         "bazi",
-		TaskIntent:            "fortune_followup",
-		NeedsClarification:    false,
-		Slots:                 schemas.DecisionSlots{QuestionText: "今年运势如何"},
-		PolicyHints:           schemas.PolicyHints{CanReuseCachedResult: true},
+	route := policy.ApprovedRoute{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "bazi",
+		TaskIntent:         "fortune_followup",
+		NeedsClarification: false,
+		Slots:              schemas.DecisionSlots{QuestionText: "今年运势如何"},
+		PolicyHints:        schemas.PolicyHints{CanReuseCachedResult: true},
 	}
 
 	result, err := sp.Run(context.Background(), st, route, noopSink(t))
@@ -82,12 +83,12 @@ func TestBaziSpecialist_ReusableChartFollowup(t *testing.T) {
 func TestBaziSpecialist_NewProfileCompleteReading(t *testing.T) {
 	sp := New()
 	st := makeSession(true, false)
-	route := specialists.ApprovedRoute{
-		ConversationIntent:    "consult",
-		PrimaryDomain:         "bazi",
-		TaskIntent:            "collect_profile",
-		NeedsClarification:    false,
-		Slots:                 schemas.DecisionSlots{QuestionText: "这是我的八字，帮我看看"},
+	route := policy.ApprovedRoute{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "bazi",
+		TaskIntent:         "collect_profile",
+		NeedsClarification: false,
+		Slots:              schemas.DecisionSlots{QuestionText: "这是我的八字，帮我看看"},
 	}
 
 	result, err := sp.Run(context.Background(), st, route, noopSink(t))

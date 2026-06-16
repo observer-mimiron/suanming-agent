@@ -1,4 +1,34 @@
 // Package supervisor 提供三层防御的路由决策系统，将 LLM 输出转换为结构化 SupervisorDecision。
+//
+// # 架构概览
+//
+// 整个包围绕一个核心职责：将用户的自然语言消息转换为可执行的结构化路由决策。
+// 这个转换过程通过三层防御机制实现：
+//
+//	第 1 层 — 结构化输出（structuredDecide / RouteEngine）：
+//	  通过 tool calling 机制引导模型输出符合 SupervisorDecision JSON schema 的结构化数据。
+//	  运行时将此 schema 绑定为强制工具调用，提供 schema 级约束。失败时附带校验错误反馈重试 1 次。
+//
+//	第 2 层 — 文本生成 + 校验重试（textDecide）：
+//	  回退到纯文本生成，通过提示词引导模型输出 JSON，解析后在应用层校验。
+//	  校验失败时注入具体错误反馈，最多重试 3 次。
+//
+//	第 3 层 — 安全降级（fallbackExtract / safeFallback）：
+//	  放弃复杂路由，使用简化的单用途提取提示词。若模型完全不可用，
+//	  通过 safeFallback 基于会话状态的纯逻辑判断返回保守默认值。
+//
+// # 调用入口
+//
+//   - Client.Approve：orchestrator 的主入口，决策 → 策略应用 → 规范化
+//   - Client.Decide：仅执行 LLM 决策，用于需要原始 Decision 的场景
+//   - Client.ExtractProfile：轻量级资料补抽，不参与主路由
+//
+// # 文件分工
+//
+//   - client.go：核心 Client、三层防御、决策解析与校验
+//   - adk_engine.go：Eino ADK 引擎实现（RouteEngine 接口）
+//   - approved_route.go：路由审批与规范化修正
+//   - decision_contract.go：工具参数类型、重试消息契约
 
 package supervisor
 
@@ -17,7 +47,7 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
-// RouteEngine 是 ADK 路由引擎接口，提供基于 LLM 的结构化决策。
+// RouteEngine 是结构化路由引擎接口，当前固定由 Eino ADK 实现。
 type RouteEngine interface {
 	Decide(ctx context.Context, prompt, msg string) (schemas.SupervisorDecision, error)
 }
@@ -31,6 +61,7 @@ func WithRouteEngine(engine RouteEngine) ClientOption {
 	}
 }
 
+// loadSupervisorPrompt 在运行时指向 buildSupervisorPrompt，测试中可替换为返回固定提示词的函数。
 var loadSupervisorPrompt = buildSupervisorPrompt
 
 // Client 调用 LLM supervisor 并返回结构化路由决策。
@@ -50,10 +81,8 @@ func NewClient(flash llm.Chat, opts ...ClientOption) *Client {
 
 // Decide 通过三层防御机制运行 supervisor 决策：
 //
-//	第 1 层 — structuredDecide（约束解码）：
-//	  使用强制 tool_choice 的 GenerateWithTool。模型必须调用 "output" 工具，
-//	  其 input_schema 为 SupervisorDecision 模式。这保证 JSON 结构精确匹配——是数学保证，而非概率。
-//	  验证失败时有最多 2 次重试，附带错误反馈。
+//	第 1 层 — structuredDecide（结构化输出）：
+//	  通过 Eino ADK route engine 使用 tool calling 获取受约束的结构化结果。
 //
 //	第 2 层 — textDecide（提示词 + 验证 + 重试）：
 //	  如果第 1 层失败（API 错误或持续验证失败），回退到纯文本生成。
@@ -95,46 +124,15 @@ func (c *Client) Decide(ctx context.Context, msg string, st *state.SessionState)
 	return decision, err
 }
 
-// structuredDecide（第 1 层）：通过强制 tool_choice 进行约束解码。
-// 模型必须调用 "output" 工具，其 input_schema 为 SupervisorDecision 模式——这保证结构上有效的 JSON。
-// 最多 2 次尝试，失败时附带领域级验证的错误反馈。
+// structuredDecide（第 1 层）：委托给 Eino ADK route engine 获取结构化输出。
 func (c *Client) structuredDecide(ctx context.Context, prompt string, messages []llm.Message) (schemas.SupervisorDecision, error) {
-	if c.routeEngine != nil {
-		if len(messages) == 0 {
-			return schemas.SupervisorDecision{}, fmt.Errorf("structured: missing user message")
-		}
-		return c.routeEngine.Decide(ctx, prompt, messages[len(messages)-1].Content)
+	if c.routeEngine == nil {
+		return schemas.SupervisorDecision{}, fmt.Errorf("structured: route engine not configured")
 	}
-
-	tool := buildDecisionTool()
-	if llm.IsEinoChat(c.flash) {
-		ctx = tracing.WithEinoCallbackSpan(ctx, tracing.EinoCallbackSpanConfig{
-			Name: "supervisor_model",
-			Kind: tracing.KindLLM,
-		})
+	if len(messages) == 0 {
+		return schemas.SupervisorDecision{}, fmt.Errorf("structured: missing user message")
 	}
-
-	for attempt := 0; attempt < 2; attempt++ {
-		input, _, err := c.flash.GenerateWithTool(ctx, prompt, messages, tool)
-		if err != nil {
-			return schemas.SupervisorDecision{}, fmt.Errorf("structured: %w", err)
-		}
-
-		// 将工具输入转换回 JSON 字符串用于 parseAndValidate
-		raw, _ := json.Marshal(input)
-		decision, validationErr := parseAndValidate(string(raw))
-		if validationErr == nil {
-			return decision, nil
-		}
-
-		// 验证失败——将错误反馈回模型进行自我修正。
-		messages = append(messages,
-			llm.Message{Role: "assistant", Content: string(raw)},
-			llm.Message{Role: "user", Content: decisionRetryPrompt(validationErr)},
-		)
-	}
-
-	return schemas.SupervisorDecision{}, fmt.Errorf("structured: validation failed after retry")
+	return c.routeEngine.Decide(ctx, prompt, messages[len(messages)-1].Content)
 }
 
 // textDecide（第 2 层）：纯文本生成，带 JSON 解析、领域验证和最多 3 次重试。
@@ -173,7 +171,32 @@ func (c *Client) textDecide(ctx context.Context, prompt string, messages []llm.M
 	return c.fallbackExtract(ctx, msg, st), lastErr
 }
 
-// parseDecision 将原始 JSON 解析为规范化的 SupervisorDecision。
+// ExtractProfile 使用聚焦的简化提取链从消息中抽取出生资料和问题文本。
+//
+// 与 Decide 不同，本方法不参与主路由决策——它只做提取，固定返回 collect_profile 意图。
+// 适用场景：normalizeApprovedRoute 检测到消息明显包含出生时间但 LLM 未在 slots.profile 中填充，
+// 此时调用本方法做一次轻量级的补抽，避免让 orchestrator 带着空 profile 进入后续流程。
+func (c *Client) ExtractProfile(ctx context.Context, msg string, st *state.SessionState) (map[string]any, string, error) {
+	decision := c.fallbackExtract(ctx, msg, st)
+	profile := decision.Slots.Profile
+	if profile == nil {
+		profile = map[string]any{}
+	}
+	question := strings.TrimSpace(decision.Slots.QuestionText)
+	if question == "" {
+		question = msg
+	}
+	return profile, question, nil
+}
+
+// parseDecision 将 LLM 原始输出解析为规范化的 SupervisorDecision。
+//
+// 处理三种常见格式：
+//   - 纯 JSON：直接反序列化
+//   - Markdown 代码块：剥离 ```json / ``` 包裹后反序列化
+//   - 空字符串 / 非法 JSON：返回 normalize 后的零值（安全默认值，不 panic）
+//
+// 所有路径最终都调用 Normalize()，确保缺失字段被填充为业务安全的默认值。
 func parseDecision(raw string) schemas.SupervisorDecision {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -215,6 +238,12 @@ func parseAndValidate(raw string) (schemas.SupervisorDecision, error) {
 	if (d.TaskIntent == "timing_followup" || d.TaskIntent == "cross_domain_consult") && d.Slots.QuestionText == "" {
 		return d, fmt.Errorf("task_intent 为 %s，但 slots.question_text 为空。必须提取用户的核心问题", d.TaskIntent)
 	}
+	if d.PolicyHints.QimenMode != "" && d.PolicyHints.QimenMode != "none" && d.PolicyHints.QimenMode != "supplement" && d.PolicyHints.QimenMode != "primary" {
+		return d, fmt.Errorf("policy_hints.qimen_mode 非法：%s。必须为 none、supplement 或 primary", d.PolicyHints.QimenMode)
+	}
+	if d.PolicyHints.ProfileRequirement != "" && d.PolicyHints.ProfileRequirement != "none" && d.PolicyHints.ProfileRequirement != "full" {
+		return d, fmt.Errorf("policy_hints.profile_requirement 非法：%s。必须为 none 或 full", d.PolicyHints.ProfileRequirement)
+	}
 
 	return d, nil
 }
@@ -247,6 +276,7 @@ func (c *Client) fallbackExtract(ctx context.Context, msg string, st *state.Sess
 - calendar_type: "solar" 或 "lunar"（默认 solar）
 
 如果消息是纯问题（无出生信息），设置 task_intent="interpret_chart" 或 "fortune_followup"，slots.question_text 填问题内容。
+如果消息明显在问“今天/最近/此刻”的运势、时机、成败、宜忌，可设置 primary_domain="qimen"，policy_hints.qimen_mode="primary"。
 
 其他必填字段使用默认值: conversation_intent="consult", primary_domain="bazi", confidence=0.5, policy_hints.needs_knowledge=true。
 
@@ -272,7 +302,15 @@ func (c *Client) fallbackExtract(ctx context.Context, msg string, st *state.Sess
 	return d
 }
 
-// buildSessionContext 构建当前会话状态的简洁摘要，用于注入到 supervisor 提示词中。
+// buildSessionContext 构建当前会话状态的摘要，注入到 supervisor 系统提示词中。
+//
+// 让 LLM 感知已有数据状态，从而做出更合理的路由决策。摘要包含：
+//   - 已有资料（JSON 格式）及完整度评估
+//   - 命盘状态（是否已有计算结果可复用）
+//   - 上一轮用户问题（用于多轮对话的上下文连贯性）
+//   - 当前日期（用于判断"今天"/"最近"等相对时间表述）
+//
+// 末尾附有简短的路由指导，帮助模型在常见会话状态下做出正确判断。
 func buildSessionContext(st *state.SessionState) string {
 	hasProfile := len(st.Profile) > 0
 	hasChart := st.HasBaziResult()
@@ -299,7 +337,7 @@ func buildSessionContext(st *state.SessionState) string {
 		parts = append(parts, fmt.Sprintf("上一轮问题：%s", st.LastUserQuestion))
 	}
 
-	return strings.Join(parts, "\n") + "\n\n根据以上会话状态：\n- 如果用户刚提供出生信息且资料刚完整、尚无命盘 → task_intent 应为 interpret_chart（首次完整解读）\n- 如果用户提供新的出生信息，且已有完整资料+命盘 → task_intent 应为 amend_profile\n- 如果用户追问且已有命盘 → task_intent 应为 fortune_followup，can_reuse_cached_result=true\n- 如果用户仅补充部分字段（如「我是女的」）且已有资料 → task_intent 应为 amend_profile，can_reuse_session_profile=true"
+	return strings.Join(parts, "\n") + "\n\n根据以上会话状态：\n- 如果用户刚提供出生信息且资料刚完整、尚无命盘 → task_intent 应为 interpret_chart（首次完整解读）\n- 如果用户提供新的出生信息，且已有完整资料+命盘 → task_intent 应为 amend_profile\n- 如果用户追问且已有命盘，默认可用 fortune_followup；但若问题是在问今天/最近/此刻的运势、时机、宜忌，可改为 primary_domain=qimen，并设置 policy_hints.qimen_mode=primary\n- 如果用户仅补充部分字段（如「我是女的」）且已有资料 → task_intent 应为 amend_profile，can_reuse_session_profile=true"
 }
 
 // safeFallback（第 3b 层）：LLM 不可用时的硬编码保守默认值。
@@ -331,119 +369,15 @@ func safeFallback(st *state.SessionState) schemas.SupervisorDecision {
 	}
 }
 
-// buildSupervisorPrompt 加载统一的 supervisor 提示词。
+// buildSupervisorPrompt 从磁盘加载统一的 supervisor 路由提示词。
+//
+// 提示词文件位于 prompts/supervisor/unified_router.md，定义了 L0-L2 的三层路由
+// 分类体系（对话意图 → 命理领域 → 任务意图）及完整的输出格式规范。
+// 加载失败时直接返回 error——supervisor 的核心逻辑依赖此提示词，不可降级运行。
 func buildSupervisorPrompt() (string, error) {
 	b, err := os.ReadFile("prompts/supervisor/unified_router.md")
 	if err != nil {
 		return "", fmt.Errorf("read unified_router.md: %w", err)
 	}
 	return string(b), nil
-}
-
-// buildDecisionTool 返回 SupervisorDecision 模式作为 Anthropic 工具定义。
-// 这启用第 1 层约束解码：模型被强制调用此工具，保证输出 JSON 符合模式。
-func buildDecisionTool() llm.ToolDef {
-	return llm.ToolDef{
-		Name:        decisionToolName,
-		Description: decisionToolDescription,
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"conversation_intent": map[string]any{
-					"type":        "string",
-					"enum":        []string{"chitchat", "consult"},
-					"description": "L0 对话意图: chitchat=闲聊打招呼, consult=命理咨询",
-				},
-				"primary_domain": map[string]any{
-					"type":        "string",
-					"enum":        []string{"bazi", "qimen", "ziwei"},
-					"description": "L1 主要命理领域",
-				},
-				"secondary_domains": map[string]any{
-					"type": "array",
-					"items": map[string]any{
-						"type": "string",
-						"enum": []string{"bazi", "qimen", "ziwei"},
-					},
-					"description": "L1 辅助领域列表",
-				},
-				"task_intent": map[string]any{
-					"type": "string",
-					"enum": []string{
-						"collect_profile", "amend_profile", "interpret_chart",
-						"fortune_followup", "timing_followup", "cross_domain_consult", "chitchat",
-					},
-					"description": "L2 任务意图: collect_profile=采集出生信息, amend_profile=补充修改资料, interpret_chart=首次排盘解读, fortune_followup=追问运势, timing_followup=择时择日, cross_domain_consult=跨领域咨询, chitchat=闲聊",
-				},
-				"needs_clarification": map[string]any{
-					"type":        "boolean",
-					"description": "是否需要反问用户以澄清信息",
-				},
-				"clarification_question": map[string]any{
-					"type":        "string",
-					"description": "反问问题文本，仅在 needs_clarification=true 时填写",
-				},
-				"parallelizable": map[string]any{
-					"type":        "boolean",
-					"description": "是否可并行调用多个领域同时处理",
-				},
-				"confidence": map[string]any{
-					"type":        "number",
-					"description": "决策置信度，0.0-1.0，信息充分时给高分",
-				},
-				"slots": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"profile": map[string]any{
-							"type":        "object",
-							"description": "提取的出生信息字典。可包含字段: year(数字,1900-2100), month(数字,1-12), day(数字,1-31), hour(数字,0-23,24小时制), gender(字符串,'男'/'女'), birthplace(字符串,城市名), calendar_type(字符串,'solar'/'lunar')。只填用户明确提到的字段，缺少的字段不要编造默认值，留给系统追问。",
-						},
-						"question_text": map[string]any{
-							"type":        "string",
-							"description": "用户核心问题原文，如'我的财运如何'",
-						},
-						"time_scope": map[string]any{
-							"type":        "string",
-							"description": "问题涉及的时间范围，如'今年'、'下个月'、'明年'",
-						},
-						"target_subject": map[string]any{
-							"type":        "string",
-							"description": "用户关注的主题，如'事业'、'财运'、'婚姻'、'健康'",
-						},
-						"language": map[string]any{
-							"type":        "string",
-							"description": "用户使用的语言代码，默认 zh",
-						},
-					},
-					"required": []string{"profile", "question_text"},
-				},
-				"policy_hints": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"needs_knowledge": map[string]any{
-							"type":        "boolean",
-							"description": "是否需要检索知识库获取命理参考",
-						},
-						"needs_qimen": map[string]any{
-							"type":        "boolean",
-							"description": "是否需要奇门遁甲排盘",
-						},
-						"can_reuse_session_profile": map[string]any{
-							"type":        "boolean",
-							"description": "是否可复用会话中已有的用户资料",
-						},
-						"can_reuse_cached_result": map[string]any{
-							"type":        "boolean",
-							"description": "是否可复用已缓存的命盘计算结果",
-						},
-					},
-					"required": []string{"needs_knowledge"},
-				},
-			},
-			"required": []string{
-				"conversation_intent", "primary_domain", "task_intent",
-				"confidence", "slots", "policy_hints",
-			},
-		},
-	}
 }

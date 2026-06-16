@@ -1,0 +1,95 @@
+{
+  "source": "香港青年术数家协会 2022壬寅年第13届全球算命师大赛 官方答案",
+  "year": 2022,
+  "total_questions": 40,
+  "cases": [
+    {
+      "id": "case-2022-01",
+      "birth": {"gender": "男", "year": 1974, "month": 4, "day": 28, "hour": 16, "minute": 40, "location": "USA", "raw": "1974年4月28日16:40，男，USA"},
+      "questions": [
+        {"q": 1, "question": "1996年发生何事？", "answer": "A", "answer_text": "患上严重抑郁症"},
+        {"q": 2, "question": "何年结婚？", "answer": "C", "answer_text": "2006年"},
+        {"q": 3, "question": "2008年发生何事？", "answer": "C", "answer_text": "祖母过世，自己生病，长期食药"},
+        {"q": 4, "question": "父亲于哪一年仙逝？", "answer": "C", "answer_text": "2018年"},
+        {"q": 5, "question": "2020年发生何事？", "answer": "B", "answer_text": "因长期食药，导致健康出问题"}
+      ]
+    },
+    {
+      "id": "case-2022-02",
+      "birth": {"gender": "女", "year": 1981, "month": 5, "day": 26, "hour": 2, "minute": 17, "location": "香港", "raw": "1981年5月26日02:17，女，香港"},
+      "questions": [
+        {"q": 6, "question": "学历如何？", "answer": "B", "answer_text": "2002年升学内地，2006年大学毕业"},
+        {"q": 7, "question": "何时结婚？", "answer": "B", "answer_text": "2006年先签纸结婚，2007年摆酒"},
+        {"q": 8, "question": "女儿何年出生？", "answer": "A", "answer_text": "2007年"},
+        {"q": 9, "question": "身材？", "answer": "D", "answer_text": "矮小，肥胖"},
+        {"q": 10, "question": "父母情况？", "answer": "B", "answer_text": "1999年父亲出现婚外情，直至2009年父亲离开母亲，但没有离婚"}
+      ]
+    },
+    {
+      "id": "case-2022-03",
+      "birth": {"gender": "女", "year": 1990, "month": 5, "day": 23, "hour": 17, "minute": 30, "location": "中国大陆", "raw": "1990年5月23日17:30，女，中国大陆"},
+      "questions": [
+        {"q": 11, "question": "与父母、兄弟姐妹关系？", "answer": "D", "answer_text": "小时不在父母身边长大，吃百家饭，兄弟姐妹关系淡薄"},
+        {"q": 12, "question": "目前工作和生活情况？", "answer": "C", "answer_text": "自我经营做老板，有负债"},
+        {"q": 13, "question": "婚姻子女状况？", "answer": "D", "answer_text": "离异，有孩子"},
+        {"q": 14, "question": "哪一年工作有新突破？", "answer": "C", "answer_text": "2018年"},
+        {"q": 15, "question": "符合她的描述？", "answer": "B", "answer_text": "外冷内热，习惯付出，耳根子软不善拒绝，被家人压榨欺负"}
+      ]
+    },
+    {
+      "id": "case-2022-04",
+      "birth": {"gender": "女", "year": 1977, "month": 10, "day": 26, "hour": 11, "minute": 10, "location": "马来西亚", "raw": "1977年10月26日11:10，女，马来西亚"},
+      "questions": [
+        {"q": 16, "question": "目前职业？", "answer": "A", "answer_text": "家庭主妇"},
+        {"q": 17, "question": "2008年发生何事？", "answer": "A", "answer_text": "签字结婚"},
+        {"q": 18, "question": "哪一年离婚？", "answer": "B", "answer_text": "2013年"},
+        {"q": 19, "question": "2016年发生何事？", "answer": "A", "answer_text": "堕胎"},
+        {"q": 20, "question": "2009年发生什么？", "answer": "D", "answer_text": "父亲去世"}
+      ]
+    },
+    {
+      "id": "case-2022-05",
+      "birth": {"gender": "男", "year": 1985, "month": 6, "day": 29, "hour": 18, "minute": 32, "location": "马来西亚", "raw": "1985年6月29日18:32，男，马来西亚"},
+      "questions": [
+        {"q": 21, "question": "最符合命主个性？", "answer": "A", "answer_text": "谨慎小心，从不冒险"},
+        {"q": 22, "question": "几时结婚？", "answer": "B", "answer_text": "2019年11月"},
+        {"q": 23, "question": "2009年发生何事？", "answer": "B", "answer_text": "和朋友创业，被股东诈骗"},
+        {"q": 24, "question": "2022上半年发生什么？", "answer": "C", "answer_text": "父亲受伤进医院"},
+        {"q": 25, "question": "学历如何？", "answer": "B", "answer_text": "中学/高中毕业"}
+      ]
+    },
+    {
+      "id": "case-2022-06",
+      "birth": {"gender": "男", "year": 1983, "month": 11, "day": 1, "hour": 21, "location": "台湾", "raw": "1983年11月1日亥时，男，台湾"},
+      "questions": [
+        {"q": 26, "question": "感情状况？", "answer": "A", "answer_text": "单身，曾交往几任却都无疾而终"},
+        {"q": 27, "question": "学历及工作？", "answer": "D", "answer_text": "博士毕业，上市公司担任工程师"},
+        {"q": 28, "question": "何时被诈骗？", "answer": "D", "answer_text": "2021年"},
+        {"q": 29, "question": "个性特色？", "answer": "C", "answer_text": "喜好交友，但真心朋友寥寥无几"},
+        {"q": 30, "question": "理财能力？", "answer": "B", "answer_text": "很没理财观念，赚的钱皆由母亲代为管理"}
+      ]
+    },
+    {
+      "id": "case-2022-07",
+      "birth": {"gender": "女", "year": 1984, "month": 12, "day": 9, "hour": 17, "location": "香港", "raw": "1984年12月9日酉时，女，香港"},
+      "questions": [
+        {"q": 31, "question": "性格？", "answer": "D", "answer_text": "胆小怕事，心气压抑，欠缺当机立断心志"},
+        {"q": 32, "question": "父亲好赌，何年破产？", "answer": "C", "answer_text": "2003年"},
+        {"q": 33, "question": "何年坐牢几个月？", "answer": "A", "answer_text": "2003年"},
+        {"q": 34, "question": "何年结婚？", "answer": "C", "answer_text": "2012年"},
+        {"q": 35, "question": "感情生活？", "answer": "B", "answer_text": "丈夫外有情人，但家用充足，命主在家照顾孩子，后离婚"}
+      ]
+    },
+    {
+      "id": "case-2022-08",
+      "birth": {"gender": "男", "year": 1981, "month": 6, "day": 17, "hour": 19, "location": "香港", "raw": "1981年6月17日戌时，男，香港"},
+      "questions": [
+        {"q": 36, "question": "出生时家庭环境？", "answer": "C", "answer_text": "小康之家"},
+        {"q": 37, "question": "婚姻状况？", "answer": "C", "answer_text": "已婚"},
+        {"q": 38, "question": "2014年手术部位？", "answer": "B", "answer_text": "脑部"},
+        {"q": 39, "question": "职业？", "answer": "A", "answer_text": "保险从业员"},
+        {"q": 40, "question": "2020/2021年经济状况？", "answer": "B", "answer_text": "欠下债务"}
+      ]
+    }
+  ]
+}

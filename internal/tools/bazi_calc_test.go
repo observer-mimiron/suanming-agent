@@ -3,10 +3,12 @@ package tools
 import (
 	"context"
 	"testing"
+
+	bazicalc "github.com/wikiglobal/suanming-agent/internal/tools/bazi"
 )
 
 func TestBaziCalc_Validation(t *testing.T) {
-	tt := &BaziCalcTool{}
+	tt := &bazicalc.CalcTool{}
 
 	tests := []struct {
 		name   string
@@ -34,7 +36,7 @@ func TestBaziCalc_Validation(t *testing.T) {
 }
 
 func TestBaziCalc_ValidInput(t *testing.T) {
-	tt := &BaziCalcTool{}
+	tt := &bazicalc.CalcTool{}
 	result, err := tt.Execute(context.Background(), map[string]any{
 		"year":   float64(1990),
 		"month":  float64(5),
@@ -122,7 +124,7 @@ func TestBaziCalc_ValidInput(t *testing.T) {
 }
 
 func TestBaziCalcKnownCase(t *testing.T) {
-	tool := &BaziCalcTool{}
+	tool := &bazicalc.CalcTool{}
 	result, err := tool.Execute(context.Background(), map[string]any{
 		"year": float64(1990), "month": float64(5),
 		"day": float64(20), "hour": float64(8), "gender": "男",
@@ -164,7 +166,7 @@ func TestBaziCalcKnownCase(t *testing.T) {
 }
 
 func TestBaziCalcInvalidYear(t *testing.T) {
-	tool := &BaziCalcTool{}
+	tool := &bazicalc.CalcTool{}
 	_, err := tool.Execute(context.Background(), map[string]any{
 		"year": float64(1800), "month": float64(1),
 		"day": float64(1), "hour": float64(0), "gender": "男",

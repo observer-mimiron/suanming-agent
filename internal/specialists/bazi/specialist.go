@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -29,7 +30,7 @@ func (s *Specialist) Name() string {
 // Phase 1 中：资料不完整且无命盘则提示澄清，用户正在提供资料则接受并标记需要计算，
 // 资料齐备但无命盘则标记需要排盘，已有命盘则进入解读阶段。
 // 实际 LLM 调用、工具执行和 SSE 推送由编排器处理。
-func (s *Specialist) Run(ctx context.Context, st *state.SessionState, route specialists.ApprovedRoute, sink specialists.EventSink) (schemas.DomainResult, error) {
+func (s *Specialist) Run(ctx context.Context, st *state.SessionState, route policy.ApprovedRoute, sink specialists.EventSink) (schemas.DomainResult, error) {
 	profileReady := st.IsProfileComplete()
 	hasChart := st.HasBaziResult()
 

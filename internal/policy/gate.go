@@ -24,6 +24,7 @@ type ApprovedRoute struct {
 	PrimaryDomain         string
 	SecondaryDomains      []string
 	TaskIntent            string
+	Confidence            float64
 	NeedsClarification    bool
 	ClarificationQuestion string
 	ParallelAllowed       bool
@@ -38,6 +39,7 @@ func Apply(decision schemas.SupervisorDecision, st *state.SessionState) Approved
 		PrimaryDomain:         decision.PrimaryDomain,
 		SecondaryDomains:      decision.SecondaryDomains,
 		TaskIntent:            decision.TaskIntent,
+		Confidence:            decision.Confidence,
 		NeedsClarification:    decision.NeedsClarification,
 		ClarificationQuestion: decision.ClarificationQuestion,
 		ParallelAllowed:       false, // 阶段一强制禁用并行
@@ -72,14 +74,14 @@ func Apply(decision schemas.SupervisorDecision, st *state.SessionState) Approved
 	// 4. 资料不完整强制澄清或转为收集资料。
 	profileReady := st.IsProfileComplete() || st.HasBaziResult()
 	if !profileReady && route.TaskIntent != "collect_profile" && route.TaskIntent != "amend_profile" && route.TaskIntent != "direct_bazi" {
-		if !route.NeedsClarification {
+		if !allowsProfilelessQimenPrimary(route) && !route.NeedsClarification {
 			route.NeedsClarification = true
 			route.ClarificationQuestion = "请提供您的出生信息（年份、月份、日期、时辰、性别），我来为您排盘分析。"
 		}
 	}
 
-	// 5. 奇门仅可在择时类任务中作为主导领域。
-	if route.PrimaryDomain == "qimen" && route.TaskIntent != "timing_followup" && route.TaskIntent != "cross_domain_consult" {
+	// 5. 奇门仅在被明确批准为主链时作为主导领域。
+	if route.PrimaryDomain == "qimen" && !wantsQimenPrimary(route) {
 		// 降级：奇门主导无择时意图 → 转为八字主导，奇门降为辅助。
 		route.PrimaryDomain = "bazi"
 		route.TaskIntent = "collect_profile"
@@ -98,4 +100,25 @@ func hasDomain(domains []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func wantsQimenPrimary(route ApprovedRoute) bool {
+	if route.PrimaryDomain != "qimen" {
+		return false
+	}
+	if route.PolicyHints.QimenMode == "primary" {
+		return true
+	}
+	switch route.TaskIntent {
+	case "timing_followup", "cross_domain_consult":
+		return true
+	}
+	return false
+}
+
+func allowsProfilelessQimenPrimary(route ApprovedRoute) bool {
+	if !wantsQimenPrimary(route) {
+		return false
+	}
+	return route.PolicyHints.ProfileRequirement != "full"
 }

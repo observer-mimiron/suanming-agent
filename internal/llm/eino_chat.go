@@ -2,13 +2,10 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"io"
 
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-	einojsonschema "github.com/eino-contrib/jsonschema"
 )
 
 // EinoChat 是 Chat 接口的 Eino 实现，包装 einomodel.ToolCallingChatModel 以支持流式和非流式调用。
@@ -57,37 +54,6 @@ func (c *EinoChat) Generate(ctx context.Context, systemPrompt string, messages [
 	return msg.Content, toTokenUsage(msg), nil
 }
 
-func (c *EinoChat) GenerateWithTool(ctx context.Context, systemPrompt string, messages []Message, tool ToolDef) (map[string]any, TokenUsage, error) {
-	ti, err := toToolInfo(tool)
-	if err != nil {
-		return nil, TokenUsage{}, err
-	}
-
-	bound, err := c.model.WithTools([]*schema.ToolInfo{ti})
-	if err != nil {
-		return nil, TokenUsage{}, err
-	}
-
-	msg, err := bound.Generate(
-		ctx,
-		toEinoMessages(systemPrompt, messages),
-		einomodel.WithToolChoice(schema.ToolChoiceForced, tool.Name),
-	)
-	if err != nil {
-		return nil, TokenUsage{}, err
-	}
-
-	parser := schema.NewMessageJSONParser[map[string]any](&schema.MessageJSONParseConfig{
-		ParseFrom: schema.MessageParseFromToolCall,
-	})
-	parsed, err := parser.Parse(ctx, msg)
-	if err != nil {
-		return nil, TokenUsage{}, err
-	}
-
-	return parsed, toTokenUsage(msg), nil
-}
-
 func toEinoMessages(systemPrompt string, messages []Message) []*schema.Message {
 	out := make([]*schema.Message, 0, len(messages)+1)
 	if systemPrompt != "" {
@@ -116,24 +82,4 @@ func toTokenUsage(msg *schema.Message) TokenUsage {
 		Input:  msg.ResponseMeta.Usage.PromptTokens,
 		Output: msg.ResponseMeta.Usage.CompletionTokens,
 	}
-}
-
-func toToolInfo(tool ToolDef) (*schema.ToolInfo, error) {
-	var js *einojsonschema.Schema
-	if tool.InputSchema != nil {
-		b, err := json.Marshal(tool.InputSchema)
-		if err != nil {
-			return nil, fmt.Errorf("marshal tool schema: %w", err)
-		}
-		js = &einojsonschema.Schema{}
-		if err := json.Unmarshal(b, js); err != nil {
-			return nil, fmt.Errorf("unmarshal tool schema: %w", err)
-		}
-	}
-
-	return &schema.ToolInfo{
-		Name:        tool.Name,
-		Desc:        tool.Description,
-		ParamsOneOf: schema.NewParamsOneOfByJSONSchema(js),
-	}, nil
 }

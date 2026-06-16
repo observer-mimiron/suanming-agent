@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cloudwego/eino/schema"
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
 )
 
@@ -29,23 +28,6 @@ func NewKnowledgeSearchToolFromEnv() *KnowledgeSearchTool {
 
 func (t *KnowledgeSearchTool) Name() string        { return "knowledge_search" }
 func (t *KnowledgeSearchTool) Description() string { return "检索项目知识库中的命理资料" }
-func (t *KnowledgeSearchTool) EinoToolInfo() *schema.ToolInfo {
-	return &schema.ToolInfo{
-		Name: t.Name(),
-		Desc: t.Description(),
-		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-			"query": {
-				Type:     schema.String,
-				Desc:     "检索问题或关键词",
-				Required: true,
-			},
-			"topK": {
-				Type: schema.Number,
-				Desc: "返回条数，默认 3",
-			},
-		}),
-	}
-}
 
 func (t *KnowledgeSearchTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	query, ok := params["query"].(string)

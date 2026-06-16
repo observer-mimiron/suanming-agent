@@ -3,10 +3,9 @@ package llm
 import "context"
 
 // NoopClient 是 Chat 接口的 No-op 实现，专用于测试。
-// 可通过 GenerateFn / GenerateWithToolFn 注入自定义行为；未设置时返回结构化默认值。
+// 可通过 GenerateFn 注入自定义行为；未设置时返回结构化默认值。
 type NoopClient struct {
-	GenerateFn         func(ctx context.Context, systemPrompt string, messages []Message) (string, TokenUsage, error)
-	GenerateWithToolFn func(ctx context.Context, systemPrompt string, messages []Message, tool ToolDef) (map[string]any, TokenUsage, error)
+	GenerateFn func(ctx context.Context, systemPrompt string, messages []Message) (string, TokenUsage, error)
 }
 
 func (n *NoopClient) Stream(_ context.Context, _ string, _ []Message, _ func(string)) error {
@@ -18,11 +17,4 @@ func (n *NoopClient) Generate(ctx context.Context, systemPrompt string, messages
 		return n.GenerateFn(ctx, systemPrompt, messages)
 	}
 	return `{"action":"followup"}`, TokenUsage{}, nil
-}
-
-func (n *NoopClient) GenerateWithTool(ctx context.Context, systemPrompt string, messages []Message, tool ToolDef) (map[string]any, TokenUsage, error) {
-	if n.GenerateWithToolFn != nil {
-		return n.GenerateWithToolFn(ctx, systemPrompt, messages, tool)
-	}
-	return map[string]any{"conversation_intent": "consult", "primary_domain": "bazi", "task_intent": "collect_profile", "confidence": 0.5}, TokenUsage{}, nil
 }

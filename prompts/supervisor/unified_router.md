@@ -25,6 +25,8 @@
   "policy_hints": {
     "needs_knowledge": true,
     "needs_qimen": false,
+    "qimen_mode": "none",
+    "profile_requirement": "full",
     "can_reuse_session_profile": false,
     "can_reuse_cached_result": false
   }
@@ -92,10 +94,18 @@
 
 - `needs_knowledge`: 绝大多数情况为 true。仅纯闲聊或寒暄时为 false
 - `needs_qimen`: 用户明确问时机/择日/最近运势/何时做某事时为 true
+- `qimen_mode`: `none`=不用奇门，`supplement`=结合八字时作为补充，`primary`=直接用奇门分析当下时机/今日运势/近期走势
+- `profile_requirement`: `none`=当前问题可不依赖个人出生资料直接起奇门，`full`=必须结合个人命盘才能答
 - `can_reuse_session_profile`: 会话已有资料且用户在做补充/追问/纠错时为 true。首次提供完整出生信息时为 false
 - `can_reuse_cached_result`: 会话已有排盘结果且用户在做追问（非重新排盘）时为 true
 
 **关键规则**：当会话状态显示「已有命盘」且用户在做追问时，task_intent=fortune_followup，can_reuse_cached_result=true。
+
+**奇门主判断规则**：
+- 用户问“今天运气怎么样 / 本日运道 / 最近时机 / 现在适不适合做某事”这类明显依赖当前时空的问题时，可以直接设 `primary_domain="qimen"`，并设置 `qimen_mode="primary"`
+- 如果问题本身不需要个人出生资料，设置 `profile_requirement="none"`
+- 只有当用户明确要求“结合我的八字 / 结合我的命盘 / 按我个人情况看时机”时，才设置 `profile_requirement="full"`
+- “追问”只是对话形态，不等于一定继续走八字；是否起奇门，优先看问题是不是在问当下时机/短期运势
 
 ## needs_clarification（需要澄清）
 
