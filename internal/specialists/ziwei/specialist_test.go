@@ -1,8 +1,8 @@
-package bazi
+package ziwei
 
 import "testing"
 
-func TestBaziToolNamesContainsCatalog(t *testing.T) {
+func TestToolNamesContainsCatalog(t *testing.T) {
 	cfg := GetConfig()
 	found := false
 	for _, name := range cfg.ToolNames {
@@ -19,7 +19,7 @@ func TestBaziToolNamesContainsCatalog(t *testing.T) {
 	}
 }
 
-func TestBaziInstructionContainsAgenticRAG(t *testing.T) {
+func TestInstructionContainsAgenticRAG(t *testing.T) {
 	cfg := GetConfig()
 	keywords := []string{
 		"目录探索", "证据规划", "质量评估", "条件重搜",
