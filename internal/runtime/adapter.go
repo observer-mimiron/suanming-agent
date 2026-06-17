@@ -187,6 +187,21 @@ func newKnowledgeSearchAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 	})
 }
 
+// newKnowledgeCatalogAdapter 创建知识库目录工具的 Eino BaseTool 适配器。
+func newKnowledgeCatalogAdapter(reg *tools.Registry) (tool.BaseTool, error) {
+	return utils.InferTool("knowledge_catalog",
+		"获取知识库目录（古籍名称、章节数、前5个章节标题），用于规划检索",
+		func(ctx context.Context, _ struct{}) (string, error) {
+			gt, ok := reg.Get("knowledge_catalog")
+			if !ok {
+				return `{"error":"catalog not registered"}`, nil
+			}
+			result, err := gt.Execute(ctx, nil)
+			return marshalResult(result, err), nil
+		})
+}
+
+
 // buildAdapters 创建所有已注册命理工具的 Eino BaseTool 适配器列表。
 //
 // 对未注册的工具直接跳过，不返回错误。
@@ -204,6 +219,7 @@ func buildAdapters(reg *tools.Registry) ([]tool.BaseTool, error) {
 		{"qimen_dunjia", func() (tool.BaseTool, error) { return newQimenAdapter(reg) }},
 		{"ziwei_calc", func() (tool.BaseTool, error) { return newZiweiAdapter(reg) }},
 		{"knowledge_search", func() (tool.BaseTool, error) { return newKnowledgeSearchAdapter(reg) }},
+		{"knowledge_catalog", func() (tool.BaseTool, error) { return newKnowledgeCatalogAdapter(reg) }},
 	}
 
 	for _, entry := range entries {
@@ -232,6 +248,7 @@ func BuildAdaptersFor(reg *tools.Registry, names []string) ([]tool.BaseTool, err
 		"qimen_dunjia":    func() (tool.BaseTool, error) { return newQimenAdapter(reg) },
 		"ziwei_calc":      func() (tool.BaseTool, error) { return newZiweiAdapter(reg) },
 		"knowledge_search": func() (tool.BaseTool, error) { return newKnowledgeSearchAdapter(reg) },
+		"knowledge_catalog": func() (tool.BaseTool, error) { return newKnowledgeCatalogAdapter(reg) },
 	}
 	adapters := make([]tool.BaseTool, 0, len(names))
 	for _, name := range names {

@@ -65,6 +65,7 @@ func BuildContainer() *Container {
 	reg.Register(&tools.QimenTool{})
 	reg.Register(&ziweiTools.ZiWeiCalcTool{})
 	reg.Register(tools.NewKnowledgeSearchTool(mcpClient))
+	reg.Register(tools.NewKnowledgeCatalogTool(mcpClient))
 
 	// 会话存储 + 锁
 	store := state.NewPersistentStore("data/sessions")
