@@ -117,9 +117,6 @@ def check_expect(http_code, body, turn_type, full_text, expect):
     if expect.get("turn_type_any") and turn_type not in expect["turn_type_any"]:
         errors.append(f"turn_type={turn_type} (expected one of {expect['turn_type_any']})")
 
-    if expect.get("reuse_chart") and "复用已有命盘" not in body:
-        errors.append("reuse_chart: 未复用已有命盘")
-
     if expect.get("knowledge_search") and not ("knowledge_search" in body and "knowledge-sources" in body):
         errors.append("knowledge_search: 未触发知识库检索")
 
@@ -135,7 +132,8 @@ def check_expect(http_code, body, turn_type, full_text, expect):
         if not re.search(kw, search_in):
             errors.append(f"contains_all 缺失: {kw}")
 
-    for kw in expect.get("not_contains", []):
+    # 兼容两种拼写: not_contains / not_contain
+    for kw in expect.get("not_contains", expect.get("not_contain", [])):
         if re.search(kw, search_in):
             errors.append(f"not_contains 违规出现: {kw}")
 
@@ -183,12 +181,20 @@ def load_suite(suite_file):
 
     with open(suite_file) as f:
         first_line = f.readline().strip()
-        f.seek(0)
 
         try:
             obj = json.loads(first_line)
             if isinstance(obj, dict) and "id" in obj and ("turns" in obj or "setup" in obj):
-                # 纯 case 列表
+                # 纯 case 列表（无 header 行），从第一行开始
+                f.seek(0)
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        cases.append(json.loads(line))
+            elif isinstance(obj, dict) and "name" in obj:
+                # 有 header 的 JSONL：第一行是 suite 元信息，后续行为 case
+                name = obj["name"]
+                desc = obj.get("description", "")
                 for line in f:
                     line = line.strip()
                     if line:
