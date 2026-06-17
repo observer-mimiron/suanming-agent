@@ -166,7 +166,13 @@ func newZiweiAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 
 // newKnowledgeSearchAdapter 创建知识库检索工具的 Eino BaseTool 适配器。
 func newKnowledgeSearchAdapter(reg *tools.Registry) (tool.BaseTool, error) {
+	var callCount int // 闭包计数器，随 adapter 生命周期（per-turn）归零
+
 	return utils.InferTool("knowledge_search", "检索项目知识库中的命理资料", func(ctx context.Context, input knowledgeSearchInput) (string, error) {
+		callCount++
+		if callCount > 3 {
+			return `{"passages":[],"budget_exceeded":true,"message":"本轮知识检索已达上限（3次），请基于已有资料回答。"}`, nil
+		}
 		params, err := structToMap(input)
 		if err != nil {
 			return `{"passages":[]}`, nil

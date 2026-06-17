@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/cloudwego/eino/components/tool"
+
 	"github.com/wikiglobal/suanming-agent/internal/tools"
 	baziCalc "github.com/wikiglobal/suanming-agent/internal/tools/bazi"
 )
@@ -67,4 +69,46 @@ func TestBuildAdaptersFor_EmptyList(t *testing.T) {
 	if len(adapters) != 0 {
 		t.Fatalf("expected 0 adapters for empty list, got %d", len(adapters))
 	}
+}
+
+func TestKnowledgeSearchAdapter_BudgetEnforced(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(tools.NewKnowledgeSearchToolFromEnv())
+
+	adapter, err := newKnowledgeSearchAdapter(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv, ok := adapter.(tool.InvokableTool)
+	if !ok {
+		t.Fatal("adapter does not implement InvokableTool")
+	}
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		ret, err := inv.InvokableRun(ctx, `{"query":"测试","top_k":1}`)
+		if err != nil {
+			t.Logf("call %d err: %v, result: %s", i+1, err, ret)
+			continue
+		}
+		hasBudgetExceeded := containsStr(ret, "budget_exceeded")
+		if i < 3 {
+			if hasBudgetExceeded {
+				t.Errorf("call %d should succeed, got budget_exceeded", i+1)
+			}
+		} else {
+			if !hasBudgetExceeded {
+				t.Errorf("call %d should be blocked by budget, got: %s", i+1, ret)
+			}
+		}
+	}
+}
+
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
