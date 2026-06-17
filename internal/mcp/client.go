@@ -28,6 +28,46 @@ type Passage struct {
 	Source  string `json:"source"`
 }
 
+// GraphNode 是知识库图谱中的一个页面节点。
+type GraphNode struct {
+	ID        string   `json:"id"`
+	Label     string   `json:"label"`
+	Tags      []string `json:"tags"`
+	LinkCount int      `json:"linkCount"`
+	Tenant    string   `json:"tenant"`
+}
+
+// GraphEdge 是知识库图谱中的一条链接边。边由页面正文中的 markdown 链接扫描生成。
+// Source 和 Target 都是 page slug。
+type GraphEdge struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+}
+
+// GetGraph 获取知识库完整的图结构（节点 + 边）。
+//
+// 边由 markdown 正文链接生成，不是系统目录树——但目录页（tags 含 "目录"）的正文
+// 恰好以链接形式列出了章节，可用作章节统计。
+func (c *Client) GetGraph() ([]GraphNode, []GraphEdge, error) {
+	resp, err := c.client.Get(c.baseURL + "/api/wiki/graph")
+	if err != nil {
+		return nil, nil, fmt.Errorf("get graph: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, nil, fmt.Errorf("get graph returned %d", resp.StatusCode)
+	}
+	var result struct {
+		Nodes []GraphNode `json:"nodes"`
+		Edges []GraphEdge `json:"edges"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, nil, fmt.Errorf("decode graph: %w", err)
+	}
+	return result.Nodes, result.Edges, nil
+}
+
+
 // Search 通用 MCP 搜索（向后兼容）
 func (c *Client) Search(query string, topK int) ([]Passage, error) {
 	body := map[string]any{"query": query, "limit": topK}
