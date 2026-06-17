@@ -27,7 +27,11 @@ func NewKnowledgeSearchToolFromEnv() *KnowledgeSearchTool {
 }
 
 func (t *KnowledgeSearchTool) Name() string        { return "knowledge_search" }
-func (t *KnowledgeSearchTool) Description() string { return "检索项目知识库中的命理资料" }
+func (t *KnowledgeSearchTool) Description() string {
+	return "在命理古籍知识库中检索原文。query 使用核心术语，优先用典籍名+章节名限定范围。" +
+		"返回 passages 数组（content=原文片段, source=来源页面标题）。" +
+		"评估质量：content 是否聚焦、是否可引用、source 来自哪部典籍。"
+}
 
 func (t *KnowledgeSearchTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	query, ok := params["query"].(string)

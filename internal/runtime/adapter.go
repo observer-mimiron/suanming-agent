@@ -168,7 +168,7 @@ func newZiweiAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 func newKnowledgeSearchAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 	var callCount int // 闭包计数器，随 adapter 生命周期（per-turn）归零
 
-	return utils.InferTool("knowledge_search", "检索项目知识库中的命理资料", func(ctx context.Context, input knowledgeSearchInput) (string, error) {
+	return utils.InferTool("knowledge_search", "在命理古籍知识库中检索原文。query 使用核心术语，优先用典籍名+章节名限定范围。评估质量：content 是否聚焦、是否可引用、source 来源。", func(ctx context.Context, input knowledgeSearchInput) (string, error) {
 		callCount++
 		if callCount > 3 {
 			return `{"passages":[],"budget_exceeded":true,"message":"本轮知识检索已达上限（3次），请基于已有资料回答。"}`, nil
