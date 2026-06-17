@@ -67,6 +67,16 @@ cd web && npm run dev
 
 Go 后端的 `knowledge_search` 工具自动连接 `RAG_MCP_URL`（默认 :3100），检索知识库返回命理资料注入到 LLM 解读中。
 
+### 知识库图结构与工具
+
+- `knowledge_catalog`：通过 `/api/wiki/graph` 获取知识库图结构，按 slug 前缀过滤跨书引用后生成目录摘要（古籍名称、章节数、前 5 个章节标题），供 Agent 规划检索策略。
+- `knowledge_search`：检索古籍原文，返回 passages 数组（content + source）。Go adapter 层硬控每轮最多 3 次调用。
+- `/api/wiki/graph` 的 edges 由 markdown 正文链接扫描生成（`/\[([^\]]*)\]\(([^)]+)\.md\)/g`），不是系统目录树。目录页的章节关系依赖目录页正文中的链接结构。
+
+### 与 Yopedia 的区别
+
+项目专属知识库（:3100）独立于 yopedia 通用知识库（:3000）。前者专为命理咨询场景导入古籍原文、八字基础、格局用神等模块；后者存储通用工作知识和百科页面。
+
 ## 开发命令
 
 ```bash
