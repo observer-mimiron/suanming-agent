@@ -34,6 +34,10 @@ Vue 3 → SSE → Gin (:8080) → HTTP → LangGraph (:8000)
 
 ## 三服务启动
 
+可使用 `make dev` 一键启动（推荐），或分别启动：
+make dev-backend          # 仅后端
+make dev-frontend         # 仅前端
+
 ```bash
 # 推理层 (Python :8000)
 source reasoning/venv/bin/activate
@@ -46,6 +50,8 @@ LLM_API_KEY=sk-xxx go run ./cmd/server/
 cd web && npm run dev
 ```
 
+
+**端口：** 后端默认 :8080，可通过 `LISTEN_ADDR` 环境变量修改（如 `LISTEN_ADDR=:8081`）。
 环境变量：`LLM_API_KEY`（必填）、`LLM_BASE_URL`、`LLM_MODEL`、`LANGRAPH_URL`、`RAG_MCP_URL`。
 
 ## 知识库
