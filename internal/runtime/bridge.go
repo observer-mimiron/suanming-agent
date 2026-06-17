@@ -13,6 +13,7 @@ import (
 // resultSaver 在工具返回结果时调用，用于将结构化命盘数据写回会话状态。
 func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterator[*adk.AgentEvent], resultSaver func(toolName, resultJSON string)) (string, error) {
 	var finalText string
+	var searchAttempts int // knowledge_search 调用计数，本轮内递增
 	for {
 		event, ok := iter.Next()
 		if !ok {
@@ -55,6 +56,12 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 			if err != nil || msg == nil {
 				continue
 			}
+
+			// 记录 knowledge_search 调用次数（仅记 trace，不发 SSE）。
+			if toolName == "knowledge_search" {
+				searchAttempts++
+			}
+
 			sink.Emit(ctx, Event{Type: "tool_call", Data: map[string]any{
 				"tool":   toolName,
 				"result": msg.Content,
