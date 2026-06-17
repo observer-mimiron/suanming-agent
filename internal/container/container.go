@@ -9,6 +9,10 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/handler"
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
+	"github.com/wikiglobal/suanming-agent/internal/specialists"
+	"github.com/wikiglobal/suanming-agent/internal/specialists/bazi"
+	qimenSp "github.com/wikiglobal/suanming-agent/internal/specialists/qimen"
+	"github.com/wikiglobal/suanming-agent/internal/specialists/ziwei"
 	"github.com/wikiglobal/suanming-agent/internal/orchestrator"
 	appRuntime "github.com/wikiglobal/suanming-agent/internal/runtime"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -83,7 +87,13 @@ func BuildContainer() *Container {
 	if err != nil {
 		panic(err)
 	}
-	executor, err := appRuntime.NewExecutor(reg, runtimeModel, cfg.PromptMode)
+	// 注册所有领域专家（composition root 负责，runtime 只消费 Registry 接口）。
+	sr := specialists.NewRegistry()
+	bazi.Register(sr)
+	qimenSp.Register(sr)
+	ziwei.Register(sr)
+
+	executor, err := appRuntime.NewExecutor(reg, sr, runtimeModel, cfg.PromptMode)
 	if err != nil {
 		panic(err)
 	}

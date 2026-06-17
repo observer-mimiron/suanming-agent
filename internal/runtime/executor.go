@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -12,9 +13,6 @@ import (
 
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
-	"github.com/wikiglobal/suanming-agent/internal/specialists/bazi"
-	qimenSp "github.com/wikiglobal/suanming-agent/internal/specialists/qimen"
-	"github.com/wikiglobal/suanming-agent/internal/specialists/ziwei"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
@@ -31,11 +29,7 @@ type Executor struct {
 }
 
 // NewExecutor 创建运行时执行器。
-func NewExecutor(reg *tools.Registry, model einomodel.ToolCallingChatModel, promptMode string) (*Executor, error) {
-	sr := specialists.NewRegistry()
-	bazi.Register(sr)
-	qimenSp.Register(sr)
-	ziwei.Register(sr)
+func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.ToolCallingChatModel, promptMode string) (*Executor, error) {
 
 	return &Executor{
 		reg:                reg,
@@ -64,6 +58,11 @@ func (e *Executor) SetHistoryLimit(n int) { e.historyLimit = n }
 func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.SessionState, route policy.ApprovedRoute, message string) (turnType string, assistantText string, err error) {
 	updateRoutingSnapshot(st, route)
 
+	// 将 supervisor 提取的 Profile 合并到会话状态，支持后续轮次复用
+	if len(route.Slots.Profile) > 0 {
+		st.MergeProfile(route.Slots.Profile)
+	}
+
 	// 确定性 preflight
 	result := preflight(st, route)
 	if result.ShortCircuit {
@@ -82,7 +81,7 @@ func (e *Executor) runAgentRoute(ctx context.Context, sink EventSink, st *state.
 	allowed := allowedSpecialists(route, allConfigs)
 
 	// 构建 route-bound supervisor agent，只挂本轮允许的 AgentTool
-	supervisor, err := e.builder.BuildSupervisor(ctx, route, allowed)
+	supervisor, err := e.builder.BuildSupervisor(ctx, route, st, allowed)
 	if err != nil {
 		return "", "", fmt.Errorf("build supervisor agent: %w", err)
 	}
@@ -131,6 +130,9 @@ func (e *Executor) runAgentRoute(ctx context.Context, sink EventSink, st *state.
 func (e *Executor) saveToolResult(st *state.SessionState, toolName, resultJSON string) {
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(resultJSON), &payload); err != nil || payload == nil {
+		if err != nil {
+			log.Printf("saveToolResult: json unmarshal %s failed: %v", toolName, err)
+		}
 		return
 	}
 	switch toolName {
