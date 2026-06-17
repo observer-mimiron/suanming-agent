@@ -13,6 +13,7 @@ import (
 
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
+	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
 )
 
@@ -36,15 +37,27 @@ func NewAgentBuilder(model einomodel.ToolCallingChatModel, reg *tools.Registry) 
 func (b *AgentBuilder) SetLLMModel(model string) { b.llmModel = model }
 
 // BuildSpecialist 从 Config 构建一个领域专家 ChatModelAgent。
-func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Config) (adk.Agent, error) {
+// 如果会话状态中已有出生资料或命盘结果，会被注入到 instruction 中。
+func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Config, st *state.SessionState) (adk.Agent, error) {
 	adapters, err := BuildAdaptersFor(b.reg, cfg.ToolNames)
 	if err != nil {
 		return nil, err
 	}
+	instruction := cfg.Instruction
+	if st != nil && (len(st.Profile) > 0 || st.HasBaziResult()) {
+		instruction += "\n\n## 会话已有上下文\n\n以下资料已在当前会话中提供，**直接使用，无需再次索要或调用工具获取**：\n"
+		if len(st.Profile) > 0 {
+			pb := NewBuilder("") // 只用 buildProfileSection
+			instruction += "\n### 出生资料\n" + pb.buildProfileSection(st) + "\n"
+		}
+		if st.HasBaziResult() {
+			instruction += "\n### 命盘结果\n命盘已排好，直接从会话上下文引用即可，**禁止重新调用 bazi_calc**。\n"
+		}
+	}
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          cfg.Name,
 		Description:   cfg.Description,
-		Instruction:   cfg.Instruction,
+		Instruction:   instruction,
 		Model:         b.model,
 		MaxIterations: 12,
 		ToolsConfig: adk.ToolsConfig{
@@ -52,15 +65,7 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 				Tools: adapters,
 			},
 		},
-		ModelRetryConfig: &adk.ModelRetryConfig{
-			MaxRetries: 2,
-			ShouldRetry: func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision {
-				if rc.Err != nil {
-					return &adk.RetryDecision{Retry: true, Backoff: time.Second}
-				}
-				return &adk.RetryDecision{Retry: false}
-			},
-		},
+		ModelRetryConfig: defaultRetryConfig(),
 	})
 }
 
@@ -70,10 +75,10 @@ func (b *AgentBuilder) Allowed(route policy.ApprovedRoute, all []specialists.Con
 }
 
 // BuildSupervisor 根据本轮批准路由构建 Supervisor Agent，只挂载允许调用的 AgentTool。
-func (b *AgentBuilder) BuildSupervisor(ctx context.Context, route policy.ApprovedRoute, allowedSpecialists []specialists.Config) (adk.Agent, error) {
+func (b *AgentBuilder) BuildSupervisor(ctx context.Context, route policy.ApprovedRoute, st *state.SessionState, allowedSpecialists []specialists.Config) (adk.Agent, error) {
 	var agentTools []einotool.BaseTool
 	for _, cfg := range allowedSpecialists {
-		child, err := b.BuildSpecialist(ctx, cfg)
+		child, err := b.BuildSpecialist(ctx, cfg, st)
 		if err != nil {
 			return nil, fmt.Errorf("build specialist %s: %w", cfg.Name, err)
 		}
@@ -95,15 +100,7 @@ func (b *AgentBuilder) BuildSupervisor(ctx context.Context, route policy.Approve
 			},
 		},
 		MaxIterations: 10,
-		ModelRetryConfig: &adk.ModelRetryConfig{
-			MaxRetries: 2,
-			ShouldRetry: func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision {
-				if rc.Err != nil {
-					return &adk.RetryDecision{Retry: true, Backoff: time.Second}
-				}
-				return &adk.RetryDecision{Retry: false}
-			},
-		},
+		ModelRetryConfig: defaultRetryConfig(),
 	})
 }
 
@@ -201,3 +198,17 @@ func allowedSpecialists(route policy.ApprovedRoute, configs []specialists.Config
 	}
 	return result
 }
+
+// defaultRetryConfig 返回共享的 ModelRetryConfig，所有 Agent 统一使用。
+func defaultRetryConfig() *adk.ModelRetryConfig {
+	return &adk.ModelRetryConfig{
+		MaxRetries: 2,
+		ShouldRetry: func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision {
+			if rc.Err != nil {
+				return &adk.RetryDecision{Retry: true, Backoff: time.Second}
+			}
+			return &adk.RetryDecision{Retry: false}
+		},
+	}
+}
+

@@ -47,7 +47,17 @@ func Apply(decision schemas.SupervisorDecision, st *state.SessionState) Approved
 		PolicyHints:           decision.PolicyHints,
 	}
 
-	// 1. 阶段一领域白名单：过滤不支持的领域。
+	applyPhase1Allowlist(&route)
+	applyParallelHardDisable(&route)
+	applyConfidenceClarification(&route, decision.Confidence)
+	applyProfileClarification(&route, st)
+	applyQimenRouting(&route)
+
+	return route
+}
+
+// applyPhase1Allowlist 阶段一领域白名单过滤，不支持的领域降级为 bazi。
+func applyPhase1Allowlist(route *ApprovedRoute) {
 	if !phase1Allowlist[route.PrimaryDomain] {
 		route.PrimaryDomain = "bazi"
 		route.TaskIntent = "collect_profile"
@@ -59,39 +69,45 @@ func Apply(decision schemas.SupervisorDecision, st *state.SessionState) Approved
 		}
 	}
 	route.SecondaryDomains = filtered
+}
 
-	// 2. 强制禁用并行执行。
+// applyParallelHardDisable 阶段一强制禁用并行执行。
+func applyParallelHardDisable(route *ApprovedRoute) {
 	route.ParallelAllowed = false
+}
 
-	// 3. 低置信度强制澄清。
-	if decision.Confidence < confidenceThreshold && !route.NeedsClarification {
+// applyConfidenceClarification 低置信度强制要求澄清。
+func applyConfidenceClarification(route *ApprovedRoute, confidence float64) {
+	if confidence < confidenceThreshold && !route.NeedsClarification {
 		route.NeedsClarification = true
 		if route.ClarificationQuestion == "" {
 			route.ClarificationQuestion = "请确认一下您的需求，我再为您详细分析。"
 		}
 	}
+}
 
-	// 4. 资料不完整强制澄清或转为收集资料。
+// applyProfileClarification 资料不完整时强制澄清或转为收集资料。
+func applyProfileClarification(route *ApprovedRoute, st *state.SessionState) {
 	profileReady := st.IsProfileComplete() || st.HasBaziResult()
 	if !profileReady && route.TaskIntent != "collect_profile" && route.TaskIntent != "amend_profile" && route.TaskIntent != "direct_bazi" {
-		if !allowsProfilelessQimenPrimary(route) && !route.NeedsClarification {
+		if !allowsProfilelessQimenPrimary(*route) && !route.NeedsClarification {
 			route.NeedsClarification = true
 			route.ClarificationQuestion = "请提供您的出生信息（年份、月份、日期、时辰、性别），我来为您排盘分析。"
 		}
 	}
+}
 
-	// 5. 奇门仅在被明确批准为主链时作为主导领域。
-	if route.PrimaryDomain == "qimen" && !wantsQimenPrimary(route) {
-		// 降级：奇门主导无择时意图 → 转为八字主导，奇门降为辅助。
+// applyQimenRouting 奇门主域路由：仅在明确批准时作为主域，否则降级为 bazi。
+func applyQimenRouting(route *ApprovedRoute) {
+	if route.PrimaryDomain == "qimen" && !wantsQimenPrimary(*route) {
 		route.PrimaryDomain = "bazi"
 		route.TaskIntent = "collect_profile"
 		if !hasDomain(route.SecondaryDomains, "qimen") {
 			route.SecondaryDomains = append(route.SecondaryDomains, "qimen")
 		}
 	}
-
-	return route
 }
+
 
 func hasDomain(domains []string, target string) bool {
 	for _, d := range domains {

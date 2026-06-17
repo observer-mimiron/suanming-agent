@@ -1,0 +1,6 @@
+{"name": "flow-basic", "description": "基础会话流程：新建会话→提供八字→追问，验证 turn_type 路由和 session 复用"}
+{"id": "new-session-birth", "turns": [{"message": "你好，帮我算一下八字，我是1990年5月20日上午10点生的，在北京", "session_id": "flow-basic-01", "expect": {"http_status": 200, "turn_type_any": ["direct_bazi", "bazi_new"], "contains_any": ["八字", "出生", "年柱", "月柱", "日柱", "时柱", "天干", "地支"], "not_contains": ["复用已有命盘"]}, "grading": {"pass": ["八字", "天干"], "forbidden": []}}]}
+{"id": "new-session-female", "turns": [{"message": "我是女生，农历1988年腊月十五下午三点出生，地点上海", "session_id": "flow-basic-02", "expect": {"http_status": 200, "turn_type_any": ["direct_bazi", "bazi_new"], "contains_any": ["八字", "出生"], "not_contains": ["复用已有命盘"]}}]}
+{"id": "followup-after-birth", "turns": [{"message": "帮我看看八字，男，公历1985年3月15日早上8点，广州", "session_id": "flow-basic-03"}, {"message": "我这八字财运怎么样", "session_id": "flow-basic-03", "expect": {"http_status": 200, "contains_any": ["财", "钱", "收入", "经济"], "reuse_chart": true}}]}
+{"id": "followup-marriage", "turns": [{"message": "算八字，女，1992年7月8日晚上9点，深圳", "session_id": "flow-basic-04"}, {"message": "我什么时候能结婚", "session_id": "flow-basic-04", "expect": {"http_status": 200, "contains_any": ["婚姻", "结婚", "感情", "姻缘"], "reuse_chart": true}}]}
+{"id": "no-birth-info", "turns": [{"message": "你好，今天运气怎么样？", "session_id": "flow-basic-05", "expect": {"http_status": 200, "not_contains": ["八字", "天干地支"]}}]}

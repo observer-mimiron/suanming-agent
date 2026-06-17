@@ -32,52 +32,40 @@ func CurrentQuestion(st *state.SessionState) string {
 	return "请先给出一段简明的命盘总评。"
 }
 
+
+// cleanSourceName 将知识库来源标识转换为可读的中文书名。
+func cleanSourceName(raw string) string {
+	s := strings.TrimPrefix(raw, "knowledge://")
+	bookMap := map[string]string{
+		"ref-bazi-yuanhai":     "《渊海子平》",
+		"ref-bazi-ditiansui":   "《滴天髓》",
+		"ref-bazi-ziping":      "《子平真诠》",
+		"ref-bazi-qiongtong":   "《穷通宝鉴》",
+		"ref-bazi-sanming":     "《三命通会》",
+		"ref-bazi-gelulunming": "《格局论命》",
+		"ref-bazi-marriage":    "合婚参考资料",
+		"ref-bazi-career":      "事业财运参考资料",
+		"ref-bazi-dayun":       "大运流年参考资料",
+		"ref-bazi-geju":        "格局与用神参考资料",
+		"ref-bazi-knowledge":   "命理知识库",
+	}
+	for prefix, book := range bookMap {
+		if strings.HasPrefix(s, prefix) {
+			rest := strings.TrimPrefix(s, prefix)
+			rest = strings.TrimLeft(rest, "-s0123456789")
+			rest = strings.TrimLeft(rest, " -")
+			if rest != "" {
+				return book + " · " + rest
+			}
+			return book
+		}
+	}
+	return s
+}
 // BuildInterpretPrompt 组装完整的 LLM 系统提示词用于命盘解读。
 func (b *Builder) BuildInterpretPrompt(st *state.SessionState, passages []mcp.Passage, primaryDomain string) string {
 	tpl := b.selectPrompt(st, primaryDomain)
-
-	cleanSourceName := func(raw string) string {
-		s := strings.TrimPrefix(raw, "knowledge://")
-		bookMap := map[string]string{
-			"ref-bazi-yuanhai":     "《渊海子平》",
-			"ref-bazi-ditiansui":   "《滴天髓》",
-			"ref-bazi-ziping":      "《子平真诠》",
-			"ref-bazi-qiongtong":   "《穷通宝鉴》",
-			"ref-bazi-sanming":     "《三命通会》",
-			"ref-bazi-gelulunming": "《格局论命》",
-			"ref-bazi-marriage":    "合婚参考资料",
-			"ref-bazi-career":      "事业财运参考资料",
-			"ref-bazi-dayun":       "大运流年参考资料",
-			"ref-bazi-geju":        "格局与用神参考资料",
-			"ref-bazi-knowledge":   "命理知识库",
-		}
-		for prefix, book := range bookMap {
-			if strings.HasPrefix(s, prefix) {
-				rest := strings.TrimPrefix(s, prefix)
-				rest = strings.TrimLeft(rest, "-s0123456789")
-				rest = strings.TrimLeft(rest, " -")
-				if rest != "" {
-					return book + " · " + rest
-				}
-				return book
-			}
-		}
-		return s
-	}
-
-	var refBlock string
-	if len(passages) > 0 {
-		refBlock = "\n### 参考资料（知识库检索结果）\n\n以下是从知识库中检索到的命理典籍和相关资料。**你必须**在关键论断中引用这些资料——直接引用原文并标注出处，不要只用自己的话复述。\n\n"
-		for i, p := range passages {
-			name := cleanSourceName(p.Source)
-			content := strings.TrimSpace(p.Content)
-			if len(content) > 300 {
-				content = content[:300] + "…"
-			}
-			refBlock += fmt.Sprintf("%d. **%s**\n   %s\n\n", i+1, name, content)
-		}
-		refBlock += "**引用要求：** 上述资料中如果有与当前命盘特征直接对应的原文，你必须在分析中引用 1-2 条。引用时使用资料中标注的书名，格式如：\"《渊海子平》云：'……'\" 或 \"据《格局论命》记载：'……'\"。引用后用自己的话解释一句。禁止把参考资料当背景默默使用——要么引用，要么不用。\n\n"
-	}
+	refBlock := b.buildReferenceBlock(passages)
 
 	prompt := string(tpl) + `
 
@@ -90,25 +78,50 @@ func (b *Builder) BuildInterpretPrompt(st *state.SessionState, passages []mcp.Pa
 ` + b.buildChartSection(st, primaryDomain) + `
 ` + refBlock + b.buildAnswerGuide(st, primaryDomain)
 
-	if st.RunningSummary != "" {
-		prompt += `
-### 历史摘要
+	prompt += b.buildHistoryContext(st)
 
-以下是此前对话的压缩摘要，包含了已确认的资料、问题主线和已给出的关键结论。请在回答时结合这些上下文：
+	prompt += `
+### 当前问题
+` + CurrentQuestion(st)
+	return prompt
+}
 
-` + st.RunningSummary + `
-`
+
+
+// buildReferenceBlock 构建知识库参考资料文本块。
+func (b *Builder) buildReferenceBlock(passages []mcp.Passage) string {
+	if len(passages) == 0 {
+		return ""
 	}
+	var sb strings.Builder
+	sb.WriteString("\n### 参考资料（知识库检索结果）\n\n以下是从知识库中检索到的命理典籍和相关资料。**你必须**在关键论断中引用这些资料——直接引用原文并标注出处，不要只用自己的话复述。\n\n")
+	for i, p := range passages {
+		name := cleanSourceName(p.Source)
+		content := strings.TrimSpace(p.Content)
+		if len(content) > 300 {
+			content = content[:300] + "…"
+		}
+		sb.WriteString(fmt.Sprintf("%d. **%s**\n   %s\n\n", i+1, name, content))
+	}
+	sb.WriteString("**引用要求：** 上述资料中如果有与当前命盘特征直接对应的原文，你必须在分析中引用 1-2 条。引用时使用资料中标注的书名，格式如：\"《渊海子平》云：'……'\" 或 \"据《格局论命》记载：'……'\"。引用后用自己的话解释一句。禁止把参考资料当背景默默使用——要么引用，要么不用。\n\n")
+	return sb.String()
+}
 
+// buildHistoryContext 构建历史摘要和最近对话文本。
+func (b *Builder) buildHistoryContext(st *state.SessionState) string {
+	var sb strings.Builder
+	if st.RunningSummary != "" {
+		sb.WriteString("\n### 历史摘要\n\n以下是此前对话的压缩摘要，包含了已确认的资料、问题主线和已给出的关键结论。请在回答时结合这些上下文：\n\n")
+		sb.WriteString(st.RunningSummary)
+		sb.WriteString("\n")
+	}
 	if len(st.RecentTurns) > 0 {
 		recentCount := len(st.RecentTurns)
 		if recentCount > 4 {
 			recentCount = 4
 		}
 		recent := st.RecentTurns[len(st.RecentTurns)-recentCount:]
-		prompt += `
-### 最近对话
-`
+		sb.WriteString("\n### 最近对话\n")
 		for _, t := range recent {
 			role := "用户"
 			if t.Role == "assistant" {
@@ -118,14 +131,10 @@ func (b *Builder) BuildInterpretPrompt(st *state.SessionState, passages []mcp.Pa
 			if len(content) > 300 {
 				content = content[:300] + "...\n"
 			}
-			prompt += role + "：" + content + "\n\n"
+			sb.WriteString(role + "：" + content + "\n\n")
 		}
 	}
-
-	prompt += `
-### 当前问题
-` + CurrentQuestion(st)
-	return prompt
+	return sb.String()
 }
 
 // BuildKnowledgeQuery 根据会话状态构建知识搜索查询。
@@ -258,6 +267,10 @@ func (b *Builder) BuildAgentInstruction(st *state.SessionState, primaryDomain st
 
 当前日期：` + time.Now().Format("2006-01-02") + `
 
+### 出生资料
+` + b.buildProfileSection(st) + `
+` + b.buildChartSection(st, primaryDomain) + `
+
 ### 可用工具及执行建议
 
 你拥有以下工具，请根据当前需求选择合适的工具并按合适的顺序调用：
@@ -275,7 +288,7 @@ func (b *Builder) BuildAgentInstruction(st *state.SessionState, primaryDomain st
 - **奇门分析流程：** 先 qimen_dunjia 排盘，用 knowledge_search 查相关典籍，最后分析时空吉凶。
 - **紫微分析流程：** 先 ziwei_calc 排盘，用 knowledge_search 查相关典籍，最后解读命盘。
 - 你可以根据实际情况调整顺序或跳过不必要的步骤。
-- 除非命盘已有（session 中提供了），否则不要跳过排盘直接分析。`
+- 如果上方「出生资料」和「命盘结果」已提供，直接使用，严禁再次索要出生信息或重新调用 bazi_calc`
 
 	if st.RunningSummary != "" {
 		prompt += "\n### 会话摘要\n\n" + st.RunningSummary + "\n"

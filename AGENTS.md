@@ -30,7 +30,7 @@ Vue 3 → SSE → Gin (:8080) → HTTP → LangGraph (:8000)
             lunar-go / MCP→RAG / Codex
 ```
 
-**架构单一事实来源：** `docs/architecture.md`。任何架构决策变更必须先更新该文档。
+**架构单一事实来源：** `docs/architecture.md`（入口）和 `docs/architecture/supervisor/`（专题）。任何架构决策变更必须先更新该文档。
 
 ## 三服务启动
 
@@ -92,15 +92,14 @@ npm run build                   # 构建
 
 ## 实施状态
 
-项目处于**设计完成、待实施**阶段。所有设计文档在 `docs/` 下，实施方案在 `docs/implementation/` 下。
+项目处于 **v1.5 收口 + Eino Phase 1-5B** 阶段。所有设计文档在 `docs/` 下，架构专题在 `docs/architecture/supervisor/` 下，实施状态见 `docs/implementation.md`。
 
-实施按 M0→M6 顺序，每模块独立可验证。验收标准见 `docs/acceptance-criteria.md`（42 个用例）。
+实施按领域递增（八字 → 奇门 → 紫微），验收标准见 `docs/acceptance-criteria.md`。
 
 **开始开发前必读：**
-- `docs/architecture.md` — 架构总图、调用链路、ADR
+- `docs/architecture.md`（入口）和 `docs/architecture/supervisor/`（专题） — 架构总图、调用链路、ADR
 - `docs/acceptance-criteria.md` — 当前模块的验收用例
 - `docs/implementation.md` — 模块依赖关系
-- `docs/implementation/m<N>-*.md` — 当前模块的详细步骤
 
 ## 默认协作模式
 
@@ -260,11 +259,7 @@ type SessionState struct {
 | 文档 | 用途 |
 |------|------|
 | `docs/product.md` | 产品定义和功能范围 |
-| `docs/architecture.md` | 架构总图、调用链路、容错、ADR |
-| `docs/tech-backend.md` | Go 执行层技术细节 |
-| `docs/tech-reasoning.md` | LangGraph 推理层技术细节 |
-| `docs/tech-frontend.md` | Vue 前端技术细节 |
+| `docs/architecture.md`（入口）和 `docs/architecture/supervisor/`（专题） | 架构总图、调用链路、容错、ADR |
 | `docs/checklist-agent-engineering.md` | Agent 工程能力自检（43 项） |
-| `docs/acceptance-criteria.md` | 验收标准（42 用例） |
+| `docs/acceptance-criteria.md` | 验收标准 |
 | `docs/implementation.md` | 实施总览和模块依赖 |
-| `docs/implementation/m0-*.md` ~ `m6-*.md` | 各模块详细步骤 |

@@ -1,0 +1,6 @@
+{"name": "quiz-career-wealth", "description": "事业财运类问题，验证 Agent 对不同 life area 的回答质量"}
+{"id": "career-direction", "turns": [{"message": "男，公历1988年1月10日上午8点，马来西亚，帮我看看适合做什么行业", "session_id": "quiz-career-01", "expect": {"http_status": 200, "contains_any": ["事业", "工作", "行业", "职业"]}}]}
+{"id": "wealth-trend", "turns": [{"message": "女命，1993年6月12日亥时，成都，最近几年财运一直不好，什么时候能好转", "session_id": "quiz-career-02", "expect": {"http_status": 200, "contains_any": ["财运", "财", "收入", "好转"]}}]}
+{"id": "career-change", "turns": [{"message": "男命，公历1978年2月14日午时，东北沈阳", "session_id": "quiz-career-03"}, {"message": "现在做销售，想转行做餐饮，合适吗？", "session_id": "quiz-career-03", "expect": {"http_status": 200, "contains_any": ["合适", "适合", "餐饮", "转行", "行业"], "reuse_chart": true}}]}
+{"id": "wealth-investment", "turns": [{"message": "1986年9月3日早上9点半，女，深圳，适合投资房产吗", "session_id": "quiz-career-04", "expect": {"http_status": 200, "contains_any": ["投资", "房产", "财运"]}}]}
+{"id": "career-promotion", "turns": [{"message": "男命，1990年3月8日寅时，北京，今年有没有升职的机会", "session_id": "quiz-career-05", "expect": {"http_status": 200, "contains_any": ["升职", "事业", "机会", "今年"]}}]}

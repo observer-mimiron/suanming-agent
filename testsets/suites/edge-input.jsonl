@@ -1,0 +1,6 @@
+{"name": "edge-input", "description": "边界输入：极短消息、模糊性别、无关话题、多轮上下文切换"}
+{"id": "edge-short-msg", "turns": [{"message": "算", "session_id": "edge-01", "expect": {"http_status": 200}}]}
+{"id": "edge-no-gender", "turns": [{"message": "1995年3月15日生，帮我看看", "session_id": "edge-02", "expect": {"http_status": 200, "not_contains": ["error", "错误"]}}]}
+{"id": "edge-unrelated", "turns": [{"message": "推荐一本好看的小说", "session_id": "edge-03", "expect": {"http_status": 200, "turn_type_any": ["ask", "direct_bazi", "bazi_new", "chat"], "not_contains": ["天干", "地支", "十神"]}}]}
+{"id": "edge-topic-switch", "turns": [{"message": "女，公历1990年8月15日酉时，上海", "session_id": "edge-04"}, {"message": "先暂时不说八字了，你说说命理到底是什么原理？", "session_id": "edge-04", "expect": {"http_status": 200, "contains_any": ["原理", "命理", "五行", "阴阳"]}}]}
+{"id": "edge-english-mixed", "turns": [{"message": "帮我算一下，birth 1988/3/21 深圳", "session_id": "edge-05", "expect": {"http_status": 200, "not_contains": ["error", "错误"]}}]}

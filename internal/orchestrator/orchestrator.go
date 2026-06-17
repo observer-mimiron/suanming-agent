@@ -8,9 +8,9 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/wikiglobal/suanming-agent/internal/llm"
-	"github.com/wikiglobal/suanming-agent/internal/policy"
 	appRuntime "github.com/wikiglobal/suanming-agent/internal/runtime"
 	
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -23,7 +23,6 @@ type Orchestrator struct {
 	locker        state.Locker
 	flash         llm.Chat
 	tracer        tracing.Tracer
-	promptBuilder *appRuntime.Builder
 	runtime       *appRuntime.Executor
 	supervisor    RouteAdvisor
 }
@@ -36,7 +35,6 @@ func New(executor *appRuntime.Executor, flashClient llm.Chat, store state.Store,
 		flash:         flashClient,
 		tracer:        tracer,
 		runtime:       executor,
-		promptBuilder: executor.PromptBuilder(),
 	}
 }
 
@@ -74,6 +72,7 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 	}
 	route, approveErr := o.supervisor.Approve(ctx, message, st)
 	if approveErr != nil {
+		log.Printf("orchestrator: supervisor 降级，使用 supervisor 返回的保守路由: %v", approveErr)
 		sink.Emit(ctx, Event{Type: "thinking", Data: map[string]any{
 			"agent": "orchestrator", "text": "⚠️ 服务暂时降级，使用保守策略继续。如持续出现请稍后重试。",
 		}})
@@ -96,9 +95,7 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 	return turnErr
 }
 
-func (o *Orchestrator) executeRoute(ctx context.Context, sink EventSink, st *state.SessionState, route policy.ApprovedRoute, message string) (string, string, error) {
-	return o.runtime.Execute(ctx, sink, st, route, message)
-}
+
 
 // emitTraceDigest 从 TurnTrace 构建摘要并通过 component SSE 事件发送。
 func (o *Orchestrator) emitTraceDigest(ctx context.Context, sink EventSink, turnType string) {

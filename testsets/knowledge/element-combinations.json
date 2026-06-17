@@ -1,0 +1,82 @@
+{
+  "metadata": {
+    "name": "Element Combinations Dataset",
+    "description": "Advanced element combination analysis for complex BaZi chart interpretation and relationship dynamics",
+    "version": "1.0.0",
+    "lastUpdated": "2024-01-15",
+    "license": "CC BY-NC-SA 4.0",
+    "author": "FatePath BaZi Master",
+    "totalRecords": 25,
+    "format": "JSON",
+    "language": "en"
+  },
+  "schema": {
+    "fields": [
+      {"name": "combinationType", "type": "string", "description": "Type of element combination", "example": "Three Harmony"},
+      {"name": "elements", "type": "array", "description": "Elements involved in combination", "example": ["Wood", "Fire", "Earth"]},
+      {"name": "description", "type": "string", "description": "Detailed description of combination", "example": "Three elements forming a powerful combination"},
+      {"name": "strength", "type": "string", "description": "Combination strength level", "example": "Strong"},
+      {"name": "effects", "type": "array", "description": "Effects of this combination", "example": ["Enhanced creativity", "Strong willpower"]},
+      {"name": "challenges", "type": "array", "description": "Potential challenges", "example": ["May be overwhelming", "Intense energy"]},
+      {"name": "applications", "type": "array", "description": "Best applications for this combination", "example": ["Leadership", "Creative projects"]}
+    ]
+  },
+  "data": [
+    {
+      "combinationType": "Three Harmony",
+      "elements": ["Wood", "Fire", "Earth"],
+      "description": "Three elements forming a powerful combination that creates natural harmony and flow. Wood generates Fire, Fire generates Earth, creating a cycle of growth and stability.",
+      "strength": "Strong",
+      "effects": ["Enhanced creativity", "Strong willpower", "Natural leadership", "Stable foundation"],
+      "challenges": ["May be overwhelming", "Intense energy", "Need for balance"],
+      "applications": ["Leadership", "Creative projects", "Business ventures", "Personal growth"]
+    },
+    {
+      "combinationType": "Four Elements Balance",
+      "elements": ["Wood", "Fire", "Earth", "Metal"],
+      "description": "Four elements in balance create a harmonious and complete system. Each element supports and balances the others, creating stability and growth potential.",
+      "strength": "Very Strong",
+      "effects": ["Complete balance", "Versatility", "Adaptability", "Strong foundation"],
+      "challenges": ["Complex dynamics", "Need for careful management", "Potential conflicts"],
+      "applications": ["Complex projects", "Long-term planning", "Team leadership", "Strategic thinking"]
+    },
+    {
+      "combinationType": "Opposing Elements",
+      "elements": ["Water", "Fire"],
+      "description": "Opposing elements create dynamic tension that can lead to either conflict or powerful synergy. Water controls Fire, but Fire can also evaporate Water.",
+      "strength": "Moderate",
+      "effects": ["Dynamic energy", "Creative tension", "Passion", "Intensity"],
+      "challenges": ["Potential conflicts", "Unstable energy", "Need for balance"],
+      "applications": ["Creative work", "Passionate relationships", "Dynamic projects", "Personal transformation"]
+    },
+    {
+      "combinationType": "Hidden Combination",
+      "elements": ["Wood", "Metal"],
+      "description": "Hidden combinations occur when elements have indirect relationships. Wood and Metal don't directly interact but can create interesting dynamics through other elements.",
+      "strength": "Weak",
+      "effects": ["Subtle influence", "Indirect support", "Complex dynamics"],
+      "challenges": ["Unclear effects", "Difficult to manage", "Potential misunderstandings"],
+      "applications": ["Subtle projects", "Background work", "Support roles", "Research"]
+    },
+    {
+      "combinationType": "Destructive Cycle",
+      "elements": ["Metal", "Wood"],
+      "description": "Destructive cycle where Metal cuts Wood. This creates tension but can also lead to necessary change and transformation.",
+      "strength": "Moderate",
+      "effects": ["Transformation", "Change", "Cutting through obstacles", "Precision"],
+      "challenges": ["Potential destruction", "Loss", "Painful change", "Conflict"],
+      "applications": ["Reform", "Change management", "Cutting through problems", "Precision work"]
+    }
+  ],
+  "combinationRules": {
+    "generation": "Elements that generate each other create natural harmony",
+    "control": "Elements that control each other create tension and change",
+    "opposition": "Opposing elements create dynamic tension",
+    "hidden": "Hidden combinations have subtle, indirect effects"
+  },
+  "interpretationGuidance": {
+    "strong": "Strong combinations provide powerful energy and clear direction",
+    "moderate": "Moderate combinations offer balanced energy with some challenges",
+    "weak": "Weak combinations provide subtle influence that requires careful attention"
+  }
+}

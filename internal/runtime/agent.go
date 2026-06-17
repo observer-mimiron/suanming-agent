@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"time"
 
 	"github.com/cloudwego/eino/adk"
 	einomodel "github.com/cloudwego/eino/components/model"
@@ -29,15 +28,7 @@ func NewRuntimeAgent(ctx context.Context, model einomodel.ToolCallingChatModel, 
 				Tools: tools,
 			},
 		},
-		ModelRetryConfig: &adk.ModelRetryConfig{
-			MaxRetries: 2,
-			ShouldRetry: func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision {
-				if rc.Err != nil {
-					return &adk.RetryDecision{Retry: true, Backoff: time.Second}
-				}
-				return &adk.RetryDecision{Retry: false}
-			},
-		},
+		ModelRetryConfig: defaultRetryConfig(),
 	})
 }
 
