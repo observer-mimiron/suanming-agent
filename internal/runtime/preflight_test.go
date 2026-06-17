@@ -142,3 +142,17 @@ func TestPreflight_ZiweiWithoutProfileOrChartBlocks(t *testing.T) {
 		t.Fatal("ziwei route without profile or chart should short circuit")
 	}
 }
+
+// TestPreflight_CollectProfileWithFullRequirementDoesNotBlock 验证即使 supervisor
+// 设置了 ProfileRequirement=full，如果用户正在提供资料（collect_profile），
+// preflight 不应拦截——supervisor 已提取资料到 route.Slots.Profile，应放行让 agent 排盘。
+func TestPreflight_CollectProfileWithFullRequirementDoesNotBlock(t *testing.T) {
+	st := makeSession(false, false, false)
+	route := routeWithHints("bazi", "collect_profile", "none", "full")
+
+	result := preflight(st, route)
+	if result.ShortCircuit {
+		t.Fatalf("collect_profile with ProfileRequirement=full should not be blocked; "+
+			"TurnType=%q Text=%q", result.TurnType, result.Text)
+	}
+}
