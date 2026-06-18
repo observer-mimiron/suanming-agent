@@ -2,6 +2,69 @@
 
 标准化测试与 Agent 行为回归验证。
 
+## 测试框架架构
+
+```
+Suite (JSONL + _context) → 声明式断言 + {占位符}
+    ↓
+CanonicalTrace           → 规范模型 (steps/actions/retrievals/route)
+    ↓
+Adapter (YAML + .py)     → 映射配置 (这个 agent 的 event→规范字段)
+    ↓
+Agent Raw Output (SSE / JSONL / ...)
+```
+
+- **CanonicalTrace**: 架构无关的 agent 执行轨迹模型（`testsets/suites/canonical.py`），断言层唯一数据源
+- **Adapter**: 描述 agent 特定输出格式到 CanonicalTrace 的映射，写成 YAML 配置（`testsets/adapters/`）
+- **Suite**: 测试用例（JSONL），用 `{占位符}` 引用领域特定值（工具名、domain 名等），通过 `_context` 定义
+- **架构变化时**：只改 adapter.yaml 或 suite 的 `_context`，不碰 Python 代码
+
+### 使用方式
+
+```bash
+# 旧格式（向后兼容，不需要 adapter）
+python3 testsets/suites/runner.py testsets/suites/flow-basic.jsonl http://localhost:18080
+
+# 新格式（需要 --adapter）
+python3 testsets/suites/runner.py testsets/suites/component/route-basic.jsonl \
+  http://localhost:18080 \
+  --adapter testsets/adapters/suanming-agent-sse.yaml
+```
+
+## 断言类型
+
+### 新格式断言（架构无关）
+
+| 类别 | 断言字段 | 参数类型 | 说明 |
+|------|---------|---------|------|
+| HTTP | `http_status` | int | HTTP 状态码 |
+| 路由 | `route_primary` | str | 路由主域 |
+| 路由 | `route_intent_any` | [str] | 任务意图（任一） |
+| 动作 | `action_called` | [str] | 指定动作被调用 |
+| 动作 | `action_not_called` | [str] | 指定动作未被调用 |
+| 动作 | `action_sequence` | [str] | 动作调用顺序（subsequence） |
+| 动作 | `action_arg_match` | {name: {arg: val}} | 动作参数匹配 |
+| 动作 | `action_result_not_empty` | [str] | 动作返回非空 |
+| 检索 | `retrieval_happened` | bool | 检索发生过 |
+| 检索 | `retrieval_has_results` | bool | 检索返回了结果 |
+| 检索 | `retrieval_cited` | bool | 检索结果被引用到回复 |
+| 步骤 | `step_count_range` | [min, max] | 步骤数范围 |
+| 步骤 | `no_errors` | bool | 无执行错误 |
+| 输出 | `final_output_contains` | [str] | 最终输出含关键词 |
+| 输出 | `final_output_not_contains` | [str] | 最终输出不含关键词 |
+
+### 旧格式断言（向后兼容，不需要 adapter）
+
+| 断言字段 | 说明 |
+|---------|------|
+| `http_status` | HTTP 状态码 |
+| `turn_type` / `turn_type_any` | 轮次类型 |
+| `route_primary` | 路由主域 |
+| `task_intent` / `task_intent_any` | 任务意图 |
+| `contains_any` / `contains_all` | 关键词包含 |
+| `not_contains` | 禁止关键词 |
+| `knowledge_search` | 知识库检索触发 |
+
 ## 目录结构
 
 ```
@@ -20,8 +83,10 @@ testsets/
 │   ├── flow-basic.jsonl                # [Smoke] 基础会话流程
 │   ├── quiz-marriage.jsonl             # [Standard] 婚姻感情类
 │   ├── quiz-career-wealth.jsonl        # [Standard] 事业财运类
+│   ├── quiz-ziwei.jsonl               # [Standard] 紫微斗数专项
 │   ├── edge-input.jsonl               # [Standard] 边界输入
 │   ├── quiz-knowledge.jsonl            # [Exhaustive] 知识库检索
+│   ├── quiz-knowledge-edge.jsonl        # [Exhaustive] 知识图谱专项
 │   ├── quiz-year-event.jsonl           # [Exhaustive] 流年专项
 │   ├── edge-adversarial.jsonl          # [Exhaustive] 对抗性输入
 │   └── edge-resilience.jsonl           # [Exhaustive] 容错降级
@@ -75,6 +140,17 @@ testsets/
 | wealth-investment | 投资方向建议 |
 | career-promotion | 升职机会 |
 
+### quiz-ziwei — 紫微斗数专项
+验证紫微斗数排盘、十二宫分析、流年等专项能力。
+
+| 用例 | 场景 |
+|------|------|
+| ziwei-basic-chart | 紫微斗数排盘 |
+| ziwei-career | 紫微斗数看事业财运 |
+| ziwei-marriage | 紫微斗数看婚姻 |
+| ziwei-liunian | 紫微斗数流年分析 |
+| ziwei-followup | 排盘后追问命宫和感情 |
+
 ### edge-input — 边界输入
 验证异常输入处理。
 
@@ -96,6 +172,17 @@ testsets/
 | knowledge-named-book | 指定书名引用原文 |
 | knowledge-ditiansui | 经典名句解释对照 |
 | knowledge-fake-book | 伪书检测——不应引用不存在的书 |
+
+### quiz-knowledge-edge — 知识图谱专项
+验证 knowledge_catalog、3次预算、GetGraph、Agentic RAG 策略。
+
+| 用例 | 场景 |
+|------|------|
+| kedge-catalog-search | 排盘后调用 catalog + search，验证古籍引用 |
+| kedge-specific-book | 指定《子平真诠》原文引用 |
+| kedge-multi-source | 同时查两部古籍对比 |
+| kedge-catalog-first | 要求先列出目录再选书检索 |
+| kedge-no-fake-book | 伪书检测——不应引用不存在的书名 |
 
 ### quiz-year-event — 流年专项
 验证具体年份分析能力。
@@ -166,7 +253,12 @@ done
 | `internal/orchestrator/` | flow-basic |
 | `internal/policy/gate.go` | edge-input + edge-adversarial |
 | `internal/specialists/bazi/` | flow-basic + quiz-marriage + quiz-career-wealth + quiz-year-event |
-| `internal/mcp/` (知识库) | quiz-knowledge |
+| `internal/specialists/ziwei/` | quiz-ziwei + edge-resilience |
+| `internal/tools/ziwei/` | quiz-ziwei + edge-resilience |
+| `internal/mcp/` (知识库) | quiz-knowledge + quiz-knowledge-edge |
+| `internal/tools/knowledge_*.go` | quiz-knowledge-edge |
+| `internal/runtime/adapter.go` | quiz-knowledge-edge |
+| `internal/runtime/bridge.go` (search budget) | quiz-knowledge-edge |
 | `web/` (Vue 前端) | 不跑 suite |
 | `reasoning/` (Python) | 不跑 suite |
 | 模型切换 | Smoke + Standard + Exhaustive（全量） |

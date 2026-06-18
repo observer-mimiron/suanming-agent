@@ -37,6 +37,7 @@ description: Use when prompted to run tests against the agent test suite, when c
 | `flow-basic` | Smoke | 新建会话、追问复用、无八字闲聊 |
 | `quiz-marriage` | Standard | 婚姻感情：时机、正缘、配偶、风险 |
 | `quiz-career-wealth` | Standard | 事业财运：方向、转行、投资、升职 |
+| `quiz-ziwei` | Standard | 紫微斗数：排盘、十二宫、流年、婚姻事业 |
 | `edge-input` | Standard | 边界输入：短消息、缺性别、无关话题、中英混杂 |
 | `quiz-knowledge` | Exhaustive | 知识库检索：古籍引用、出处标注、伪书检测 |
 | `quiz-knowledge-edge` | Exhaustive | 知识图谱专项：catalog、3次预算、GetGraph、Agentic RAG |
@@ -122,15 +123,80 @@ LISTEN_ADDR=:18080 go run ./cmd/server/
 python3 testsets/suites/runner.py testsets/suites/flow-basic.jsonl http://localhost:18080
 ```
 
+## 跑测试前检查清单
+
+**必须按顺序执行，跳过任一步骤是时间黑洞。**
+
+### 0. AI 探针门禁（硬性，最先执行）
+
+**在启动服务或跑 runner 之前，AI 必须先发一条探针请求，确认单轮响应在可控范围内。**
+
+这是防止 30 分钟时间黑洞的第一道防线。runner 内置的 `check_server_ready()` 会自动执行此检查并输出时间/大小，但 **AI 在调用 runner 前也要自行判断**：
+
+```
+runner 输出示例:
+✓ 服务就绪 (commit=56e459c, route_primary=bazi, probe=12.3s, body=45.2KB)
+```
+
+**AI 上下文健康指标**（宽松设置，只拦截明显异常）：
+
+| 指标 | 默认上限 | 环境变量 | 含义 |
+|------|---------|---------|------|
+| 单轮时间 | 120s | `PROBE_TIME_LIMIT` | 单轮 2 分钟足够任何 specialist，超时说明模型卡死 |
+| 响应大小 | 1MB | `PROBE_SIZE_LIMIT` | 正常 SSE 响应 < 100KB，1MB 已留足 10 倍余量 |
+| 预估总时长 | 见 runner 输出 | — | runner 启动后打印 `Est. total: ~Xs`，AI 据此判断是否继续 |
+
+**任一超限，runner 自动退出 (exit code 2)，AI 不得继续尝试跑 suite。** 此时应：
+- 检查模型是否切换导致输出变长
+- 检查 prompt 是否膨胀
+- 缩小套件范围或降低 workers
+
+**AI 自主判断规则**（runner 不会拦截，由 AI 自行决策）：
+- 预估总时长 > 15min → 建议拆分为多个子套件分批跑
+- 预估总时长 > 30min → 必须拒绝，要求用户缩小范围或改跑 Smoke 级别
+- body > 200KB 但 < 1MB → 警告但仍可继续，注意上下文消耗
+
+### 1. 确认服务版本
+
+`lsof -i :18080` 看 PID，如果服务在代码修改前启动，先 kill 再启动。
+
+### 2. 构建二进制，不要 go run
+
+`go build -o /tmp/suanming-server ./cmd/server/ && /tmp/suanming-server &`。`go run` 可能因进程退出而丢失。
+
+### 3. 验证 health
+
+`curl http://localhost:18080/api/health` 返回 `{"status":"ok"}`。
+
+### 4. 抓一条真实 SSE 响应
+
+对最小 case 手动 curl，检查 SSE body 中 route-decision 的 JSON 字段顺序和存在性。**不要跳过这步直接跑 suite。**
+
+### 5. 先跑 1 个 case
+
+`python3 runner.py suite.jsonl http://localhost:18080 --workers 1` 确认 runner 解析正确。
+
 ## 启动被测服务
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
+COMMIT=$(git rev-parse --short HEAD)
+go build -ldflags="-X github.com/wikiglobal/suanming-agent/internal/container.BuildCommit=$COMMIT" \
+    -o /tmp/suanming-server ./cmd/server/
 set -a; source .env; set +a
-LISTEN_ADDR=:18080 go run ./cmd/server/ &
-sleep 5
-curl http://localhost:18080/api/health  # 确认 {"status":"ok"}
+LISTEN_ADDR=:18080 /tmp/suanming-server &
+sleep 3
+curl http://localhost:18080/api/health  # 确认 {"status":"ok","commit":"xxxxx"}
 ```
+**不要用 `go run ./cmd/server/ &`** — 进程崩溃后不易察觉，导致用旧二进制测试。
+
+**runner 内置 smoke check** — `run_suite`/`run_suite_parallel` 启动时自动：
+1. 校验 `/api/health` 可达
+2. 对比服务 commit 与本地 `git rev-parse HEAD`
+3. 发一条探针请求，确认 SSE 包含 `route-decision` 且可解析
+4. **测量探针耗时和响应大小，超过上限即退出 (exit code 2)**
+
+任意一步失败即退出（exit code 2），不进入 suite 执行。这杜绝了「旧二进制跑新测试」和「格式变化盲跑」两类时间黑洞。第 4 步新增的「AI 探针门禁」进一步防止「单轮响应过大/过慢导致 suite 跑不完」的时间黑洞。
 
 ## 执行
 
@@ -143,6 +209,30 @@ for f in quiz-marriage quiz-year-event; do
     python3 testsets/suites/runner.py testsets/suites/$f.jsonl http://localhost:18080
 done
 ```
+
+### workers 选择
+
+- `--workers 1`：包含紫微斗数 specialist 的套件（`quiz-ziwei`、`edge-resilience`），ziwei 排盘 LLM 调用重，并行会超时
+- `--workers 4`：纯路由/八字/奇门类套件，这些 LLM 调用轻量
+- 默认值 4 对轻量级套件安全，但遇到间歇性空路由时先降到 1 复验
+
+## Runner API
+
+runner 内部用 `TurnResponse` dataclass，不要用元组索引：
+
+```python
+from runner import run_turn, TurnResponse
+r = run_turn('http://localhost:18080', '消息', 'session-id', timeout=90)
+# r.http_code  r.body  r.turn_type  r.full_text  r.thinking
+# r.route_primary  r.task_intent  r.qimen_mode  r.secondary_domains
+```
+
+新增断言类型 (`expect` 字段):
+- `route_primary` — 精确匹配路由主域
+- `task_intent` — 精确匹配 task_intent
+- `task_intent_any` — task_intent 在列表中任一即可
+- `qimen_mode` — 精确匹配 qimen_mode
+- `secondary_contains` — secondary_domains 至少包含一个指定值
 
 ## 结果解读
 
@@ -181,25 +271,57 @@ done
 
 ### 断言类型
 
-| 字段 | 类型 | 语义 |
-|------|------|------|
-| `http_status` | int | 期望 HTTP 状态码 |
-| `turn_type` | string | 精确匹配 turn_type |
-| `turn_type_any` | [string] | 匹配任意一个 |
-| `contains_any` | [string] | 至少命中一个关键词 (regex) |
-| `contains_all` | [string] | 全部命中 |
-| `not_contains` | [string] | 全部不出现 |
-| `reuse_chart` | bool | 检查 body 中是否包含"复用已有命盘" |
-| `knowledge_search` | bool | 检查 knowledge_search 和 knowledge-sources 是否触发 |
+| 字段 | 类型 | 语义 | 注意事项 |
+|------|------|------|---------|
+| `http_status` | int | 期望 HTTP 状态码 | |
+| `contains_any` | [string] | 至少命中一个关键词 (substring) | 用 3-5 个足够宽泛的词，不要用单字 |
+| `contains_all` | [string] | 全部命中 | |
+| `not_contains` | [string] | 全部不出现 | ⚠️ 检查的是 SSE body + 提取文本，trace-panel JSON 里的字段名（如 "error"）也会被匹配 |
+| `knowledge_search` | bool | 检查 body 中是否出现 knowledge_search 和 knowledge-sources | |
+
+### 新格式断言（架构无关，v2）
+
+使用 `--adapter` 参数启用轨迹级验证：
+
+```bash
+python3 testsets/suites/runner.py <suite.jsonl> <server_url> \
+  --adapter testsets/adapters/suanming-agent-sse.yaml
+```
+
+新增断言字段：`action_called`, `action_sequence`, `action_arg_match`, `action_result_not_empty`, `retrieval_happened`, `retrieval_has_results`, `retrieval_cited`, `step_count_range`, `no_errors`, `final_output_contains`, `final_output_not_contains`
+
+Suite 用 `_context` 定义占位符，实现领域值与断言解耦：
+
+```json
+{"name": "...", "_context": {"paipan": "bazi_paipan", "domain": "bazi"}}
+{"id": "...", "expect": {"route_primary": "{domain}", "action_called": ["{paipan}"]}}
+```
+
+不传 `--adapter` 时自动使用旧断言逻辑，旧 suite 完全向后兼容。
+
+**注意：** `turn_type`、`turn_type_any`、`reuse_chart` 在当前 SSE 格式中不可靠，不要使用。
+- 短路径（preflight 直接返回）不经过 trace-panel，没有 turn_type 输出
+- "复用已有命盘" 字符串当前代码不输出
+
+### 编写流程（必须按顺序）
+
+**第 0 步：先抓一条真实响应。** 写任何 case 之前，手动 curl 一个最简单的请求，检查 SSE 格式、文本提取效果、trace-panel JSON 内容。不跳过这步。
+
+**第 1 步：写 1 个 case → 跑 → 确认通过。** 不要一次写完整套件。
+
+**第 2 步：扩展 3-5 个 → 跑 → 全部通过才提交。**
+
+**第 3 步：新代码改动后，先跑已有套件做回归，再根据改动面加新 case。**
 
 ### 编写原则
 
 1. **模拟真实对话** — 用自然的中文，不是拼凑关键词。参考 `testsets/raw/test-cases.md` 里的真实案例
 2. **一个 case 一个场景** — 不要在一个 case 里塞多个不相关的验证点
 3. **多 turn 要连贯** — 同一 session 的 turn 之间要有对话逻辑
-4. **expect 宁松勿紧** — `contains_any` 给 3-5 个足够宽泛的关键词，不要用精确匹配来"刁难"模型
-5. **不写一定会失败的 case** — 除非刻意做对抗性测试，否则 case 应该预期当前 Agent 能够通过
-6. **每个 suite 3-5 个 case** — 太少覆盖面不够，太多跑不完
+4. **expect 宁松勿紧** — `contains_any` 给 3-5 个宽泛关键词，不要用精确匹配刁难模型
+5. **不写一定会失败的 case** — 除非刻意做对抗性测试
+6. **每个 suite 3-5 个 case** — 太少覆盖率不够，太多跑不完
+7. **`not_contains` 不要检查通用英文词** — "error"、"null"、"status" 等会在 SSE JSON 数据中自然出现，导致误报。只检查面向用户的中文文本
 
 ### 新增套件 checklist
 
@@ -215,12 +337,19 @@ done
 
 | 错误 | 正确做法 |
 |------|---------|
+| **不检查探针耗时/大小就开跑** | runner 会自动检测，AI 也要看输出中的 `probe=XXs body=XX`，超限立即终止 |
 | 跑全部套件 | 按级别选：Smoke → Standard → Exhaustive |
 | 测试失败后改 expect 关键词 | 先诊断根因分类，确定是代码 bug 还是 expectation 过时 |
 | 不在映射表中也跑 suite 测试 | 只跑 `go test ./...` + `go build` |
 | 改了模块 A 跑模块 B 的套件 | 只跑改动模块对应的套件 |
 | 一个 suite 超过 5 个 case | 拆分为多个套件 |
 | expect 关键词太精确 | 用足够宽泛的关键词覆盖合理的变化 |
+| **不验证服务就跑 suite** | 先 `curl health`，再 `curl` 一条真实 SSE 检查 `route-decision` 格式 |
+| **用旧二进制跑新测试** | 每次代码修改后 `go build && restart`，检查 PID |
+| **写 route 断言前不抓真实 SSE** | 第 0 步：curl 一个最小请求，确认 JSON 字段顺序和存在性 |
+| **元组索引硬编码** | 用 `TurnResponse` dataclass，`r.route_primary` 而非 `result[5]` |
+| **紫微 suite 用 4 workers** | 紫微排盘 LLM 重，用 `--workers 1` 或 `--workers 2` |
+| **删断言不加替代** | 删 `reuse_chart` 可加 `not_contains: ["请提供出生信息"]` 验证 session 复用 |
 
 ## 不做什么
 
