@@ -1,6 +1,9 @@
 package ziwei
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/6tail/lunar-go/calendar"
 )
 
@@ -93,4 +96,41 @@ func GetLiuNianByYear(birthYear, birthMonth, birthDay, birthHour int, gender str
 	}
 	ln := GetLiuNian(chart, targetYear, currentAge)
 	return ln, chart, nil
+}
+
+
+// ZiWeiLiuNianTool 紫微斗数流年分析工具。
+// 根据出生信息和目标年份推算流年干支、四化和小限宫位。
+type ZiWeiLiuNianTool struct{}
+
+func (t *ZiWeiLiuNianTool) Name() string { return "ziwei_liunian" }
+
+func (t *ZiWeiLiuNianTool) Description() string {
+	return "紫微斗数流年分析，输入出生年月日时+性别+目标年份+虚岁年龄，返回流年干支、四化、小限宫位"
+}
+
+func (t *ZiWeiLiuNianTool) Execute(_ context.Context, params map[string]any) (any, error) {
+	year, _ := params["year"].(float64)
+	month, _ := params["month"].(float64)
+	day, _ := params["day"].(float64)
+	hour, _ := params["hour"].(float64)
+	gender, _ := params["gender"].(string)
+	targetYear, _ := params["target_year"].(float64)
+	age, _ := params["age"].(float64)
+
+	ln, _, err := GetLiuNianByYear(
+		int(year), int(month), int(day), int(hour), gender,
+		int(targetYear), int(age),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("流年分析失败: %w", err)
+	}
+
+	return map[string]any{
+		"year":        ln.Year,
+		"year_stem":   ln.YearStem,
+		"year_branch": ln.YearBranch,
+		"mutagens":    ln.Mutagens,
+		"age_palace":  ln.AgePalace,
+	}, nil
 }
