@@ -142,6 +142,10 @@ func (b *Builder) BuildKnowledgeQuery(ctx context.Context, st *state.SessionStat
 	if primaryDomain == "qimen" && !st.HasBaziResult() && st.QimenResult != nil {
 		return b.BuildQimenKnowledgeQuery(CurrentQuestion(st), st.QimenResult)
 	}
+
+	if primaryDomain == "ziwei" && st.ZiWeiResult != nil {
+		return b.buildZiweiKnowledgeQuery(CurrentQuestion(st), st.ZiWeiResult)
+	}
 	question := CurrentQuestion(st)
 
 	var terms []string
@@ -250,6 +254,51 @@ func (b *Builder) BuildQimenKnowledgeQuery(question string, qimenData map[string
 	if question != "" {
 		terms = append(terms, question)
 	}
+	query := strings.Join(terms, " ")
+	if len(query) > 200 {
+		query = query[:200]
+	}
+	return query
+}
+
+// buildZiweiKnowledgeQuery 从紫微斗数命盘结果中提取关键词构建知识搜索查询。
+func (b *Builder) buildZiweiKnowledgeQuery(question string, result map[string]any) string {
+	var terms []string
+	terms = append(terms, "紫微斗数")
+
+	// 提取命宫主星名
+	if palaces, ok := result["palaces"].([]any); ok {
+		for _, p := range palaces {
+			if palace, ok := p.(map[string]any); ok {
+				name, _ := palace["name"].(string)
+				if name != "命宫" {
+					continue
+				}
+				if stars, ok := palace["major_stars"].([]any); ok {
+					for _, s := range stars {
+						if star, ok := s.(map[string]any); ok {
+							if starName, ok := star["name"].(string); ok && starName != "" {
+								terms = append(terms, starName)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 提取四化信息
+	if fourPillars, ok := result["four_pillars"].(map[string]any); ok {
+		if yearPillar, ok := fourPillars["年柱"].(string); ok && len(yearPillar) >= 2 {
+			yearStem := string([]rune(yearPillar)[0])
+			terms = append(terms, yearStem+"年四化")
+		}
+	}
+
+	if question != "" {
+		terms = append(terms, question)
+	}
+
 	query := strings.Join(terms, " ")
 	if len(query) > 200 {
 		query = query[:200]
