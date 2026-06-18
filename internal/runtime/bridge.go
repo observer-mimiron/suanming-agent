@@ -87,6 +87,8 @@ func emitChartFromToolResult(ctx context.Context, sink EventSink, toolName, resu
 	case "qimen_dunjia":
 		chartType = "qimen-chart"
 	case "ziwei_calc":
+	case "ziwei_liunian":
+		chartType = "ziwei-chart"
 		chartType = "ziwei-chart"
 	default:
 		return

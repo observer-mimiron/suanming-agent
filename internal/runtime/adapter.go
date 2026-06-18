@@ -51,6 +51,16 @@ type ziweiInput struct {
 	Hour   int    `json:"hour" jsonschema_description:"出生时辰 (0-23)"`
 	Gender string `json:"gender" jsonschema_description:"性别 (男/女)"`
 	Leap   bool   `json:"leap,omitempty" jsonschema_description:"是否闰月"`
+
+}
+type ziweiLiuNianInput struct {
+	Year       int    `json:"year" jsonschema_description:"出生年份"`
+	Month      int    `json:"month" jsonschema_description:"出生月份 (1-12)"`
+	Day        int    `json:"day" jsonschema_description:"出生日期 (1-31)"`
+	Hour       int    `json:"hour" jsonschema_description:"出生时辰 (0-23)"`
+	Gender     string `json:"gender" jsonschema_description:"性别 (男/女)"`
+	TargetYear int    `json:"target_year" jsonschema_description:"流年目标年份"`
+	Age        int    `json:"age" jsonschema_description:"虚岁年龄"`
 }
 
 // knowledgeSearchInput 知识库检索工具的输入参数。
@@ -164,6 +174,23 @@ func newZiweiAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 	})
 }
 
+// newZiweiLiuNianAdapter 创建紫微斗数流年分析工具的 Eino BaseTool 适配器。
+func newZiweiLiuNianAdapter(reg *tools.Registry) (tool.BaseTool, error) {
+	return utils.InferTool("ziwei_liunian", "紫微斗数流年分析，输入出生年月日时+性别+目标年份+虚岁年龄",
+		func(ctx context.Context, input ziweiLiuNianInput) (string, error) {
+			params, err := structToMap(input)
+			if err != nil {
+				return "{}", nil
+			}
+			gt, ok := reg.Get("ziwei_liunian")
+			if !ok {
+				return "{}", nil
+			}
+			result, err := gt.Execute(ctx, params)
+			return marshalResult(result, err), nil
+		})
+}
+
 // newKnowledgeSearchAdapter 创建知识库检索工具的 Eino BaseTool 适配器。
 func newKnowledgeSearchAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 	var callCount int // 闭包计数器，随 adapter 生命周期（per-turn）归零
@@ -224,6 +251,7 @@ func buildAdapters(reg *tools.Registry) ([]tool.BaseTool, error) {
 		{"dayun_analyzer", func() (tool.BaseTool, error) { return newDayunAdapter(reg) }},
 		{"qimen_dunjia", func() (tool.BaseTool, error) { return newQimenAdapter(reg) }},
 		{"ziwei_calc", func() (tool.BaseTool, error) { return newZiweiAdapter(reg) }},
+		{"ziwei_liunian", func() (tool.BaseTool, error) { return newZiweiLiuNianAdapter(reg) }},
 		{"knowledge_search", func() (tool.BaseTool, error) { return newKnowledgeSearchAdapter(reg) }},
 		{"knowledge_catalog", func() (tool.BaseTool, error) { return newKnowledgeCatalogAdapter(reg) }},
 	}
@@ -253,6 +281,7 @@ func BuildAdaptersFor(reg *tools.Registry, names []string) ([]tool.BaseTool, err
 		"dayun_analyzer":  func() (tool.BaseTool, error) { return newDayunAdapter(reg) },
 		"qimen_dunjia":    func() (tool.BaseTool, error) { return newQimenAdapter(reg) },
 		"ziwei_calc":      func() (tool.BaseTool, error) { return newZiweiAdapter(reg) },
+		"ziwei_liunian":   func() (tool.BaseTool, error) { return newZiweiLiuNianAdapter(reg) },
 		"knowledge_search": func() (tool.BaseTool, error) { return newKnowledgeSearchAdapter(reg) },
 		"knowledge_catalog": func() (tool.BaseTool, error) { return newKnowledgeCatalogAdapter(reg) },
 	}
