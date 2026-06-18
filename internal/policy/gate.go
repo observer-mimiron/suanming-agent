@@ -16,6 +16,7 @@ const (
 var phase1Allowlist = map[string]bool{
 	"bazi":  true,
 	"qimen": true,
+	"ziwei":  true,
 }
 
 // ApprovedRoute 是经策略门控批准的执行路线，包含领域、任务意图、槽位和策略提示。
