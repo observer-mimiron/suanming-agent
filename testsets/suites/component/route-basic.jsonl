@@ -1,0 +1,12 @@
+{"name": "route-basic", "description": "L1组件级：路由分类 — 给定输入→正确domain+action",
+ "_context": {"paipan": "bazi_paipan", "dayun": "bazi_dayun", "bazi": "bazi", "ziwei": "ziwei"}}
+
+{"id": "cr-bazi", "turns": [{"message": "男，1990年5月20日上午10点，北京，算八字","session_id": "cr-01","expect": {"http_status": 200, "route_primary": "{bazi}", "action_called": ["{paipan}"], "action_result_not_empty": ["{paipan}"], "step_count_range": [1, 10]}}]}
+
+{"id": "cr-female-lunar", "turns": [{"message": "女，农历1988年腊月十五下午三点，上海","session_id": "cr-02","expect": {"http_status": 200, "route_primary": "{bazi}", "action_called": ["{paipan}"]}}]}
+
+{"id": "cr-ziwei", "turns": [{"message": "男，1995年3月15日早上8点，广州，排紫微斗数","session_id": "cr-03","expect": {"http_status": 200, "route_primary": "{ziwei}", "action_not_called": ["{paipan}"]}}]}
+
+{"id": "cr-no-birth", "turns": [{"message": "你好，最近压力大，有什么建议？","session_id": "cr-04","expect": {"http_status": 200, "action_not_called": ["{paipan}"], "step_count_range": [0, 6]}}]}
+
+{"id": "cr-short-msg", "turns": [{"message": "算","session_id": "cr-05","expect": {"http_status": 200, "final_output_not_contains": ["天干地支", "十神"], "step_count_range": [0, 6]}}]}

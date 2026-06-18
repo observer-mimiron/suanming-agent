@@ -1,0 +1,4 @@
+{"name": "regression-midnight-birth", "description": "回归：2026-06-18 子时排盘异常",
+ "_context": {"paipan": "bazi_paipan"}}
+
+{"id": "reg-midnight", "turns": [{"message": "男，1995年8月15日凌晨0点05分，成都，算八字","session_id": "reg-mn-01","expect": {"http_status": 200, "action_result_not_empty": ["{paipan}"]}}]}

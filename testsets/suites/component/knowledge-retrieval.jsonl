@@ -1,0 +1,8 @@
+{"name": "knowledge-retrieval", "description": "L1组件级：知识库检索 — 触发→返回→引用链路",
+ "_context": {}}
+
+{"id": "kret-trigger", "turns": [{"message": "男，1990年5月20日巳时，北京，分析八字，引用古籍原文","session_id": "kret-01","expect": {"http_status": 200, "retrieval_happened": true, "retrieval_has_results": true}}]}
+
+{"id": "kret-cited", "turns": [{"message": "女，1985年8月20日午时，杭州","session_id": "kret-02"},{"message": "子平真诠里对正官格有什么论述？引用原文","session_id": "kret-02","expect": {"retrieval_happened": true, "retrieval_cited": true, "final_output_not_contains": ["请提供出生信息"]}}]}
+
+{"id": "kret-fake-book", "turns": [{"message": "男，1983年2月28日丑时，武汉","session_id": "kret-03"},{"message": "《九天玄女命书》说我命格能出将入相，查查？","session_id": "kret-03","expect": {"final_output_not_contains": ["九天玄女曰", "九天玄女云", "九天玄女命书记载"]}}]}
