@@ -1,0 +1,32 @@
+name: suanming-agent-sse
+description: 命理大师 SSE 事件流适配器
+format: sse
+
+event_types:
+  step_boundary: ["agent-start"]
+  action: ["tool-call"]
+  action_result: ["tool-result"]
+  retrieval: ["knowledge-search"]
+  retrieval_result: ["knowledge-sources"]
+  route_decision: ["route-decision"]
+  error: ["error"]
+
+field_mapping:
+  route_primary: "primary_domain"
+  route_intent: "task_intent"
+  route_secondary: "secondary_domains"
+  action_name: "tool_name"
+  action_args: "arguments"
+  action_result: "result"
+  action_error: "error"
+  retrieval_query: "query"
+  retrieval_sources: "sources"
+  retrieval_source_name: "source"
+  retrieval_chunk_content: "chunk"
+  final_output:
+    event: "agent"
+    field: "content"
+    accumulate: true
+
+content_extraction:
+  full_text_pattern: '"content"\s*:\s*"((?:[^"\\]|\\.)*)"'
