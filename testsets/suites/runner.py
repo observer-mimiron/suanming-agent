@@ -19,8 +19,12 @@ Case 格式:
         "contains_any": ["关键词A", "B"],   // 至少命中一个
         "contains_all": ["必须包含A"],      // 全部命中
         "not_contains": ["禁止词"],         // 不可出现
-        "reuse_chart": true,                // 检查"复用已有命盘"
         "knowledge_search": true            // 检查 knowledge_search 触发
+        "route_primary": "bazi",            // 精确匹配路由主域
+        "task_intent": "collect_profile",   // 精确匹配 task_intent
+        "task_intent_any": ["x", "y"],      // 任意一个
+        "qimen_mode": "primary",            // 精确匹配 qimen_mode
+        "secondary_contains": ["ziwei"]     // secondary_domains 至少包含一个
       },
       "grading": {
         "pass": ["正确关键词"],
@@ -35,13 +39,36 @@ Case 格式:
   python3 runner.py testsets/suites/quiz-marriage.jsonl http://localhost:18080
 """
 
-import json, sys, os, re, subprocess, argparse, time
+import json, sys, os, re, subprocess, argparse, time, threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+
+# ── 新增：适配器 + 断言引擎导入 ──
+import sys as _sys
+from pathlib import Path as _Path
+_ADAPTERS_DIR = str(_Path(__file__).resolve().parent.parent / "adapters")
+_SUITES_DIR = str(_Path(__file__).resolve().parent)
+if _ADAPTERS_DIR not in _sys.path:
+    _sys.path.insert(0, _ADAPTERS_DIR)
+if _SUITES_DIR not in _sys.path:
+    _sys.path.insert(0, _SUITES_DIR)
+
+from canonical import CanonicalTrace
+from assertions import run_assertions, resolve_placeholders
 
 GREEN  = "\033[0;32m"
 RED    = "\033[0;31m"
 YELLOW = "\033[1;33m"
 CYAN   = "\033[0;36m"
+BOLD   = "\033[1m"
 NC     = "\033[0m"
+
+_print_lock = threading.Lock()
+
+def tprint(*args, **kwargs):
+    """线程安全的 print。"""
+    with _print_lock:
+        print(*args, **kwargs)
 
 
 def log_info(msg):
@@ -60,8 +87,50 @@ def log_warn(msg):
     print(f"{YELLOW}[WARN]{NC} {msg}")
 
 
-def run_turn(server_url, message, session_id, timeout=30):
-    """向 /api/chat 发一次请求，返回 (http_code, body, turn_type, thinking, full_text)。"""
+# ── 数据类型 ──────────────────────────────────────────────
+
+@dataclass
+class TurnResponse:
+    """单轮 SSE 响应的解析结果。"""
+    http_code: str
+    body: str
+    turn_type: str = ""
+    thinking: str = ""
+    full_text: str = ""
+    route_primary: str = ""
+    task_intent: str = ""
+    qimen_mode: str = ""
+    secondary_domains: list = field(default_factory=list)
+    trace: CanonicalTrace = field(default_factory=CanonicalTrace)
+
+
+def _parse_route_fields(body: str):
+    """从 SSE body 中解析 route-decision 事件字段。"""
+    route_primary = ""
+    task_intent = ""
+    qimen_mode = ""
+    secondary_domains = []
+
+    if '"type":"route-decision"' not in body:
+        return route_primary, task_intent, qimen_mode, secondary_domains
+
+    m = re.search(r'"primary_domain":"([^"]*)"', body)
+    if m:
+        route_primary = m.group(1)
+    m = re.search(r'"task_intent":"([^"]*)"', body)
+    if m:
+        task_intent = m.group(1)
+    m = re.search(r'"qimen_mode":"([^"]*)"', body)
+    if m:
+        qimen_mode = m.group(1)
+    m = re.search(r'"secondary_domains":\[([^\]]*)\]', body)
+    if m:
+        secondary_domains = re.findall(r'"([^"]*)"', m.group(1))
+    return route_primary, task_intent, qimen_mode, secondary_domains
+
+
+def run_turn(server_url, message, session_id, timeout=30, adapter=None) -> TurnResponse:
+    """向 /api/chat 发一次请求，返回结构化的 TurnResponse。"""
     payload = json.dumps({"message": message, "session_id": session_id}, ensure_ascii=False)
 
     try:
@@ -82,42 +151,91 @@ def run_turn(server_url, message, session_id, timeout=30):
             body, http_code = raw, "000"
 
         turn_type = ""
-        # trace-panel component 事件中: "turn_type":"..."
         m = re.search(r'"turn_type"\s*:\s*"(\w+)"', body)
         if m:
             turn_type = m.group(1)
 
+        route_primary, task_intent, qimen_mode, secondary_domains = _parse_route_fields(body)
+
         thinking = ""
-        # thinking 事件: event: thinking, data: {"agent":"orchestrator","text":"..."}
         for m in re.finditer(r'data:\s*\{"agent"\s*:\s*"(?:orchestrator|planner)","text"\s*:\s*"((?:[^"\\]|\\.)*)"', body):
             thinking = m.group(1)
 
         full_text = ""
-        # SSE text 事件: data: {"content":"..."}
         for m in re.finditer(r'"content"\s*:\s*"((?:[^"\\]|\\.)*)"', body):
             full_text += m.group(1)
 
-        return http_code, body, turn_type, thinking, full_text
+        r = TurnResponse(
+            http_code=http_code,
+            body=body,
+            turn_type=turn_type,
+            thinking=thinking,
+            full_text=full_text,
+            route_primary=route_primary,
+            task_intent=task_intent,
+            qimen_mode=qimen_mode,
+            secondary_domains=secondary_domains,
+        )
+
+        # 用适配器构建 CanonicalTrace（新断言引擎数据源）
+        if adapter is not None:
+            r.trace = adapter.convert(body, http_code)
+
+        return r
 
     except Exception as e:
-        return "000", str(e), "", "", ""
+        return TurnResponse(http_code="000", body=str(e))
 
 
-def check_expect(http_code, body, turn_type, full_text, expect):
-    """检验 expect 规则，返回错误列表。"""
+def check_expect(r: TurnResponse, expect: dict, context: dict = None) -> list:
+    """统一断言入口。有 trace 且含新断言键时走新引擎，否则回退旧逻辑。"""
+
+    # 新断言引擎的特征键
+    new_keys = {
+        "action_called", "action_not_called", "action_sequence",
+        "action_arg_match", "action_result_not_empty",
+        "retrieval_happened", "retrieval_has_results", "retrieval_cited",
+        "step_count_range", "no_errors",
+        "final_output_contains", "final_output_not_contains",
+    }
+
+    # 如果 trace 有数据且期望中有新断言键，走新引擎
+    if r.trace and r.trace.raw_body and (new_keys & set(expect.keys())):
+        return run_assertions(r.trace, expect, context)
+
+    # ── 回退：旧断言逻辑（完全保留原有代码） ──
     errors = []
-    search_in = full_text + " " + body
+    search_in = r.full_text + " " + r.body
 
-    if expect.get("http_status") and str(http_code) != str(expect["http_status"]):
-        errors.append(f"HTTP {http_code} (expected {expect['http_status']})")
+    if expect.get("http_status") and str(r.http_code) != str(expect["http_status"]):
+        errors.append(f"HTTP {r.http_code} (expected {expect['http_status']})")
 
-    if expect.get("turn_type") and turn_type != expect["turn_type"]:
-        errors.append(f"turn_type={turn_type} (expected {expect['turn_type']})")
+    if expect.get("turn_type") and r.turn_type != expect["turn_type"]:
+        errors.append(f"turn_type={r.turn_type} (expected {expect['turn_type']})")
 
-    if expect.get("turn_type_any") and turn_type not in expect["turn_type_any"]:
-        errors.append(f"turn_type={turn_type} (expected one of {expect['turn_type_any']})")
+    if expect.get("turn_type_any") and r.turn_type not in expect["turn_type_any"]:
+        errors.append(f"turn_type={r.turn_type} (expected one of {expect['turn_type_any']})")
 
-    if expect.get("knowledge_search") and not ("knowledge_search" in body and "knowledge-sources" in body):
+    if expect.get("route_primary") and r.route_primary != expect["route_primary"]:
+        errors.append(f"route_primary={r.route_primary or '(empty)'} (expected {expect['route_primary']})")
+
+    if expect.get("task_intent") and r.task_intent != expect["task_intent"]:
+        errors.append(f"task_intent={r.task_intent or '(empty)'} (expected {expect['task_intent']})")
+
+    want_ti = expect.get("task_intent_any", [])
+    if want_ti and r.task_intent not in want_ti:
+        errors.append(f"task_intent={r.task_intent or '(empty)'} (expected one of {want_ti})")
+
+    if expect.get("qimen_mode") and r.qimen_mode != expect["qimen_mode"]:
+        errors.append(f"qimen_mode={r.qimen_mode or '(empty)'} (expected {expect['qimen_mode']})")
+
+    want_secondary = expect.get("secondary_contains", [])
+    if want_secondary:
+        found_sec = any(s in r.secondary_domains for s in want_secondary)
+        if not found_sec:
+            errors.append(f"secondary_contains 未命中: {want_secondary} (got {r.secondary_domains})")
+
+    if expect.get("knowledge_search") and not ("knowledge_search" in r.body and "knowledge-sources" in r.body):
         errors.append("knowledge_search: 未触发知识库检索")
 
     for kw in expect.get("contains_any", []):
@@ -125,14 +243,12 @@ def check_expect(http_code, body, turn_type, full_text, expect):
             break
     else:
         if expect.get("contains_any"):
-            # find which ones were tried
             errors.append(f"contains_any 未命中: {expect['contains_any']}")
 
     for kw in expect.get("contains_all", []):
         if not re.search(kw, search_in):
             errors.append(f"contains_all 缺失: {kw}")
 
-    # 兼容两种拼写: not_contains / not_contain
     for kw in expect.get("not_contains", expect.get("not_contain", [])):
         if re.search(kw, search_in):
             errors.append(f"not_contains 违规出现: {kw}")
@@ -140,22 +256,19 @@ def check_expect(http_code, body, turn_type, full_text, expect):
     return errors
 
 
-def grade_answer(full_text, body, grading):
+def grade_answer(r: TurnResponse, grading: dict):
     """评估答案质量。返回 (passed, issues)。"""
-    search_in = full_text + " " + body
+    search_in = r.full_text + " " + r.body
     issues = []
 
-    # 命中 pass 关键词 → 通过
     for kw in grading.get("pass", []):
         if re.search(kw, search_in):
             return True, []
 
-    # 检查 forbidden
     for kw in grading.get("forbidden", []):
         if re.search(kw, search_in):
             issues.append(f"违规词: {kw}")
 
-    # 检查 fail (弱信号)
     for kw in grading.get("fail", []):
         if re.search(kw, search_in):
             issues.append(f"强度不足: {kw}")
@@ -166,6 +279,8 @@ def grade_answer(full_text, body, grading):
     return False, issues
 
 
+# ── Suite 加载 ────────────────────────────────────────────
+
 def normalize_case(case):
     """标准化 v1/v2 格式。返回 turns 列表。"""
     if "setup" in case and "turns" in case["setup"]:
@@ -174,10 +289,11 @@ def normalize_case(case):
 
 
 def load_suite(suite_file):
-    """加载 JSONL suite 文件。返回 (name, description, cases)。"""
+    """加载 JSONL suite 文件。返回 (name, description, cases, meta)。"""
     name = os.path.splitext(os.path.basename(suite_file))[0]
     desc = ""
     cases = []
+    meta = {}
 
     with open(suite_file) as f:
         first_line = f.readline().strip()
@@ -185,16 +301,15 @@ def load_suite(suite_file):
         try:
             obj = json.loads(first_line)
             if isinstance(obj, dict) and "id" in obj and ("turns" in obj or "setup" in obj):
-                # 纯 case 列表（无 header 行），从第一行开始
                 f.seek(0)
                 for line in f:
                     line = line.strip()
                     if line:
                         cases.append(json.loads(line))
             elif isinstance(obj, dict) and "name" in obj:
-                # 有 header 的 JSONL：第一行是 suite 元信息，后续行为 case
                 name = obj["name"]
                 desc = obj.get("description", "")
+                meta = obj
                 for line in f:
                     line = line.strip()
                     if line:
@@ -208,15 +323,125 @@ def load_suite(suite_file):
             elif isinstance(data, dict):
                 name = data.get("name", name)
                 desc = data.get("description", "")
+                meta = data
                 cases = data.get("cases", [])
 
-    return name, desc, cases
+    return name, desc, cases, meta
 
 
-def run_case(server_url, case, timeout=30, delay=1):
+# ── 服务校验 ──────────────────────────────────────────────
+
+PROBE_MESSAGE = "你好"  # 用于 smoke check 的最短消息
+
+# AI 探针门禁 —— 超过任一上限即终止，不进入 suite 执行。
+# 上限设置宽松，只拦截明显异常的情况，不误杀正常测试。
+PROBE_TIME_LIMIT = int(os.environ.get("PROBE_TIME_LIMIT", "120"))   # 秒，单轮 2 分钟足够任何 specialist
+PROBE_SIZE_LIMIT = int(os.environ.get("PROBE_SIZE_LIMIT", "1024"))  # KB，1MB 远超正常 SSE 响应
+
+
+def _fmt_bytes(n: int) -> str:
+    """人类可读的字节数。"""
+    if n < 1024:
+        return f"{n}B"
+    elif n < 1024 * 1024:
+        return f"{n / 1024:.1f}KB"
+    return f"{n / (1024 * 1024):.1f}MB"
+
+
+def check_server_ready(server_url: str, timeout: int = 30) -> bool:
+    """跑任何 suite 之前验证：health + commit 匹配 + 探针时效 + route-decision 可解析。
+
+    新增 AI 探针门禁（硬性）：
+    - 单轮响应时间 > PROBE_TIME_LIMIT → 终止
+    - 单轮响应大小 > PROBE_SIZE_LIMIT → 终止
+
+    返回 True 表示服务就绪，False 表示校验失败。校验失败会打印具体原因。
+    """
+    errors = []
+
+    # 1. health 端点
+    try:
+        r = subprocess.run(
+            ["curl", "-s", f"{server_url}/api/health"],
+            capture_output=True, text=True, timeout=10)
+        health = json.loads(r.stdout)
+        if health.get("status") != "ok":
+            errors.append(f"health status={health.get('status')}")
+    except Exception as e:
+        errors.append(f"health 不可达: {e}")
+
+    # 2. commit 匹配
+    if not errors:
+        server_commit = health.get("commit", "")
+        if server_commit and server_commit != "unknown":
+            try:
+                local = subprocess.run(
+                    ["git", "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True, timeout=5)
+                local_commit = local.stdout.strip()
+                if local_commit and server_commit != local_commit:
+                    errors.append(
+                        f"commit 不匹配: server={server_commit} local={local_commit}"
+                    )
+            except Exception:
+                pass  # 不在 git 仓库中时跳过
+
+    # 3. 探针门禁：时间 + 大小 + route-decision 存在且可解析
+    if not errors:
+        try:
+            t0 = time.time()
+            r = run_turn(server_url, PROBE_MESSAGE, "smoke-check", timeout=timeout)
+            elapsed = time.time() - t0
+            body_size = len(r.body.encode("utf-8"))
+
+            probe_errs = []
+            if r.http_code != "200":
+                probe_errs.append(f"probe HTTP {r.http_code}")
+            elif '"type":"route-decision"' not in r.body:
+                probe_errs.append("probe 响应中缺少 route-decision 事件")
+            elif not r.route_primary:
+                probe_errs.append("probe route_primary 为空，路由解析可能异常")
+
+            if elapsed > PROBE_TIME_LIMIT:
+                probe_errs.append(
+                    f"探针超时: {elapsed:.0f}s > {PROBE_TIME_LIMIT}s (suite 无法在合理时间内完成)"
+                )
+            if body_size > PROBE_SIZE_LIMIT * 1024:
+                probe_errs.append(
+                    f"探针响应过大: {_fmt_bytes(body_size)} > {_fmt_bytes(PROBE_SIZE_LIMIT * 1024)} (会撑爆 AI 上下文)"
+                )
+
+            errors.extend(probe_errs)
+        except Exception as e:
+            errors.append(f"probe 请求失败: {e}")
+
+    if errors:
+        print(f"\n{RED}━━━ 服务校验失败 ━━━{NC}")
+        for err in errors:
+            print(f"  {RED}✗{NC} {err}")
+        print(f"{RED}━━━━━━━━━━━━━━━━━━━━{NC}\n")
+        return False
+
+    print(
+        f"{GREEN}✓{NC} 服务就绪 ("
+        f"commit={health.get('commit', '?')}, "
+        f"route_primary={r.route_primary}, "
+        f"probe={elapsed:.1f}s, "
+        f"body={_fmt_bytes(body_size)}"
+        f")"
+    )
+    return True
+
+
+# ── 执行 ──────────────────────────────────────────────────
+
+def run_case(server_url, case, timeout=30, delay=1, adapter=None, suite_context=None):
     """跑一个 case 的全部 turn。返回 (passed, details)。"""
     turns = normalize_case(case)
     details = []
+    # 合并 suite 级和 case 级 context，case 级覆盖 suite 级
+    context = dict(suite_context or {})
+    context.update(case.get("_context", {}))
 
     if not turns:
         return True, [{"turn": 0, "passed": True, "info": "empty case"}]
@@ -228,29 +453,26 @@ def run_case(server_url, case, timeout=30, delay=1):
         expect = turn.get("expect", {})
         grading = turn.get("grading", None)
 
-        http_code, body, turn_type, thinking, full_text = run_turn(
-            server_url, msg, sid, timeout
-        )
+        r = run_turn(server_url, msg, sid, timeout, adapter=adapter)
 
-        errors = check_expect(http_code, body, turn_type, full_text, expect)
+        errors = check_expect(r, expect, context)
 
-        # grading
         grading_passed, grading_issues = True, []
         if grading:
-            grading_passed, grading_issues = grade_answer(full_text, body, grading)
+            grading_passed, grading_issues = grade_answer(r, grading)
 
         passed = len(errors) == 0 and grading_passed
 
         detail = {
             "turn": i + 1,
             "message": msg[:80],
-            "http_code": http_code,
-            "turn_type": turn_type,
+            "http_code": r.http_code,
+            "turn_type": r.turn_type,
             "passed": passed,
             "errors": errors,
             "grading_issues": grading_issues,
-            "thinking": thinking[:120] if thinking else "",
-            "full_text": full_text[:200] if full_text else "",
+            "thinking": r.thinking[:120] if r.thinking else "",
+            "full_text": r.full_text[:200] if r.full_text else "",
         }
         details.append(detail)
 
@@ -262,16 +484,22 @@ def run_case(server_url, case, timeout=30, delay=1):
     return all_passed, details
 
 
-def run_suite(server_url, suite_file, timeout=30, delay=1):
-    """跑一个 suite 的所有 case。"""
-    name, desc, cases = load_suite(suite_file)
+def run_suite(server_url, suite_file, timeout=30, delay=1, adapter=None):
+    """串行跑一个 suite 的所有 case。"""
+    if not check_server_ready(server_url, timeout):
+        sys.exit(2)
+    name, desc, cases, meta = load_suite(suite_file)
+    suite_context = meta.get("_context", {})
+
+    total_turns = sum(len(normalize_case(c)) for c in cases)
 
     print(f"\n{'='*60}")
     print(f"Suite: {name}")
     if desc:
         print(f"Description: {desc}")
-    print(f"Cases: {len(cases)}")
+    print(f"Cases: {len(cases)}  Turns: {total_turns}")
     print(f"Target: {server_url}")
+    print(f"Est. total: ~{total_turns * timeout + total_turns * delay:.0f}s ({total_turns} turns × {timeout}s timeout + {delay}s delay)")
     print(f"{'='*60}\n")
 
     passed_count = 0
@@ -280,7 +508,7 @@ def run_suite(server_url, suite_file, timeout=30, delay=1):
     for case in cases:
         case_id = case.get("id", "?")
         log_info(f"Case: {case_id}")
-        case_passed, details = run_case(server_url, case, timeout, delay)
+        case_passed, details = run_case(server_url, case, timeout, delay, adapter=adapter, suite_context=suite_context)
 
         for d in details:
             prefix = f"  T{d['turn']}"
@@ -303,15 +531,98 @@ def run_suite(server_url, suite_file, timeout=30, delay=1):
     return fail_count == 0
 
 
+def run_suite_parallel(server_url, suite_file, timeout=60, delay=1, workers=4, adapter=None):
+    """并行跑一个 suite 的所有 case（case 间并行，case 内 turn 串行）。"""
+    if not check_server_ready(server_url, timeout):
+        sys.exit(2)
+    name, desc, cases, meta = load_suite(suite_file)
+    suite_context = meta.get("_context", {})
+
+    total_turns = sum(len(normalize_case(c)) for c in cases)
+    n_workers = min(workers, len(cases)) if cases else 1
+    # 并行时，最坏情况是最大 case 的耗时（case 内 turn 串行）
+    max_turns = max((len(normalize_case(c)) for c in cases), default=0)
+
+    print(f"\n{'='*60}")
+    print(f"Suite: {name}")
+    if desc:
+        print(f"Description: {desc}")
+    print(f"Cases: {len(cases)}  Turns: {total_turns}  Workers: {n_workers}")
+    print(f"Target: {server_url}")
+    print(f"Est. total: ~{max_turns * timeout + max_turns * delay:.0f}s (parallel, {max_turns} max turns × {timeout}s timeout + {delay}s delay)")
+    print(f"{'='*60}\n")
+
+    results = {}
+
+    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        future_to_case = {
+            executor.submit(run_case, server_url, case, timeout, delay, adapter=adapter, suite_context=suite_context): case
+            for case in cases
+        }
+
+        for future in as_completed(future_to_case):
+            case = future_to_case[future]
+            case_id = case.get("id", "?")
+            try:
+                case_passed, details = future.result()
+                results[case_id] = (case_passed, details)
+
+                status = f"{GREEN}PASS{NC}" if case_passed else f"{RED}FAIL{NC}"
+                tprint(f"[{status}] {case_id}")
+                for d in details:
+                    if not d["passed"]:
+                        for err in d["errors"]:
+                            tprint(f"    {RED}↳{NC} T{d['turn']}: {err}")
+                        for issue in d.get("grading_issues", []):
+                            tprint(f"    {YELLOW}↳{NC} T{d['turn']}: {issue}")
+            except Exception as e:
+                tprint(f"[{RED}ERROR{NC}] {case_id}: {e}")
+                results[case_id] = (False, [{"turn": 0, "passed": False, "message": "", "errors": [str(e)]}])
+
+    # 按原始顺序输出详情
+    print(f"\n{'─'*60}")
+    print(f"{BOLD}Details{NC}")
+    print(f"{'─'*60}")
+    for case in cases:
+        case_id = case.get("id", "?")
+        case_passed, details = results.get(case_id, (False, []))
+        status = f"{GREEN}OK{NC}" if case_passed else f"{RED}FAIL{NC}"
+        print(f"  [{status}] {case_id}")
+        for d in details:
+            if d.get("errors"):
+                for err in d["errors"]:
+                    print(f"      T{d['turn']}: {RED}{err}{NC}")
+            if d.get("grading_issues"):
+                for issue in d["grading_issues"]:
+                    print(f"      T{d['turn']}: {YELLOW}{issue}{NC}")
+
+    passed = sum(1 for p, _ in results.values() if p)
+    failed = len(results) - passed
+    print(f"\n---")
+    print(f"Results: {GREEN}{passed} passed{NC}, {RED}{failed} failed{NC}")
+    return failed == 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="命理大师回归测试执行器")
     parser.add_argument("suite", help="Suite JSONL 文件路径")
     parser.add_argument("server", help="服务地址，如 http://localhost:18080")
     parser.add_argument("--timeout", type=int, default=60, help="单轮请求超时秒数 (default: 60)")
     parser.add_argument("--delay", type=float, default=1.0, help="轮间延迟秒数 (default: 1.0)")
+    parser.add_argument("-w", "--workers", type=int, default=4, help="并行 workers 数 (default: 4, 设为 1 即串行)")
+    parser.add_argument("--adapter", help="适配器配置 YAML 路径 (启用新断言引擎)")
     args = parser.parse_args()
 
-    ok = run_suite(args.server, args.suite, args.timeout, args.delay)
+    if args.adapter:
+        from base import TraceAdapter as _TraceAdapter
+        adapter = _TraceAdapter.load(args.adapter)
+    else:
+        adapter = None
+
+    if args.workers > 1:
+        ok = run_suite_parallel(args.server, args.suite, args.timeout, args.delay, args.workers, adapter=adapter)
+    else:
+        ok = run_suite(args.server, args.suite, args.timeout, args.delay, adapter=adapter)
     sys.exit(0 if ok else 1)
 
 
