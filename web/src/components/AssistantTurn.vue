@@ -28,9 +28,10 @@
     <!-- Structured results -->
     <section v-if="vm.resultBlocks.length" class="turn-zone">
       <ResultBlock v-for="(rb, i) in vm.resultBlocks" :key="'rb-' + i">
-        <template #title>{{ rb.type === 'bazi-chart' ? '八字命盘' : '奇门遁甲' }}</template>
+        <template #title>{{ rb.type === 'bazi-chart' ? '八字命盘' : rb.type === 'ziwei-chart' ? '紫微斗数' : '奇门遁甲' }}</template>
         <BaziChartCard v-if="rb.type === 'bazi-chart'" :data="rb.payload" />
         <QimenChart v-else-if="rb.type === 'qimen-chart'" :data="rb.payload" />
+        <ZiweiChartCard v-else-if="rb.type === 'ziwei-chart'" :data="rb.payload" />
       </ResultBlock>
     </section>
 
@@ -84,6 +85,7 @@ import { buildAssistantTurnViewModel } from '../utils/assistantTurn'
 import ResultBlock from './ResultBlock.vue'
 import BaziChartCard from './BaziChartCard.vue'
 import QimenChart from './QimenChart.vue'
+import ZiweiChartCard from './ZiweiChartCard.vue'
 import TracePanel from './TracePanel.vue'
 import KnowledgeSourceCard from './KnowledgeSourceCard.vue'
 

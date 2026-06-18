@@ -6,7 +6,7 @@ export interface Passage {
 }
 
 export interface ResultBlock {
-  type: 'bazi-chart' | 'qimen-chart'
+  type: 'bazi-chart' | 'qimen-chart' | 'ziwei-chart'
   payload: unknown
 }
 
@@ -63,6 +63,9 @@ export function buildAssistantTurnViewModel(message: ChatMessage): AssistantTurn
           break
         case 'qimen-chart':
           resultBlocks.push({ type: 'qimen-chart', payload: seg.payload })
+          break
+        case 'ziwei-chart':
+          resultBlocks.push({ type: 'ziwei-chart', payload: seg.payload })
           break
         case 'trace-panel':
           process = {
