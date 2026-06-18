@@ -59,7 +59,7 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 		Description:   cfg.Description,
 		Instruction:   instruction,
 		Model:         b.model,
-		MaxIterations: 12,
+		MaxIterations: 6,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools: adapters,

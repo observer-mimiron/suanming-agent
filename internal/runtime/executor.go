@@ -128,6 +128,12 @@ func (e *Executor) runAgentRoute(ctx context.Context, sink EventSink, st *state.
 
 // saveToolResult 将工具执行结果写回会话状态，供后续轮次复用。
 func (e *Executor) saveToolResult(st *state.SessionState, toolName, resultJSON string) {
+	// 只处理已知的排盘工具。specialist agent 的文本回答不是 JSON，跳过。
+	switch toolName {
+	case "bazi_calc", "qimen_dunjia", "ziwei_calc":
+	default:
+		return
+	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(resultJSON), &payload); err != nil || payload == nil {
 		if err != nil {
