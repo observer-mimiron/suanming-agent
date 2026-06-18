@@ -40,3 +40,30 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+func TestZiweiInstruction_AnalysisGuide(t *testing.T) {
+	cfg := GetConfig()
+	keywords := []string{
+		"命宫", "身宫", "三方四正", "四化飞星", "大限", "流年",
+		"庙旺利得", "星曜组合",
+	}
+	for _, kw := range keywords {
+		if !containsStr(cfg.Instruction, kw) {
+			t.Errorf("instruction missing keyword: %q", kw)
+		}
+	}
+}
+
+func TestZiweiToolNames_IncludesLiuNian(t *testing.T) {
+	cfg := GetConfig()
+	hasLiuNian := false
+	for _, name := range cfg.ToolNames {
+		if name == "ziwei_liunian" {
+			hasLiuNian = true
+			break
+		}
+	}
+	if !hasLiuNian {
+		t.Error("ToolNames should contain ziwei_liunian")
+	}
+}
