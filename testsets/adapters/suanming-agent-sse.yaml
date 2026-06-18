@@ -3,30 +3,35 @@ description: 命理大师 SSE 事件流适配器
 format: sse
 
 event_types:
-  step_boundary: ["agent-start"]
-  action: ["tool-call"]
-  action_result: ["tool-result"]
-  retrieval: ["knowledge-search"]
-  retrieval_result: ["knowledge-sources"]
+  # SSE event header types 与 JSON "type" 字段的结合匹配
+  step_boundary: ["component"]
+  action: ["tool_call"]
+  action_result: ["tool_call"]
+  retrieval: ["tool_call"]
+  retrieval_result: ["tool_call"]
   route_decision: ["route-decision"]
   error: ["error"]
 
 field_mapping:
-  route_primary: "primary_domain"
-  route_intent: "task_intent"
-  route_secondary: "secondary_domains"
-  action_name: "tool_name"
+  # 路由字段（在 payload 内部）
+  route_primary: "payload.primary_domain"
+  route_intent: "payload.task_intent"
+  route_secondary: "payload.secondary_domains"
+
+  # 动作字段
+  action_name: "tool"
   action_args: "arguments"
   action_result: "result"
   action_error: "error"
-  retrieval_query: "query"
-  retrieval_sources: "sources"
+
+  # 检索字段（暂未使用，由 action 结果承载）
+  retrieval_query: "arguments.query"
+  retrieval_sources: "result.sources"
   retrieval_source_name: "source"
   retrieval_chunk_content: "chunk"
+
+  # 最终输出：收集所有 event:text 的 content 字段
   final_output:
-    event: "agent"
+    event: "text"
     field: "content"
     accumulate: true
-
-content_extraction:
-  full_text_pattern: '"content"\s*:\s*"((?:[^"\\]|\\.)*)"'
