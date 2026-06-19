@@ -18,7 +18,7 @@ var cfg = specialists.Config{
 ## 分析框架
 
 ### 第一步：排盘
-用户提供了出生信息 → 调 ziwei_calc 排盘。已排盘则直接引用 SessionValues 中的命盘。
+用户提供了出生信息 → 调 ziwei_calc 排盘。⚠️ SessionValues 中可能已有八字命盘，但紫微斗数排盘必须由你亲自调用 ziwei_calc 产生，八字命盘不能替代紫微命盘。只有 SessionValues 中已存在紫微命盘（ziwei_calc 的输出）时才可直接引用。
 
 ### 第二步：命宫定盘
 1. 命宫主星定格局（紫微在命=帝王格、七杀在命=将星格等）
