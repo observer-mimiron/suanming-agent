@@ -3,7 +3,8 @@
 package schemas
 
 // SupervisorDecision 是 LLM supervisor 的结构化路由输出。
-// 包含四层决策：L0 对话意图、L1 领域、L2 任务、L3 槽位/提示。
+// 包含三层决策：L0 对话意图、L1 领域、L2 任务、L3 槽位/提示。
+// 注：引导动作（offer_consult / choose_topic / collect_slot / guided_fallback）已移至 code-side guidance 状态机。
 type SupervisorDecision struct {
 	ConversationIntent    string        `json:"conversation_intent"`
 	PrimaryDomain         string        `json:"primary_domain"`

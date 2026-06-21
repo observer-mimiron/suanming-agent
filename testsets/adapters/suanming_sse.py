@@ -84,10 +84,19 @@ class SSEAdapter(TraceAdapter):
 
             # --- 检索请求（knowledge_catalog / knowledge_search）---
             tool_name = self._get_field(obj, fm.get("action_name", ""))
-            if tool_name in ("knowledge_catalog", "knowledge_search") or \
-               etype in et.get("retrieval", []):
-                # 已有 action 记录则跳过重复记录 retrieval
-                pass
+            if tool_name in ("knowledge_catalog", "knowledge_search"):
+                # 记录为检索事件（retrieval_happened + retrieval_has_results 断言依赖此字段）
+                result_raw = self._get_field(obj, fm.get("action_result", ""))
+                retrieval_entry = {
+                    "query": self._get_field(obj, fm.get("action_args", "")),
+                    "step_index": step_idx,
+                    "tool": tool_name,
+                    "chunks": [],
+                }
+                # 如果 action 自带 result，从中提取 sources/chunks
+                if result_raw and result_raw not in ("", {}):
+                    self._fill_retrieval_chunks(retrieval_entry, result_raw)
+                trace.retrievals.append(retrieval_entry)
 
             # --- 错误 ---
             if etype in et.get("error", []):
@@ -150,6 +159,51 @@ class SSEAdapter(TraceAdapter):
                             "actions": [trace.actions[-1]],
                         })
                     break
+
+    def _fill_retrieval_chunks(self, retrieval_entry: dict, raw_result):
+        """从 tool result 中提取 chunks。支持 passages / books / sources 等格式。"""
+        # 解析 JSON 字符串
+        if isinstance(raw_result, str):
+            try:
+                raw_result = json.loads(raw_result)
+            except (json.JSONDecodeError, ValueError):
+                retrieval_entry["chunks"] = [{"source": "", "content": raw_result[:500]}]
+                return
+        if not isinstance(raw_result, dict):
+            retrieval_entry["chunks"] = [{"source": "", "content": str(raw_result)[:500]}]
+            return
+        # passages (knowledge_search)
+        passages = raw_result.get("passages", [])
+        if passages:
+            for p in passages:
+                retrieval_entry["chunks"].append({
+                    "source": p.get("source", ""),
+                    "content": p.get("content", ""),
+                })
+            return
+        # books (knowledge_catalog)
+        books = raw_result.get("books", [])
+        if books:
+            for b in books:
+                retrieval_entry["chunks"].append({
+                    "source": b.get("slug", b.get("name", "")),
+                    "content": b.get("name", ""),
+                })
+            return
+        # sources / results (通用)
+        fm = self._fm
+        sn = fm.get("retrieval_source_name", "source")
+        cn = fm.get("retrieval_chunk_content", "chunk")
+        sources = raw_result.get("sources", raw_result.get("results", []))
+        if isinstance(sources, list):
+            for s in sources:
+                if isinstance(s, dict):
+                    retrieval_entry["chunks"].append({
+                        "source": s.get(sn, ""),
+                        "content": s.get(cn, ""),
+                    })
+                elif isinstance(s, str):
+                    retrieval_entry["chunks"].append({"source": "", "content": s[:300]})
 
     def _split_sse(self, body: str) -> list:
         """解析 SSE 格式，返回 (event_type, raw_data) 列表。"""

@@ -12,6 +12,22 @@ func (t *DayunAnalyzer) Description() string { return "分析每个大运的吉�
 
 func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, error) {
 	dayun, _ := params["dayun"].([]map[string]any)
+
+	// 兜底：dayun 经 JSON 序列化/反序列化后类型变为 []interface{}，而非 []map[string]any。
+	if dayun == nil {
+		if di, ok := params["dayun"].([]interface{}); ok {
+			dayun = make([]map[string]any, 0, len(di))
+			for _, item := range di {
+				if dm, ok := item.(map[string]interface{}); ok {
+					dm2 := make(map[string]any, len(dm))
+					for k, v := range dm {
+						dm2[k] = v
+					}
+					dayun = append(dayun, dm2)
+				}
+			}
+		}
+	}
 	baziResult, _ := params["bazi_result"].(map[string]any)
 	yongshen, _ := baziResult["yongshen"].(map[string]any)
 

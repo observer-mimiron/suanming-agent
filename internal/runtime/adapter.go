@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
@@ -20,10 +21,13 @@ type baziCalcInput struct {
 }
 
 // yongshenInput 用神分析工具的输入参数。
+// 需要完整的年月日时+性别才能用 lunar-go 排盘后推算用神。
 type yongshenInput struct {
-	DayMaster string `json:"day_master" jsonschema_description:"日主天干 (甲/乙/丙/丁/戊/己/庚/辛/壬/癸)"`
-	Month     int    `json:"month" jsonschema_description:"出生月份 (1-12)，用于判断月令旺衰"`
-	Gender    string `json:"gender" jsonschema_description:"性别 (男/女)"`
+	Year   int    `json:"year" jsonschema_description:"出生年份 (1900-2100)"`
+	Month  int    `json:"month" jsonschema_description:"出生月份 (1-12)"`
+	Day    int    `json:"day" jsonschema_description:"出生日期 (1-31)"`
+	Hour   int    `json:"hour" jsonschema_description:"出生时辰 (0-23)"`
+	Gender string `json:"gender" jsonschema_description:"性别 (男/女)"`
 }
 
 // dayunInput 大运分析工具的输入参数。
@@ -127,19 +131,85 @@ func newYongshenAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 }
 
 // newDayunAdapter 创建大运分析工具的 Eino BaseTool 适配器。
+//
+// 将 LLM 传入的 bazi_json 字符串解析后：
+//  1. 提取 dayun 数组和 bazi_result 对象
+//  2. 若 yongshen 缺失，从 bazi_json 的 birthday 字段反推出生时间，调用 yongshen 工具兜底
+//  3. 将补全后的 bazi_result 传给 dayun_analyzer
 func newDayunAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 	return utils.InferTool("dayun_analyzer", "分析每个大运的吉凶和十神类型", func(ctx context.Context, input dayunInput) (string, error) {
 		params, err := structToMap(input)
 		if err != nil {
 			return "{}", nil
 		}
+		baziJSON, _ := params["bazi_json"].(string)
+		gender, _ := params["gender"].(string)
+		if baziJSON == "" {
+			return "{}", nil
+		}
+		var baziResult map[string]any
+		if err := json.Unmarshal([]byte(baziJSON), &baziResult); err != nil {
+			return "{}", nil
+		}
+		if gender != "" && baziResult["gender"] == nil {
+			baziResult["gender"] = gender
+		}
+
+		// 若 yongshen 缺失，从 birthday 字段反推出生时间并调用 yongshen 工具兜底
+		if baziResult["yongshen"] == nil {
+			if yt, ok := reg.Get("yongshen"); ok {
+				if yongshenParams := buildYongshenParamsFromBaziResult(baziResult); yongshenParams != nil {
+					if yr, yerr := yt.Execute(ctx, yongshenParams); yerr == nil && yr != nil {
+						if ym, ok := yr.(map[string]any); ok {
+							baziResult["yongshen"] = ym
+						}
+					}
+				}
+			}
+		}
+
+		toolParams := map[string]any{
+			"dayun":       baziResult["dayun"],
+			"bazi_result": baziResult,
+		}
 		gt, ok := reg.Get("dayun_analyzer")
 		if !ok {
 			return "{}", nil
 		}
-		result, err := gt.Execute(ctx, params)
+		result, err := gt.Execute(ctx, toolParams)
 		return marshalResult(result, err), nil
 	})
+}
+
+// buildYongshenParamsFromBaziResult 从 bazi_result 的 birthday 字段反推出 yongshen 工具所需的参数。
+//
+// birthday 格式为 "YYYY-MM-DD HH:MM"，如 "2020-10-10 10:00"。
+// 返回 nil 表示无法解析。
+func buildYongshenParamsFromBaziResult(baziResult map[string]any) map[string]any {
+	birthday, _ := baziResult["birthday"].(string)
+	if birthday == "" {
+		return nil
+	}
+	// 解析 "2020-10-10 10:00"
+	var year, month, day, hour int
+	n, _ := fmt.Sscanf(birthday, "%d-%d-%d %d", &year, &month, &day, &hour)
+	if n < 4 {
+		return nil
+	}
+	if year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 {
+		return nil
+	}
+	gender, _ := baziResult["gender"].(string)
+	if gender == "" {
+		gender = "男"
+	}
+	return map[string]any{
+		"year":   float64(year),
+		"month":  float64(month),
+		"day":    float64(day),
+		"hour":   float64(hour),
+		"gender": gender,
+	}
 }
 
 // newQimenAdapter 创建奇门遁甲排盘工具的 Eino BaseTool 适配器。
@@ -195,7 +265,7 @@ func newZiweiLiuNianAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 func newKnowledgeSearchAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 	var callCount int // 闭包计数器，随 adapter 生命周期（per-turn）归零
 
-	return utils.InferTool("knowledge_search", "在命理古籍知识库中检索原文。query 使用核心术语，优先用典籍名+章节名限定范围。评估质量：content 是否聚焦、是否可引用、source 来源。", func(ctx context.Context, input knowledgeSearchInput) (string, error) {
+	return utils.InferTool("knowledge_search", "在命理古籍知识库中检索原文。每轮限3次调用，请在前3次内覆盖所有关键词。query 使用核心术语，优先用典籍名+章节名限定范围。", func(ctx context.Context, input knowledgeSearchInput) (string, error) {
 		callCount++
 		if callCount > 3 {
 			return `{"passages":[],"budget_exceeded":true,"message":"本轮知识检索已达上限（3次），请基于已有资料回答。"}`, nil
@@ -211,6 +281,23 @@ func newKnowledgeSearchAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 		result, err := gt.Execute(ctx, params)
 		if err != nil || result == nil {
 			return `{"passages":[]}`, nil
+		}
+		// 截断古籍段落内容，压缩上下文体积，加速后续推理
+		const maxPassageLen = 400
+		if rm, ok := result.(map[string]any); ok {
+			// 每调用只保留前 3 段最相关的古籍，避免全文灌入模型导致上下文爆炸
+			if passages, ok := rm["passages"].([]interface{}); ok && len(passages) > 3 {
+				rm["passages"] = passages[:3]
+			}
+			if passages, ok := rm["passages"].([]interface{}); ok {
+				for _, p := range passages {
+					if pm, ok := p.(map[string]interface{}); ok {
+						if c, ok := pm["content"].(string); ok && len(c) > maxPassageLen {
+							pm["content"] = c[:maxPassageLen] + "..."
+						}
+					}
+				}
+			}
 		}
 		b, e := json.Marshal(result)
 		if e != nil {

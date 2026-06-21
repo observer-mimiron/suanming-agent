@@ -6,16 +6,25 @@
 
 ## 当前状态
 
-**阶段：** v1.5 Supervisor Phase 1.5 收口 + Eino Phase 1-3 完成中 + Phase 5A 启动  
-**分支：** codex/eino-phase1-2  
-**最后更新：** 2026-06-16  
+**阶段：** v1.5 Supervisor Phase 1.5 收口 + Eino Phase 1-3 完成中 + Phase 5B 推进中
+**分支：** codex/specialists-agent-as-tool
+**最后更新：** 2026-06-20
 **状态：** `llm.Chat` 已收口为 Eino backend，原生 HTTP LLM 路径已删除；supervisor 运行面也已进一步收口为固定 ADK route engine，`SUPERVISOR_ENGINE` 配置、classic `structuredDecide` 路径、`GenerateWithTool` 接口以及 registry 的 Eino `InvokableTool` 兼容导出都已删除。现有 supervisor / orchestrator / SSE 协议保持不变，Go 侧仍保留 `textDecide + fallbackExtract + safeFallback` 三层降级骨架。
 最新收口：ADK route engine 遇到 `output` tool 校验失败时，不再直接把 ToolNode 错误冒泡结束；外层会抽取校验反馈并按同一用户消息做一次本地重试，补齐 classic structured route 的自纠正能力。
-最新收口：Phase 5A 先以最小粒度接入 Eino callback tracing，已覆盖 `streamInterpretation` 的 Eino ChatModel 主回答链，以及 supervisor ADK 路由和 text fallback 中的底层 Eino ChatModel 调用；现有 `TurnTrace` / `TracePanel` / 文件落盘模型继续保留为稳定展示契约。Phase 5B 的第一刀已把 `knowledge_search` 的 retriever 事件源切到 Eino callback，generic tool callback 迁移仍待后续推进。
+最新收口：前端 trace 展示已收口为“raw trace + 双投影”模型。`TurnTrace` 继续作为本地落盘与原始事实来源；`ProcessDigest` 负责 `TracePanel` 的处理过程主卡；`DebugTraceDigest` 负责 debug 抽屉，`thinking/tool_call` 不再混入主回答与主过程链。
+最新收口：Phase 5A 先以最小粒度接入 Eino callback tracing，已覆盖 `streamInterpretation` 的 Eino ChatModel 主回答链，以及 supervisor ADK 路由和 text fallback 中的底层 Eino ChatModel 调用；现有 `TurnTrace` / 文件落盘模型继续保留为稳定 raw envelope。Phase 5B 的第一刀已把 `knowledge_search` 的 retriever 事件源切到 Eino callback，generic tool callback 迁移仍待后续推进。
 最新收口：`bridgeDecision` 和重复的 `specialists.ApprovedRoute` 已删除；`ApprovedRoute` 现在被 runtime 直接消费，`specialists` 改为复用统一的 `policy.ApprovedRoute` 契约。
 最新收口：已引入 `internal/runtime/` 作为“已批准路由执行层”，把候选会话流转、领域执行、知识检索、prompt 构建与流式回答从 `internal/orchestrator/` 主包移出；`orchestrator` 现收缩为 turn lifecycle 外壳。
 最新收口：已修复普通追问误带奇门的问题。`fortune_followup` 不再默认触发 `qimen_dunjia`，且 `NeedsQimen` 只由当前批准路由决定，不再把上一轮择时状态粘到后续八字概念追问。
 最新收口：奇门触发从“强绑 task_intent”调整为“task_intent + capability hints”混合模式。新增 `policy_hints.qimen_mode=none|supplement|primary` 与 `profile_requirement=none|full`：允许“今天运气/本日运道”这类问题在无八字资料时直接走奇门主链；只有明确要求结合个人命盘时，才因资料不足追问出生信息。
+最新收口：supervisor 路由提示词已从“词面示例优先”调整为“术数能力画像 + 判题步骤优先”。用户显式指定 `八字/紫微/奇门` 时，`normalizeApprovedRoute` 会做 deterministic obey；未指定时，supervisor 先判断“本命结构 / 宫位主题 / 当前时机”再选主领域。
+最新收口：runtime 已增加 post-run contract gate。`primary_domain=qimen` 必须真拿到 `QimenResult`，`primary_domain=ziwei` 必须真拿到 `ZiWeiResult`；最终文本先经 guardrail 校验后再发 SSE，避免“未起盘先给结论”的假成功。
+最新收口：`prefill` 已收缩为八字可复用链，不再承担紫微 correctness；specialist 运行时 instruction 统一注入当前系统日期与时区，减少相对时间漂移。
+最新收口：live 注册链上的 `tools.DayunAnalyzer` 已补齐 `[]interface{} -> []map[string]any` 兼容，修复 `dayun_analyzer` 在 JSON round-trip 后可能空跑的问题。bazi prefill 现已对 `yongshen` / `dayun_analyzed` / `knowledge_summary` 做结果级缓存，避免 followup 轮次重复重算；同时 prefill 工具调用会写入 trace span（`source=prefill`），普通 bazi 主链恢复为持续 `text` 流式输出，仅 `qimen/ziwei` 继续缓冲到 contract gate 后再发最终文本。
+最新收口：可观测性方案已明确收口为“raw trace + 双投影 + OTel”：`TurnTrace` 继续作为本地落盘与原始链路；前端展示拆为 `ProcessDigest` 产品主卡和 `DebugTraceDigest` 调试抽屉；下层新增 OTel 标准映射作为对外观测面，首个 AI-native backend 优先对接 Langfuse，Phoenix 作为纯 tracing 对照参考。
+最新收口：Phase A 的本地 trace 边界已开始落代码。`Execute` 现会显式记录 `preflight` span；`prefill` 新增业务级 `prefill` span；最终回答验收已通过 `contract_gate` span 记录 artifact 是否真实存在；所有 runtime SSE 输出统一经 `sse_emit` span 包裹，且不改变现有前端协议。
+最新收口：标准属性 contract 已开始落到现有 trace。root trace 现会记录 `session_id`、`turn_type`、`user_message_summary` 与已批准路由的关键元数据；Eino LLM callback 已补 `gen_ai.request.model`、`gen_ai.usage.input_tokens`、`gen_ai.usage.output_tokens` 等 OTel-friendly 别名。
+最新收口：Phase B 已完成最小 OTLP 接线。`realTracer` 现可在保持本地 `TurnTrace` 与前端双投影不变的前提下，把同一批 root trace 与 child spans 并行镜像到 OTLP HTTP exporter；默认关闭，仅在配置 `OTEL_*` 环境变量后启用。
 
 ## 已完成功能
 
@@ -27,6 +36,7 @@
 ### 工作台式聊天界面
 - `AssistantTurn.vue` 四层分区渲染（结构化结果 → 主回答 → 过程摘要 → 依据资料）
 - `TracePanel` 产品化为"处理过程"卡
+- `DebugTracePanel` 收拢 `thinking` / `tool_call` / raw spans，主界面不再直接展示旧 `turn-chain`
 - `KnowledgeSourceCard` 按典籍分组折叠
 - `ResultBlock` / `BaziChartCard` / `QimenChart` 统一卡片视觉
 - 玉色/墨色/金石感深色主题
@@ -79,7 +89,11 @@
 
 ### 可观测性
 - `TurnTrace` 统一模型 + 文件持久化（`logs/traces/`）
-- 前端 trace panel 通过 SSE 推送 digest
+- `ProcessDigest` / `DebugTraceDigest` 作为前端双投影，通过 SSE component 事件推送
+- observability 架构确定为 `TurnTrace` raw envelope + 前端双投影 + OTel 标准层 + AI-native backend（Langfuse first）
+- Phase A 已落首批业务边界 span：`preflight` / `prefill` / `contract_gate` / `sse_emit`
+- root trace 与 LLM span 已开始补 OTel-friendly attribute contract
+- Phase B 已落最小 OTLP mirror：本地 trace 与外部 backend 并行，不改前端协议
 
 ## 关键文件
 
@@ -119,7 +133,9 @@
 | `internal/tools/knowledge/search.go` | 知识库检索 |
 | `internal/config/config.go` | 统一配置管理 |
 | `internal/handler/chat.go` | SSE 聊天 HTTP handler |
-| `internal/tracing/tracing.go` | TurnTrace 数据模型 + BuildDigest |
+| `internal/tracing/turn_trace.go` | TurnTrace envelope、span 聚合与 legacy digest |
+| `internal/tracing/process_digest.go` | 产品视图 `ProcessDigest` 投影 |
+| `internal/tracing/debug_digest.go` | 调试视图 `DebugTraceDigest` 投影 |
 | `internal/tracing/real_tracer.go` | Tracer 实现 + span 收集 |
 | `internal/tracing/file_collector.go` | Trace 文件持久化 |
 | `internal/tracing/context.go` | Trace 上下文存取 |
@@ -130,9 +146,10 @@
 | `prompts/forensic.md` | 流年专项判断 system prompt |
 | `prompts/snippets/` | 按领域拆分的 prompt 片段（career/health/marriage 等 7 个） |
 | `web/src/components/AssistantTurn.vue` | assistant 四层分区渲染 |
-| `web/src/components/TracePanel.vue` | 产品化过程摘要卡 |
+| `web/src/components/TracePanel.vue` | 产品化处理过程卡（消费 `ProcessDigest`） |
+| `web/src/components/DebugTracePanel.vue` | 调试抽屉（消费 `DebugTraceDigest` 与 debug events） |
 | `web/src/components/KnowledgeSourceCard.vue` | 知识引用分组折叠卡 |
-| `web/src/utils/assistantTurn.ts` | segment → 分区 view model 聚合逻辑 |
+| `web/src/utils/assistantTurn.ts` | segment → 主回答 / 处理过程 / debug 抽屉 view model 聚合逻辑 |
 | `docs/architecture/supervisor/01-overview.md` ~ `08-phase-1.5-route-driven.md` | Supervisor 架构设计文档 |
 
 ## 待做
@@ -155,6 +172,10 @@ LLM_FLASH_MODEL=deepseek-v4-flash
 LLM_TEMPERATURE=0.3
 KNOWLEDGE_MCP_URL=http://localhost:3100
 DEBUG_HTTP=1
+OTEL_ENABLED=1
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://cloud.langfuse.com/api/public/otel
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic xxx
+OTEL_SERVICE_NAME=suanming-agent
 ```
 
 ## 前端验证
@@ -192,6 +213,13 @@ cd web && npm run build        # 生产构建
 - 2026-06-15：普通八字追问与择时追问已在 runtime 明确分流：`fortune_followup` 不再自动视为奇门补充，且 `NeedsQimen` 不再跨轮粘滞，避免“上一轮问奇门，下一轮问印绶/财星仍弹奇门盘”的会话污染。
 - 2026-06-15：前端 UI 细节重构，穿透设置用户气泡字色以解决全局样式覆盖；统一输入框 52px 高度与 16px 圆角；升级前端为 920px 宽的响应式流式布局并自动居中；重构奇门遁甲盘至现代塔罗几何星阵版式，在右上角保留 14px 元素微标，实现天人星门对称与天干胶囊，引入 hover 物理悬浮微光；并将“思考链”与“知识来源依据资料”卡片设为点击折叠且默认收起以优化版面。
 - 2026-06-15：彻底修复浏览器 304 强缓存导致奇门九宫格补齐及属性徽章无法更新的 bug。通过在 `vite.config.ts` 中配置打包输出文件名挂载构建时间戳后缀（如 `index-[hash]-[timestamp].js`），从而完美打破浏览器强缓存，强制加载带有 3x3 矩阵中宫定盘太极图的最新前端代码。
+- 2026-06-19：Phase 1 路由收口改为“领域能力画像 + 少量显式 obey + runtime 执行契约”三段式。supervisor 负责术数选择语义，policy 只纠正显式用户方法选择与资料状态，runtime 负责验证该领域必需产物是否真实产生。
+- 2026-06-19：针对 review 中的运行时问题，已修复 live `dayun_analyzer` 类型兼容缺口，并将 bazi prefill 从“无缓存黑箱副作用”收口为“有缓存、可 trace 的复用链”；为兼顾 correctness 与体验，最终文本缓冲只保留在 `qimen/ziwei` 主链，普通 `bazi` 恢复增量输出。
+- 2026-06-19：可观测性路线定为“保留 `TurnTrace` 作为产品层；新增 OTel 标准层；后端先接 Langfuse，Phoenix 作为对照参考”。Go 继续掌握业务语义 span，Eino callback 负责补齐 LLM/tool/retriever 低层事件。
+- 2026-06-19：Phase A 可观测性实现先落本地业务边界，不直接引入 OTLP exporter。`sse_emit` 统一包裹 runtime 对前端的输出，`preflight` / `prefill` / `contract_gate` 成为新的稳定排障节点，后续 Phase B 再补 OTel 映射与 exporter。
+- 2026-06-19：OTel 映射先从 attribute contract 开始，而不是先接 exporter。当前 root trace 已记录 route/session/message 元数据，Eino LLM callback 已开始补 `gen_ai.*` 标准别名；后续 exporter 接入时优先复用这层现有语义。
+- 2026-06-19：最小 OTel exporter 已接到 `realTracer`，采用“mirror 而非替代”策略。`TurnTrace` 仍是展示与落盘主契约；OTLP 仅做并行外发，默认关闭，启用靠 `OTEL_*` 环境变量控制，并在进程关闭时执行 provider shutdown。
+- 2026-06-20：前端 trace 展示正式分层为 `ProcessDigest + DebugTraceDigest` 双投影。`TracePanel` 只展示阶段级用户可读摘要；`thinking/tool_call/raw spans` 统一收进 debug 抽屉，避免主界面把排障噪音误当产品流程。
 
 ## 上下文工程后续衔接
 

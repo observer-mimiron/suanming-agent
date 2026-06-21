@@ -4,7 +4,6 @@ package guidance
 import (
 	"strings"
 
-	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
 
@@ -31,16 +30,12 @@ type Context struct {
 
 // Request 描述一次 guidance 文案渲染请求。
 type Request struct {
-	Directive *schemas.ConversationDirective
-	Boundary  BoundaryPrompt
-	Context   Context
+	Boundary BoundaryPrompt
+	Context  Context
 }
 
-// Render 根据 directive 或 boundary prompt 产出最终用户可见文案。
+// Render 根据 boundary prompt 产出最终用户可见文案。
 func Render(req Request) string {
-	if req.Directive != nil {
-		return renderDirective(*req.Directive, req.Context)
-	}
 	return renderBoundary(req.Boundary, req.Context)
 }
 
@@ -66,21 +61,6 @@ func RenderGuidance(gs *state.GuidanceState, ctx Context) string {
 // RenderBoundary 是 renderBoundary 的公开入口，供 runtime 直接调用。
 func RenderBoundary(boundary BoundaryPrompt, ctx Context) string {
 	return renderBoundary(boundary, ctx)
-}
-
-func renderDirective(d schemas.ConversationDirective, ctx Context) string {
-	switch d.Kind {
-	case "offer_consult":
-		return "如果您愿意，我可以按命理咨询的方式继续帮您看。您可以直接告诉我这次最想重点了解什么，比如事业、感情、财运、健康或流年。"
-	case "choose_topic":
-		return renderChooseTopic(d.OptionSet)
-	case "collect_slot":
-		return renderCollectSlot(d.SlotName)
-	case "guided_fallback":
-		return renderGuidedFallback(ctx)
-	default:
-		return renderGuidedFallback(ctx)
-	}
 }
 
 func renderBoundary(boundary BoundaryPrompt, ctx Context) string {

@@ -44,7 +44,8 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 		return nil, err
 	}
 	instruction := cfg.Instruction
-	if st != nil && (len(st.Profile) > 0 || st.HasBaziResult()) {
+	instruction += "\n\n## 当前运行时上下文\n当前系统日期：" + time.Now().Format("2006-01-02") + "。\n当前系统时区：Asia/Shanghai。"
+	if st != nil && (len(st.Profile) > 0 || st.HasBaziResult() || st.HasZiWeiResult()) {
 		instruction += "\n\n## 会话已有上下文\n\n以下资料已在当前会话中提供，**直接使用，无需再次索要或调用工具获取**：\n"
 		if len(st.Profile) > 0 {
 			pb := NewBuilder("") // 只用 buildProfileSection
@@ -52,6 +53,18 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 		}
 		if st.HasBaziResult() {
 			instruction += "\n### 命盘结果\n命盘已排好，直接从会话上下文引用即可，**禁止重新调用 bazi_calc**。\n"
+			if _, ok := st.BaziResult["yongshen"]; ok {
+				instruction += "用神分析已预执行完成，结果在 SessionValues 中，**禁止调用 yongshen 工具**。\n"
+			}
+			if _, ok := st.BaziResult["dayun_analyzed"]; ok {
+				instruction += "大运分析已预执行完成，结果在 SessionValues 中，**禁止调用 dayun_analyzer 工具**。\n"
+			}
+			if _, ok := st.BaziResult["knowledge_summary"]; ok {
+				instruction += "古籍检索已预执行完成，结果在 SessionValues 中，**禁止调用 knowledge_search 工具**。\n"
+			}
+		}
+		if st.HasZiWeiResult() {
+			instruction += "\n### 紫微命盘结果\n紫微命盘已排好，直接从会话上下文引用即可，**禁止重新调用 ziwei_calc**。\n"
 		}
 	}
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
@@ -99,7 +112,7 @@ func (b *AgentBuilder) BuildSupervisor(ctx context.Context, route policy.Approve
 				Tools: agentTools,
 			},
 		},
-		MaxIterations: 10,
+		MaxIterations:    10,
 		ModelRetryConfig: defaultRetryConfig(),
 	})
 }
@@ -211,4 +224,3 @@ func defaultRetryConfig() *adk.ModelRetryConfig {
 		},
 	}
 }
-

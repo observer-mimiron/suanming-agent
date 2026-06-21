@@ -86,33 +86,6 @@ func TestExecute_RecordsPreflightAndSSETraceOnShortCircuit(t *testing.T) {
 	}
 }
 
-func TestExecute_WritesGuidanceStateOnDirectiveShortCircuit(t *testing.T) {
-	tracer := tracing.NewRealTracer(nil)
-	ctx, trace := tracer.StartTrace(context.Background(), "chat.turn")
-	defer trace.End()
-
-	st := state.NewSession("sess-guidance-short")
-	route := policy.ApprovedRoute{
-		Directive: &schemas.ConversationDirective{
-			Kind:      "choose_topic",
-			OptionSet: "top_topics",
-		},
-	}
-	sink := &recordingSink{}
-	exec := &Executor{}
-
-	_, _, err := exec.Execute(ctx, sink, st, route, "帮我看看")
-	if err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if st.Guidance == nil {
-		t.Fatal("Guidance = nil, want guidance state")
-	}
-	if st.Guidance.DirectiveKind != "choose_topic" {
-		t.Fatalf("Guidance.DirectiveKind = %q, want choose_topic", st.Guidance.DirectiveKind)
-	}
-}
-
 func TestExecutor_UpdateGuidanceState_ClearsOnExecutionEntry(t *testing.T) {
 	exec := &Executor{}
 	st := state.NewSession("sess-guidance-clear")

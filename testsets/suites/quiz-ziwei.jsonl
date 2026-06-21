@@ -1,0 +1,6 @@
+{"name": "quiz-ziwei", "description": "紫微斗数专项：排盘、十二宫分析、流年、婚姻事业等专项问题，以及混合路由口语化测试"}
+{"id": "ziwei-basic-chart", "turns": [{"message": "帮我排个紫微斗数盘，男，1990年5月20日上午8点，北京", "session_id": "ziwei-01", "expect": {"http_status": 200, "contains_any": ["紫微", "命宫", "宫位", "星曜", "命盘"], "route_primary": "ziwei"}}]}
+{"id": "ziwei-career", "turns": [{"message": "女，1986年3月18日辰时，上海，想用紫微斗数看看我的事业发展方向和财运", "session_id": "ziwei-02", "expect": {"http_status": 200, "contains_any": ["紫微", "事业", "财帛", "官禄", "宫位"], "route_primary": "ziwei"}}]}
+{"id": "ziwei-marriage", "turns": [{"message": "男，农历1995年十月十五卯时，成都，紫微斗数看婚姻什么时候能成", "session_id": "ziwei-03", "expect": {"http_status": 200, "contains_any": ["夫妻", "宫位", "紫微", "感情", "星曜"], "route_primary": "ziwei"}}]}
+{"id": "ziwei-liunian", "turns": [{"message": "男，公历1984年2月15日下午2点，广州，紫微斗数帮我看看2026年的运势怎么样", "session_id": "ziwei-04", "expect": {"http_status": 200, "contains_any": ["流年", "紫微", "年份", "宫位", "星曜"]}}]}
+{"id": "ziwei-followup", "turns": [{"message": "你好，帮我排个紫微斗数命盘，女，1988年8月8日晚上11点，深圳", "session_id": "ziwei-05"}, {"message": "我命宫有什么星？感情方面怎么样", "session_id": "ziwei-05", "expect": {"http_status": 200, "not_contains": ["请提供出生信息", "需要您提供", "需要您的出生"], "route_primary": "ziwei"}}]}

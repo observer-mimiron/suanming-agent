@@ -1,15 +1,23 @@
 <template>
-  <div class="trace-panel" v-if="digest && digest.steps && digest.steps.length">
+  <div class="trace-panel" v-if="digest && digest.phases && digest.phases.length">
     <!-- collapsed summary -->
     <div class="trace-summary" @click="expanded = !expanded">
       <div class="trace-summary-left">
         <span class="trace-status-dot" :class="'dot-' + summaryStatus()" />
-        <span class="trace-label">处理过程</span>
-        <span class="trace-total-ms">{{ fmtMs(digest.total_ms) }}</span>
-        <span v-if="summaryStatus() !== 'ok'" class="trace-summary-badge" :class="'badge-' + summaryStatus()">{{ summaryLabel() }}</span>
+        <div class="trace-summary-copy">
+          <div class="trace-summary-head">
+            <span class="trace-label">处理过程</span>
+            <span class="trace-total-ms">{{ fmtMs(digest.total_ms) }}</span>
+            <span v-if="summaryStatus() !== 'ok'" class="trace-summary-badge" :class="'badge-' + summaryStatus()">{{ summaryLabel() }}</span>
+          </div>
+          <div v-if="summaryPhase()" class="trace-brief">
+            <span class="trace-brief-label">{{ summaryPhase()?.label }}</span>
+            <span v-if="summaryPhase()?.summary" class="trace-brief-text">{{ summaryPhase()?.summary }}</span>
+          </div>
+        </div>
       </div>
       <div class="trace-summary-right">
-        <span class="trace-step-count">{{ digest.steps.length }} 个步骤</span>
+        <span class="trace-step-count">{{ digest.phases.length }} 个阶段</span>
         <span class="trace-toggle-icon">{{ expanded ? '▴' : '▾' }}</span>
       </div>
     </div>
@@ -18,28 +26,28 @@
     <div v-if="expanded" class="trace-detail">
       <div class="trace-timeline">
         <div
-          v-for="(s, i) in digest.steps"
+          v-for="(phase, i) in digest.phases"
           :key="i"
           class="trace-step"
-          :class="'step-' + s.status"
+          :class="'step-' + phase.status"
         >
           <div class="step-line">
-            <span class="step-dot" :class="'step-dot-' + s.status" />
-            <span v-if="i < digest.steps.length - 1" class="step-connector" />
+            <span class="step-dot" :class="'step-dot-' + phase.status" />
+            <span v-if="i < digest.phases.length - 1" class="step-connector" />
           </div>
           <div class="step-content">
             <div class="step-head">
-              <span class="step-label">{{ s.label }}</span>
-              <span class="step-kind">{{ kindLabel(s.kind) }}</span>
-              <span class="step-ms">{{ fmtMs(s.ms) }}</span>
+              <span class="step-label">{{ phase.label }}</span>
+              <span class="step-ms">{{ fmtMs(phase.ms) }}</span>
             </div>
-            <div class="step-meta" v-if="s.meta">
-              <span v-if="s.meta.model" class="step-meta-tag">模型 {{ s.meta.model }}</span>
-              <span v-if="s.meta.hits !== undefined" class="step-meta-tag">命中 {{ s.meta.hits }}</span>
+            <div v-if="phase.summary" class="step-summary">{{ phase.summary }}</div>
+            <div class="step-meta" v-if="phase.meta">
+              <span v-if="phase.meta.model" class="step-meta-tag">模型 {{ phase.meta.model }}</span>
+              <span v-if="phase.meta.hits !== undefined" class="step-meta-tag">命中 {{ phase.meta.hits }}</span>
             </div>
-            <div v-if="s.status === 'error'" class="step-badge step-badge-err">失败</div>
-            <div v-else-if="s.status === 'degraded'" class="step-badge step-badge-warn">降级</div>
-            <div v-else-if="s.status === 'fallback'" class="step-badge step-badge-warn">回退</div>
+            <div v-if="phase.status === 'error'" class="step-badge step-badge-err">失败</div>
+            <div v-else-if="phase.status === 'degraded'" class="step-badge step-badge-warn">降级</div>
+            <div v-else-if="phase.status === 'fallback'" class="step-badge step-badge-warn">回退</div>
           </div>
         </div>
       </div>
@@ -49,9 +57,9 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { TraceDigest } from '../types/chat'
+import type { ProcessDigest } from '../types/chat'
 
-const props = defineProps<{ digest: TraceDigest }>()
+const props = defineProps<{ digest: ProcessDigest }>()
 
 const expanded = ref(false)
 
@@ -72,16 +80,11 @@ function summaryLabel(): string {
   return map[props.digest?.status] || ''
 }
 
-function kindLabel(kind: string): string {
-  const map: Record<string, string> = {
-    AGENT: '编排',
-    CHAIN: '链条',
-    TOOL: '工具',
-    RETRIEVER: '检索',
-    LLM: '模型',
-  }
-  return map[kind] || kind
+function summaryPhase() {
+  const phases = props.digest?.phases ?? []
+  return phases[phases.length - 1]
 }
+
 </script>
 
 <style scoped>
@@ -106,6 +109,18 @@ function kindLabel(kind: string): string {
 }
 
 .trace-summary-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.trace-summary-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.trace-summary-head {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -140,6 +155,23 @@ function kindLabel(kind: string): string {
   font-size: 12px;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+}
+
+.trace-brief {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.trace-brief-label {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.trace-brief-text {
+  color: var(--text-muted);
 }
 
 .trace-summary-right {
@@ -213,18 +245,17 @@ function kindLabel(kind: string): string {
   color: var(--text-primary);
   flex: 1;
 }
-.step-kind {
-  font-size: 10px;
-  color: var(--text-muted);
-  background: var(--bg);
-  padding: 1px 5px;
-  border-radius: 3px;
-  letter-spacing: 0.04em;
-}
 .step-ms {
   font-size: 12px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.step-summary {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
 }
 
 .step-meta {

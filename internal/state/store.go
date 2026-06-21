@@ -64,10 +64,23 @@ func (s *MemoryStore) LoadOrCreate(id string) *SessionState {
 
 // Save 将会话状态持久化到磁盘（仅在创建时指定了持久化目录时生效）。
 func (s *MemoryStore) Save(st *SessionState) error {
+	if st == nil {
+		return nil
+	}
+
+	snapshot := st.Clone()
+	s.mu.Lock()
+	if existing, ok := s.sessions[st.SessionID]; ok && existing != nil {
+		*existing = *snapshot
+	} else {
+		s.sessions[st.SessionID] = snapshot
+	}
+	s.mu.Unlock()
+
 	if s.dir == "" {
 		return nil
 	}
-	data, err := json.Marshal(st)
+	data, err := json.Marshal(snapshot)
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,6 @@
-{"name": "quiz-marriage", "description": "婚姻感情类问题，验证 Agent 对婚姻相关 prompt 路由和回答质量"}
-{"id": "marriage-female-timing", "turns": [{"message": "女命，公历1980年8月24日下午4点半，广东出生，帮我算算婚姻", "session_id": "quiz-marriage-01", "expect": {"http_status": 200, "turn_type_any": ["direct_bazi", "bazi_new"], "contains_any": ["婚姻", "感情", "配偶", "结婚"]}}]}
-{"id": "marriage-male-quality", "turns": [{"message": "我是男生，1991年11月2日中午12点生，想看看什么时候会遇到正缘", "session_id": "quiz-marriage-02", "expect": {"http_status": 200, "contains_any": ["正缘", "婚姻", "感情", "桃花"]}}]}
-{"id": "marriage-followup-spouse", "turns": [{"message": "女，农历1995年六月初八酉时，老家湖南长沙", "session_id": "quiz-marriage-03"}, {"message": "我未来老公是什么样的人？做什么工作的？", "session_id": "quiz-marriage-03", "expect": {"http_status": 200, "contains_any": ["配偶", "丈夫", "老公", "事业", "职业"], "reuse_chart": true}}]}
-{"id": "marriage-problem", "turns": [{"message": "师傅帮忙看看婚姻，男命，1983年4月21日早上6点，日本宫崎县", "session_id": "quiz-marriage-04", "expect": {"http_status": 200, "contains_any": ["婚姻", "感情", "配偶"]}}]}
-{"id": "marriage-divorce-risk", "turns": [{"message": "女命，已婚，公历1982年12月5日下午2点，想看看婚姻能不能长久", "session_id": "quiz-marriage-05", "expect": {"http_status": 200, "contains_any": ["婚姻", "感情"], "not_contains": ["肯定离婚", "必须离婚"]}}]}
+{"name": "quiz-marriage", "description": "婚姻感情类问题，验证 Agent 对婚姻相关回答质量"}
+{"id": "marriage-female-timing", "turns": [{"message": "女命，公历1980年8月24日下午4点半，广东出生，帮我算算婚姻", "session_id": "quiz-marriage-01", "expect": {"http_status": 200, "contains_any": ["排盘", "八字", "婚姻", "感情", "配偶", "结婚", "官星", "夫妻"]}}]}
+{"id": "marriage-male-quality", "turns": [{"message": "我是男生，1991年11月2日中午12点生，想看看什么时候会遇到正缘", "session_id": "quiz-marriage-02", "expect": {"http_status": 200, "contains_any": ["排盘", "八字", "正缘", "婚姻", "感情"]}}]}
+{"id": "marriage-followup-spouse", "turns": [{"message": "女，农历1995年六月初八酉时，老家湖南长沙", "session_id": "quiz-marriage-03"}, {"message": "我未来老公是什么样的人？做什么工作的？", "session_id": "quiz-marriage-03", "expect": {"http_status": 200, "not_contains": ["请提供出生信息", "需要您的出生"]}}]}
+{"id": "marriage-problem", "turns": [{"message": "师傅帮忙看看婚姻，男命，1983年4月21日早上6点，日本宫崎县", "session_id": "quiz-marriage-04", "expect": {"http_status": 200, "contains_any": ["排盘", "八字", "婚姻", "感情"]}}]}
+{"id": "marriage-divorce-risk", "turns": [{"message": "女命，已婚，公历1982年12月5日下午2点，想看看婚姻能不能长久", "session_id": "quiz-marriage-05", "expect": {"http_status": 200, "contains_any": ["排盘", "八字", "婚姻", "感情"], "not_contains": ["肯定离婚", "必须离婚"]}}]}

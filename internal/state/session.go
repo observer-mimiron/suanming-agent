@@ -20,6 +20,7 @@ type RoutingSnapshot struct {
 	PrimaryDomain         string   `json:"primary_domain,omitempty"`
 	SecondaryDomains      []string `json:"secondary_domains,omitempty"`
 	TaskIntent            string   `json:"task_intent,omitempty"`
+	QimenMode             string   `json:"qimen_mode,omitempty"`
 	AwaitingClarification bool     `json:"awaiting_clarification,omitempty"`
 	Confidence            float64  `json:"confidence,omitempty"`
 	TimeScope             string   `json:"time_scope,omitempty"`
@@ -49,6 +50,16 @@ type DomainStates struct {
 	ZiWei ZiWeiState `json:"ziwei,omitempty"`
 }
 
+// GuidanceState 记录当前会话里的对话引导状态。
+//
+// 它只保存“引导到了哪一步”和少量复用信息，不负责决定如何迁移。
+type GuidanceState struct {
+	DirectiveKind string `json:"directive_kind,omitempty"`
+	ChosenTopic   string `json:"chosen_topic,omitempty"`
+	PendingSlot   string `json:"pending_slot,omitempty"`
+	RetryCount    int    `json:"retry_count,omitempty"`
+}
+
 // SessionState 表示一个会话的完整状态，包含用户资料、命盘结果、路由快照、对话历史等。
 type SessionState struct {
 	SessionID           string
@@ -59,8 +70,8 @@ type SessionState struct {
 	ConversationStage   string         // "collecting" | "ready" | "completed"
 	ConversationSummary string
 	LastUserQuestion    string
-	NeedsQimen     bool // set by the approved route / specialist dispatch, consumed by followup execution
-	NeedsKnowledge bool // legacy flag kept for compatibility with existing session snapshots
+	NeedsQimen          bool // set by the approved route / specialist dispatch, consumed by followup execution
+	NeedsKnowledge      bool // legacy flag kept for compatibility with existing session snapshots
 
 	// 上下文工程第一阶段：会话内最近多轮对话 + 滚动摘要
 	RecentTurns    []Turn `json:"recent_turns,omitempty"`
@@ -69,6 +80,9 @@ type SessionState struct {
 	// Supervisor 架构：路由快照 + 领域状态
 	Routing      RoutingSnapshot `json:"routing,omitempty"`
 	DomainStates DomainStates    `json:"domain_states,omitempty"`
+
+	// Guidance 只持久化对话引导状态，不承载迁移规则。
+	Guidance *GuidanceState `json:"guidance,omitempty"`
 }
 
 // NewSession 创建一个新的会话状态实例，初始化空资料和收集阶段。
@@ -175,9 +189,9 @@ func (s *SessionState) Clone() *SessionState {
 		LastUserQuestion:    s.LastUserQuestion,
 		NeedsQimen:          s.NeedsQimen,
 		NeedsKnowledge:      s.NeedsKnowledge,
-			RunningSummary:      s.RunningSummary,
-			Routing:             s.Routing,
-			DomainStates:        s.DomainStates,
+		RunningSummary:      s.RunningSummary,
+		Routing:             s.Routing,
+		DomainStates:        s.DomainStates,
 	}
 	if s.Profile != nil {
 		clone.Profile = make(map[string]any, len(s.Profile))
@@ -210,6 +224,14 @@ func (s *SessionState) Clone() *SessionState {
 		copy(clone.RecentTurns, s.RecentTurns)
 	} else {
 		clone.RecentTurns = make([]Turn, 0)
+	}
+	if s.Guidance != nil {
+		clone.Guidance = &GuidanceState{
+			DirectiveKind: s.Guidance.DirectiveKind,
+			ChosenTopic:   s.Guidance.ChosenTopic,
+			PendingSlot:   s.Guidance.PendingSlot,
+			RetryCount:    s.Guidance.RetryCount,
+		}
 	}
 	return clone
 }

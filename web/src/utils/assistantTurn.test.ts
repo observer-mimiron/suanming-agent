@@ -71,15 +71,28 @@ describe('buildAssistantTurnViewModel', () => {
       segments: [
         {
           type: 'component',
-          componentType: 'trace-panel',
+          componentType: 'process-panel',
+          payload: {
+            trace_id: 'abc',
+            turn_type: 'full',
+            total_ms: 2500,
+            status: 'ok',
+            phases: [
+              { key: 'route', label: '路由判断', status: 'ok', ms: 500, summary: '已完成路由判断。' },
+              { key: 'prepare', label: '排盘与资料准备', status: 'ok', ms: 300, summary: '已完成排盘与资料准备。' },
+            ],
+          },
+        },
+        {
+          type: 'component',
+          componentType: 'debug-trace',
           payload: {
             trace_id: 'abc',
             turn_type: 'full',
             total_ms: 2500,
             status: 'ok',
             steps: [
-              { label: '分类', kind: 'LLM', status: 'ok', ms: 500 },
-              { label: '八字排盘', kind: 'TOOL', status: 'ok', ms: 300 },
+              { name: 'supervisor_decision', label: '路由决策', kind: 'CHAIN', status: 'ok', ms: 500 },
             ],
           },
         },
@@ -88,11 +101,12 @@ describe('buildAssistantTurnViewModel', () => {
     const vm = buildAssistantTurnViewModel(msg)
     expect(vm.process).not.toBeNull()
     expect(vm.process!.status).toBe('ok')
-    expect(vm.process!.stepCount).toBe(2)
-    expect(vm.process!.trace.total_ms).toBe(2500)
+    expect(vm.process!.phaseCount).toBe(2)
+    expect(vm.process!.digest.total_ms).toBe(2500)
+    expect(vm.debugTrace?.steps).toHaveLength(1)
   })
 
-  it('preserves thinking, tool_calls, and errors', () => {
+  it('moves thinking and tool_calls into debug events', () => {
     const msg: ChatMessage = {
       id: '5',
       role: 'assistant',
@@ -103,9 +117,11 @@ describe('buildAssistantTurnViewModel', () => {
       ],
     }
     const vm = buildAssistantTurnViewModel(msg)
-    expect(vm.thoughts).toEqual(['思考中...'])
-    expect(vm.toolCalls).toHaveLength(1)
-    expect(vm.toolCalls[0].name).toBe('bazi_calc')
+    expect(vm.debugEvents).toHaveLength(2)
+    expect(vm.debugEvents[0].type).toBe('thinking')
+    expect(vm.debugEvents[0].preview).toBe('思考中...')
+    expect(vm.debugEvents[1].type).toBe('tool_call')
+    expect(vm.debugEvents[1].label).toContain('bazi_calc')
     expect(vm.errors).toEqual(['knowledge search timeout'])
   })
 

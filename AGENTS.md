@@ -22,27 +22,26 @@
 
 ## 架构核心
 
-**推理与执行分离：** LangGraph (Python) 管有状态推理，Go 管高性能工具执行，HTTP 通信。
+**全 Go 原生，两层 "supervisor" 各司其职：**
+
+1. **RouteAdvisor**（`internal/supervisor/`，Go ADK RouteEngine）— 路由决策。三层防御（ADK structured → textDecide → safeFallback），产出 `SupervisorDecision`（L0 对话意图 → L1 领域 → L2 任务 → L3 槽位）。
+2. **Supervisor Agent**（Go ADK ChatModelAgent，每轮动态构建）— 执行分发。将本轮允许的 AgentTool specialists 挂载后分发给领域专家执行。
 
 ```
-Vue 3 → SSE → Gin (:8080) → HTTP → LangGraph (:8000)
-                   │
-            lunar-go / MCP→RAG / Codex
+Vue 3 → SSE → Gin (:8080)
+                │
+         Eino ADK / lunar-go / MCP→RAG (:3100)
 ```
 
 **架构单一事实来源：** `docs/architecture.md`（入口）和 `docs/architecture/supervisor/`（专题）。任何架构决策变更必须先更新该文档。
 
-## 三服务启动
+## 双服务启动
 
 可使用 `make dev` 一键启动（推荐），或分别启动：
 make dev-backend          # 仅后端
 make dev-frontend         # 仅前端
 
 ```bash
-# 推理层 (Python :8000)
-source reasoning/venv/bin/activate
-LLM_API_KEY=sk-xxx uvicorn reasoning.server:app --port 8000 --reload
-
 # 执行层 (Go :8080)
 LLM_API_KEY=sk-xxx go run ./cmd/server/
 
@@ -50,9 +49,8 @@ LLM_API_KEY=sk-xxx go run ./cmd/server/
 cd web && npm run dev
 ```
 
-
 **端口：** 后端默认 :8080，可通过 `LISTEN_ADDR` 环境变量修改（如 `LISTEN_ADDR=:8081`）。
-环境变量：`LLM_API_KEY`（必填）、`LLM_BASE_URL`、`LLM_MODEL`、`LANGRAPH_URL`、`RAG_MCP_URL`。
+环境变量：`LLM_API_KEY`（必填）、`LLM_BASE_URL`、`LLM_MODEL`、`RAG_MCP_URL`。
 
 ## 知识库
 
@@ -84,11 +82,6 @@ Go 后端的 `knowledge_search` 工具自动连接 `RAG_MCP_URL`（默认 :3100�
 go build ./cmd/server/          # 编译
 go test ./... -v                # 全部测试
 go test ./internal/tools/ -v    # 单个包测试
-
-# Python
-cd reasoning && source venv/bin/activate
-pip install -r requirements.txt
-python -m pytest . -v
 
 # Vue
 cd web && npm run dev           # 开发
@@ -133,20 +126,23 @@ npm run build                   # 构建
 ## 关键设计决策
 
 1. 八字引擎用 `lunar-go`（开源成熟方案），不自研
-2. 推理层用 LangGraph StateGraph（条件边 + TypedState），不用 Eino 的编排能力
-3. Go 只做工具执行，Eino 只用 Tool 接口 + ChatModel + Session Memory 三个底层组件
-4. RAG 通过 MCP 调本地服务，不内嵌
+2. 路由层用 Go ADK RouteEngine（三层防御：ADK structured → textDecide → safeFallback），不做 Python 推理层
+3. 执行层用 ADK ChatModelAgent + AgentAsTool + Specialist Agent，Eino 承载路由和 Agent 运行时
+4. RAG 通过 MCP 调本地知识库服务，不内嵌
 5. SSE 5 种结构化事件（thinking/tool_call/component/text/done），前端按类型渲染
+6. 后续统一入口采用 `LLM Supervisor + Go Runtime + bounded specialists`
 
 ## Agent 模块边界
 
 ```
-Go Orchestrator → LangGraph POST /reason → 返回 action
-  action=ask  → SSE text 追问 → 等待下一轮
-  action=plan → 按序调 Tool → SSE component/text → done
+Orchestrator → RouteAdvisor（Go ADK，路由决策）
+  → Policy Gate（策略门控）
+  → Preflight（确定性硬判断，可能短路返回澄清/缺资料）
+  → Supervisor Agent（Go ADK，每轮动态构建）+ AgentTool specialists
+  → AgentEventBridge → SSE 推送
 
-Tool 注册: bazi_calc / rag_search / llm_generate
-LangGraph 降级: 不可用时跳过推理层，直接 llm_generate
+Specialists: bazi / qimen / ziwei（各自挂载领域工具）
+降级链: ADK structured → textDecide → fallbackExtract → safeFallback
 ```
 
 ## 质量门禁
@@ -188,7 +184,7 @@ LangGraph 降级: 不可用时跳过推理层，直接 llm_generate
 // Package orchestrator 实现命理咨询的对话编排逻辑。
 //
 // 负责管理会话状态机、调度工具执行、生成 SSE 事件流。
-// 支持多轮对话上下文保持和 LangGraph 推理层降级。
+// 支持多轮对话上下文保持和 supervisor 三层降级。
 package orchestrator
 ```
 
@@ -224,7 +220,7 @@ type SessionState struct {
 
 - **架构设计点：** 为什么选择这个模式（如「用状态机而非 if-else 链，因为后续有 7 种状态扩展」）。
 - **非直观算法：** 如八字排盘中的节气计算、天干地支转换，需注明参考的历法规则。
-- **容错与降级：** 如 LangGraph 不可用时直接走本地推理，注释说明降级触发条件和恢复方式。
+- **容错与降级：** 如 supervisor route engine 不可用时经三层降级（ADK → textDecide → safeFallback），注释说明降级触发条件和恢复方式。
 - **并发边界：** 共享状态的锁策略、channel 关闭时机、goroutine 生命周期。
 - **外部依赖调用：** MCP 调用、LLM API 调用的重试策略和超时原因。
 
@@ -247,9 +243,9 @@ type SessionState struct {
 | `eino-component` | `.claude/skills/eino-component/SKILL.md` | Eino 组件选择、配置和使用（ChatModel/Tool/Embedding/Retriever 等） |
 | `eino-compose` | `.claude/skills/eino-compose/SKILL.md` | Eino 编排：Graph、Chain、Workflow |
 | `eino-agent` | `.claude/skills/eino-agent/SKILL.md` | Eino ADK Agent 构建、中间件、Runner |
-| `test-bazi-accuracy` | `.claude/skills/test-bazi-accuracy.md` | 八字准确率测试 |
+| `agent-test-suites` | `.claude/skills/agent-test-suites/SKILL.md` | Agent 行为回归测试 |
 
-**Claude Code 用户：** 以上技能通过 `Skill` 工具调用，技能名与目录名一致（如 `eino-agent`、`test-bazi-accuracy`）。
+**Claude Code 用户：** 以上技能通过 `Skill` 工具调用，技能名与目录名一致（如 `eino-agent`、`agent-test-suites`）。
 
 **Codex 用户：** 请从对应路径加载技能文件作为指令上下文。
 

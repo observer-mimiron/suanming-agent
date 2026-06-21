@@ -24,6 +24,28 @@ func TraceIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+// SetTraceAttribute writes a top-level trace attribute when a TurnTrace is present.
+func SetTraceAttribute(ctx context.Context, key string, value any) {
+	t := TraceFromContext(ctx)
+	if t == nil || key == "" {
+		return
+	}
+	if t.Attributes == nil {
+		t.Attributes = map[string]any{}
+	}
+	t.Attributes[key] = value
+	if t.otelRoot != nil {
+		t.otelRoot.SetAttribute(key, value)
+	}
+}
+
+// SetTraceAttributes writes multiple top-level trace attributes when a TurnTrace is present.
+func SetTraceAttributes(ctx context.Context, attrs map[string]any) {
+	for k, v := range attrs {
+		SetTraceAttribute(ctx, k, v)
+	}
+}
+
 // contextWithTrace 将 TurnTrace 存入 context，供下游代码通过 TraceFromContext 取回。
 func contextWithTrace(ctx context.Context, t *TurnTrace) context.Context {
 	return context.WithValue(ctx, traceKey, t)

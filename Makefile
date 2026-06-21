@@ -1,27 +1,61 @@
-.PHONY: dev dev-backend dev-frontend knowledge-start knowledge-stop knowledge-status knowledge-import
+.PHONY: build dev dev-backend dev-frontend \
+        knowledge-start knowledge-stop knowledge-status knowledge-restart \
+        backend-start backend-stop backend-restart \
+        restart status
 
-# ===== 服务启动 =====
+SERVER_BIN := /tmp/suanming-server
+COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
+# ===== 构建 =====
+build:
+	@cd $(CURDIR) && go build -ldflags="-X github.com/wikiglobal/suanming-agent/internal/container.BuildCommit=$(COMMIT)" -o $(SERVER_BIN) ./cmd/server/
+	@echo "Built: $(COMMIT) -> $(SERVER_BIN)"
+
+# ===== 全栈 =====
 dev:
 	@bash start.sh
 
+status:
+	@echo "=== suanming-server ==="
+	@curl -s http://localhost:18080/api/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "❌ 未运行"
+	@echo "=== knowledge MCP ==="
+	@$(MAKE) knowledge-status
+
+restart: backend-stop knowledge-stop backend-start knowledge-start
+	@echo "=== 全部重启完成 ==="
+
+# ===== 后端 =====
 dev-backend:
 	@LLM_API_KEY=$$(grep LLM_API_KEY .env | cut -d '=' -f2) go run ./cmd/server/
 
-dev-frontend:
-	cd web && npm run dev
+backend-start: build
+	@$(MAKE) backend-stop >/dev/null 2>&1 || true
+	@set -a; source $(CURDIR)/.env; set +a; LISTEN_ADDR=:18080 $(SERVER_BIN) &
+	@sleep 3
+	@curl -s http://localhost:18080/api/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('后端 ✅', d.get('commit',''))"
+
+backend-stop:
+	@lsof -ti :18080 | xargs kill 2>/dev/null; echo "后端已停止"
+
+backend-restart: backend-stop backend-start
 
 # ===== 知识库 =====
 knowledge-start:
-	docker run -d --name suanming-knowledge \
-		-p 3100:3100 \
-		-v $$(pwd)/knowledge/wiki:/data/wiki \
-		wikiglobal/yopedia:latest
+	@$(MAKE) knowledge-stop >/dev/null 2>&1 || true
+	@cd knowledge && set -a; source .env.local; set +a; npx next dev -p 3100 &
+	@sleep 6
+	@$(MAKE) knowledge-status
 
 knowledge-stop:
-	docker stop suanming-knowledge && docker rm suanming-knowledge
+	@lsof -ti :3100 | xargs kill 2>/dev/null; echo "知识库已停止"
 
 knowledge-status:
-	@curl -s http://localhost:3100/health 2>/dev/null && echo "✅ 运行中" || echo "❌ 未运行"
+	@curl -s http://localhost:3100/api/status 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('知识库 ✅' if d.get('configured') else '❌ 异常')" 2>/dev/null || echo "❌ 未运行"
+
+knowledge-restart: knowledge-stop knowledge-start
 
 knowledge-import:
 	@bash scripts/import-smart.py
+
+dev-frontend:
+	cd web && npm run dev

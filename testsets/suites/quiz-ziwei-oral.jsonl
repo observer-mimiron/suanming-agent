@@ -1,0 +1,8 @@
+{"name": "quiz-ziwei-oral", "description": "紫微斗数口语化路由专项：不同口语表达的路由稳定性，以及多术数混合场景下的 domain 选择"}
+{"id":"ziwei-oral-children","turns":[{"message":"命里有几个孩子","session_id":"ziwei-oral-01","expect":{"http_status":200,"route_primary":"ziwei"}}]}
+{"id":"ziwei-oral-compatibility","turns":[{"message":"我和他合不合适","session_id":"ziwei-oral-02","expect":{"http_status":200,"route_primary":"bazi"}}]}
+{"id":"ziwei-oral-fullview","turns":[{"message":"帮我全面看看我这个人","session_id":"ziwei-oral-03","expect":{"http_status":200,"route_primary":"bazi"}}]}
+{"id":"ziwei-oral-today","turns":[{"message":"今天适合出门谈事吗","session_id":"ziwei-oral-04","expect":{"http_status":200,"route_primary":"qimen","qimen_mode":"primary"}}]}
+{"id":"ziwei-oral-macroturn","turns":[{"message":"什么时候能转运啊","session_id":"ziwei-oral-05","expect":{"http_status":200,"route_primary":"bazi"}}]}
+{"id":"ziwei-oral-recent-luck","turns":[{"message":"最近运气不太好怎么办","session_id":"ziwei-oral-06","expect":{"http_status":200}}]}
+{"id":"ziwei-oral-explicit-technique","turns":[{"message":"我想看看紫微斗数怎么说","session_id":"ziwei-oral-08","expect":{"http_status":200,"route_primary":"ziwei"}}]}

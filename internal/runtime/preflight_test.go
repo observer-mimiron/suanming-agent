@@ -115,31 +115,6 @@ func TestPreflight_ClarificationRouteShortCircuits(t *testing.T) {
 	}
 }
 
-func TestPreflight_DirectiveShortCircuitsThroughRenderer(t *testing.T) {
-	st := makeSession(true, true, false)
-	route := policy.ApprovedRoute{
-		NeedsClarification:    true,
-		ClarificationQuestion: "请确认一下您的需求。",
-		Directive: &schemas.ConversationDirective{
-			Kind:      "choose_topic",
-			Reason:    "broad_intent",
-			OptionSet: "top_topics",
-		},
-	}
-
-	result := preflight(st, route, "")
-	if !result.ShortCircuit {
-		t.Fatal("directive route should short circuit")
-	}
-	if result.TurnType != "clarification" {
-		t.Fatalf("TurnType: got %q, want clarification", result.TurnType)
-	}
-	want := guidance.Render(guidance.Request{Directive: route.Directive})
-	if result.Text != want {
-		t.Fatalf("Text: got %q, want %q", result.Text, want)
-	}
-}
-
 // TestPreflight_BaziWithoutProfileOrChartBlocks 验证八字主域无资料且无命盘时，preflight
 // 返回 ask_missing_profile（collect_profile/amend_profile 除外）。
 func TestPreflight_BaziWithoutProfileOrChartBlocks(t *testing.T) {

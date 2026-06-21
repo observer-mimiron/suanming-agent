@@ -195,8 +195,20 @@ func TestEinoChatGenerate_EmitsCallbackTraceSpan(t *testing.T) {
 			if span.Attributes["model"] != "test-model" {
 				t.Fatalf("model attr = %v, want test-model", span.Attributes["model"])
 			}
+			if span.Attributes["gen_ai.request.model"] != "test-model" {
+				t.Fatalf("gen_ai.request.model = %v, want test-model", span.Attributes["gen_ai.request.model"])
+			}
+			if span.Attributes["gen_ai.operation.name"] != "llm_generate" {
+				t.Fatalf("gen_ai.operation.name = %v, want llm_generate", span.Attributes["gen_ai.operation.name"])
+			}
 			if span.Attributes["output_tokens"] != 7 {
 				t.Fatalf("output_tokens = %v, want 7", span.Attributes["output_tokens"])
+			}
+			if span.Attributes["gen_ai.usage.output_tokens"] != 7 {
+				t.Fatalf("gen_ai.usage.output_tokens = %v, want 7", span.Attributes["gen_ai.usage.output_tokens"])
+			}
+			if span.Attributes["gen_ai.usage.input_tokens"] != 11 {
+				t.Fatalf("gen_ai.usage.input_tokens = %v, want 11", span.Attributes["gen_ai.usage.input_tokens"])
 			}
 		}
 	}

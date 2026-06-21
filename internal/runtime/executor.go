@@ -108,15 +108,6 @@ func (e *Executor) updateGuidanceState(st *state.SessionState, route policy.Appr
 		if result.GuidanceNext != nil {
 			st.Guidance = result.GuidanceNext
 		}
-		// 旧 directive 兼容路径（Task 4 后删除）
-		if result.GuidanceNext == nil && route.Directive != nil {
-			st.Guidance = policy.ReduceGuidance(policy.GuidanceReducerInput{
-				Current:   st.Guidance,
-				Directive: route.Directive,
-				Message:   message,
-				Profile:   st.Profile,
-			})
-		}
 		return
 	}
 

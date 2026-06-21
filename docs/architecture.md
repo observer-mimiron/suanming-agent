@@ -5,16 +5,15 @@
 ## 服务拓扑
 
 ```
-Vue 3 (SSE) ──→ Gin (:8080) ──→ LangGraph (:8000)       推理层
-                      │
-                lunar-go / MCP→RAG (:3100) / Eino ADK     执行层
+Vue 3 (SSE) ──→ Gin (:8080)
+                     │
+              Go Runtime / Eino ADK / lunar-go / MCP→RAG (:3100)
 ```
 
 | 层 | 端口 | 技术栈 | 职责 |
 |---|------|-------|------|
-| 前端 | :5173 (dev) | Vue 3 + TypeScript + SSE | 聊天界面、命盘卡牌渲染、trace 面板 |
-| 执行层 | :8080 | Go + Gin + Eino ADK | 会话管理、路由、工具调度、SSE 推送 |
-| 推理层 | :8000 | Python + LangGraph | LLM 推理编排（可选，当前直连 Eino） |
+| 前端 | :5173 (dev) | Vue 3 + TypeScript + SSE | 聊天界面、命盘卡牌渲染、处理过程卡与调试抽屉 |
+| 执行层 | :8080 | Go + Gin + Eino ADK | 会话管理、路由、策略门控、工具调度、SSE 推送 |
 | 知识库 | :3100 | Yopedia (独立实例) | 命理典籍 RAG 检索 |
 
 ## 多 Agent 架构（当前：v1.5 + Eino Phase 1-5A）
@@ -39,13 +38,19 @@ flowchart TD
     BZ --> BR["agentEventBridge"]
     QM --> BR
     ZW --> BR
-    BR --> SSE["SSE → 前端"]
+    BR --> FG["post-run contract gate"]
+    FG --> SSE["SSE → 前端"]
 ```
 
 ### 关键控制边界
 
 - **模型负责理解**（语义路由、证据需求判断、回答生成）
-- **程序负责控制**（状态管理、策略校验、工具执行、SSE 推送、trace）
+- **程序负责控制**（状态管理、策略校验、工具执行、结果验收、SSE 推送、trace）
+
+当前 Phase 1 收口新增了两个硬边界：
+
+- **显式术数 obey**：用户明确指定 `八字 / 紫微 / 奇门` 时，`normalizeApprovedRoute` 做 deterministic 主领域纠偏
+- **执行契约验收**：`primary_domain=qimen` 必须真拿到 `QimenResult`，`primary_domain=ziwei` 必须真拿到 `ZiWeiResult`
 
 详细边界见 [01-overview.md](docs/architecture/supervisor/01-overview.md)。
 
@@ -57,15 +62,21 @@ Supervisor 输出四层结构化路由：
 L0 对话意图   → consult / clarify / smalltalk / meta_help / switch_topic
 L1 主/辅领域   → bazi / qimen / ziwei
 L2 任务意图   → collect_profile / direct_bazi / interpret_chart / fortune_followup / timing_followup / cross_domain_consult
-L3 槽位与标记 → profile slots / question text / time scope / target subject
+L3 槽位与标记 → profile slots / question text / time scope / target subject / qimen_mode / profile_requirement
 ```
+
+当前 routing 不是“命中词表就切领域”，而是先判断：
+
+1. 这是 **本命结构 / 长期趋势**，还是 **当前时机 / 行动选择**
+2. 最需要的是 **出生盘**，还是 **当前时间盘**
+3. 再决定 `bazi / ziwei / qimen`
 
 ## 会话与上下文工程
 
 - **RecentTurns**：最近 8 轮对话保留，超过后滚动摘要
 - **RunningSummary**：增量摘要合并，失败不丢历史
 - **DomainStates**：领域状态持久化（八字命盘、奇门盘、紫微盘）
-- **RoutingSnapshot**：每轮路由快照写入会话状态
+- **RoutingSnapshot**：每轮路由快照写入会话状态（含 `QimenMode`）
 
 ## 工具注册
 
@@ -91,6 +102,17 @@ L3 槽位与标记 → profile slots / question text / time scope / target subje
 | Phase 5B | 进行中 | `knowledge_search` retriever span 已切 Eino callback；通用 tool callback 待推进 |
 | Graph | 推迟 | 等 runtime 需要更深分支/并行/中断恢复时再做 |
 
+## Trace 架构
+
+当前 trace 采用 **原始链路 + 双投影 + OTel** 模型：
+
+- **`TurnTrace` 原始层**：继续作为本地 `logs/traces/` 的稳定 envelope 和投影输入
+- **`ProcessDigest` 产品投影**：驱动前端 `TracePanel` 的“处理过程”主卡，只展示用户可读阶段摘要
+- **`DebugTraceDigest` 调试投影**：驱动前端 debug drawer，承载原始 span、SSE `thinking/tool_call` 等排障信息
+- **OTel 标准层**：逐步把 Go 业务 span 与 Eino callback span 映射到 OpenTelemetry GenAI 语义，供后端观测平台消费
+
+首个推荐的 AI-native observability backend 是 **Langfuse**；`Phoenix` 作为对照参考和纯 tracing 方案候选。项目不会用外部平台私有 schema 直接替代本地 `TurnTrace`，前端主视图也不再直接暴露 raw trace step。
+
 ## 降级策略
 
 三层降级保护 Supervisor 路由始终可工作：
@@ -99,7 +121,7 @@ L3 槽位与标记 → profile slots / question text / time scope / target subje
 ADK structured route → textDecide (LLM) → fallbackExtract (规则) → safeFallback (硬编码)
 ```
 
-LLM 不可用时 LangGraph 推理层降级为直接 `llm_generate`。
+LLM 不可用时退到 `safeFallback` 的保守默认路由，不依赖额外 Python 推理层。
 
 ## 前端 SSE 协议
 
@@ -107,8 +129,8 @@ LLM 不可用时 LangGraph 推理层降级为直接 `llm_generate`。
 
 | 事件类型 | 用途 |
 |---------|------|
-| `thinking` | 思考过程 |
-| `tool_call` | 工具调用及结果 |
+| `thinking` | 调试思考事件（前端收进 debug drawer） |
+| `tool_call` | 调试工具事件与结果（前端收进 debug drawer） |
 | `component` | 排盘卡牌（八字/奇门/紫微） |
 | `text` | 流式回答文本 |
 | `done` | 本轮结束 |
@@ -116,14 +138,16 @@ LLM 不可用时 LangGraph 推理层降级为直接 `llm_generate`。
 ## 关键设计决策
 
 1. 八字引擎用 `lunar-go`，不自研
-2. 推理层用 LangGraph StateGraph，不用 Eino 编排
-3. Go 只做工具执行，Eino 只用 Tool + ChatModel + Session Memory 三个底层组件
+2. 不保留独立 Python 推理主链；当前统一走 Go runtime + Eino ADK
+3. Go 负责路由审批、策略门控、工具执行和最终结果验收；Eino 承接受边界约束的 route engine 与 agent runtime
 4. RAG 通过 MCP 调本地知识库服务，不内嵌
 5. SSE 5 种结构化事件，前端按类型渲染
 6. 后续统一入口采用 `LLM Supervisor + Go Runtime + bounded specialists`
 7. Phase 1 不做自由 swarm 或多 agent 协作
 8. `ApprovedRoute` 成为 runtime 主控输入，不再通过 legacy action bridge
 9. 执行层迁移为 Supervisor Agent + AgentAsTool + Specialist Agent（2026-06-16）
+10. Phase 1 路由收口改为“术数能力画像 + 显式术数 obey + post-run contract gate”（2026-06-19）
+11. 可观测性采用“`TurnTrace` raw envelope + `ProcessDigest/DebugTraceDigest` 前端双投影 + OTel 标准层 + Langfuse 优先后端”的分层方案（2026-06-20）
 
 ## 详细文档索引
 

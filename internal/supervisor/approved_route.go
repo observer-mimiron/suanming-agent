@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"regexp"
+	"strings"
 
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -36,6 +37,8 @@ func (c *Client) Approve(ctx context.Context, msg string, st *state.SessionState
 //
 // 这些修正是纯确定性的，不涉及 LLM 调用，保证关键路由决策的稳定性。
 func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *state.SessionState, route policy.ApprovedRoute) policy.ApprovedRoute {
+	applyExplicitMethodPreference(msg, &route)
+
 	if route.TaskIntent == "collect_profile" && len(st.Profile) > 0 {
 		route.TaskIntent = "amend_profile"
 		route.PolicyHints.CanReuseSessionProfile = true
@@ -64,6 +67,39 @@ func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *sta
 	}
 
 	return route
+}
+
+// applyExplicitMethodPreference 在用户明确指定术数方法时做硬性纠偏。
+// 这里只 obey 显式方法意图，不把一般语义问题扩展成 case 规则库。
+func applyExplicitMethodPreference(msg string, route *policy.ApprovedRoute) {
+	trimmed := strings.TrimSpace(msg)
+	if trimmed == "" || route == nil {
+		return
+	}
+	switch {
+	case mentionsZiweiMethod(trimmed):
+		route.PrimaryDomain = "ziwei"
+		route.SecondaryDomains = removeDomain(route.SecondaryDomains, "ziwei")
+		route.PolicyHints.QimenMode = "none"
+		route.PolicyHints.NeedsQimen = false
+		if route.PolicyHints.ProfileRequirement == "" {
+			route.PolicyHints.ProfileRequirement = "full"
+		}
+	case mentionsQimenMethod(trimmed):
+		route.PrimaryDomain = "qimen"
+		route.SecondaryDomains = removeDomain(route.SecondaryDomains, "qimen")
+		route.PolicyHints.QimenMode = "primary"
+		route.PolicyHints.NeedsQimen = true
+		if route.PolicyHints.ProfileRequirement == "" {
+			route.PolicyHints.ProfileRequirement = "none"
+		}
+	case mentionsBaziMethod(trimmed):
+		route.PrimaryDomain = "bazi"
+		route.SecondaryDomains = removeDomain(route.SecondaryDomains, "bazi")
+		if route.PolicyHints.QimenMode == "" {
+			route.PolicyHints.QimenMode = "none"
+		}
+	}
 }
 
 // backfillRouteProfile 当 LLM 漏提取出生信息但消息中明显包含时，用简化提取链补齐。
@@ -97,9 +133,37 @@ func (c *Client) backfillRouteProfile(ctx context.Context, msg string, st *state
 // birthTimeRe 匹配中文消息中可能包含出生时间的模式。
 // 覆盖：中文年月格式(2020年3月)、数字日期格式(2020-03)、农历/阴历关键词、农历月份别名。
 var birthTimeRe = regexp.MustCompile(`\d{4}\s*年.*\d{1,2}\s*月|\d{4}[-/]\d{1,2}|农历|阴历|正月|腊月`)
+var ziweiMethodRe = regexp.MustCompile(`紫微|紫薇|斗数|星盘`)
+var qimenMethodRe = regexp.MustCompile(`奇门|遁甲`)
+var baziMethodRe = regexp.MustCompile(`八字`)
 
 // containsBirthTime 快速检测用户消息是否可能包含出生时间信息。
 // 用于 normalizeApprovedRoute 中判断是否需要触发 profile 回填逻辑。
 func containsBirthTime(msg string) bool {
 	return birthTimeRe.MatchString(msg)
+}
+
+func mentionsZiweiMethod(msg string) bool {
+	return ziweiMethodRe.MatchString(msg)
+}
+
+func mentionsQimenMethod(msg string) bool {
+	return qimenMethodRe.MatchString(msg)
+}
+
+func mentionsBaziMethod(msg string) bool {
+	return baziMethodRe.MatchString(msg)
+}
+
+func removeDomain(domains []string, target string) []string {
+	if len(domains) == 0 {
+		return domains
+	}
+	filtered := domains[:0]
+	for _, d := range domains {
+		if d != target {
+			filtered = append(filtered, d)
+		}
+	}
+	return filtered
 }

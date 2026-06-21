@@ -16,19 +16,12 @@ flowchart TD
     G --> AR["ApprovedRoute"]
     AR --> OR["Orchestrator shell"]
     OR --> RT["Runtime executor"]
-    RT --> SP["Specialist pre-check"]
-    SP -->|Final| C["Clarification"]
-    SP -->|not Final| EX["executeRoute(route, message)"]
-    EX -->|NeedsClarification| CL["clarification handler"]
-    EX -->|collect_profile| CP["collect handler"]
-    EX -->|amend_profile| AP["amend handler"]
-    EX -->|direct_bazi| DB["direct bazi handler"]
-    EX -->|timing / followup| FU["followup handler"]
-    CL --> O["output"]
-    CP --> O
-    AP --> O
-    DB --> O
-    FU --> O
+    RT --> PF["preflight"]
+    PF -->|short circuit| C["clarification / ask_missing_profile"]
+    PF -->|pass| AG["Supervisor Agent + AgentTool specialists"]
+    AG --> VG["post-run contract gate"]
+    C --> O["output"]
+    VG --> O
 ```
 
 `Supervisor RouteEngine` 当前运行时固定使用 Eino ADK 实现：
@@ -42,8 +35,9 @@ The original phase 1 used a bridge from `ApprovedRoute` back to legacy `action` 
 
 ## Current Pain Points
 
-- route approval and route execution are now separated, but stale session/runtime flags still exist
-- new domains would expand `executeRoute` and route handler complexity
+- route approval and route execution are now separated, but domain-selection semantics were previously too prompt-fragile
+- specialist prompts could say “use qimen/ziwei” without the runtime verifying the required chart actually existed
+- `prefill` was starting to leak from reuse/latency concerns into correctness concerns
 - dialect, multilingual input, and unusual phrasing are still poor fits for code-heavy routing
 - some low-level observability is now callback-driven, but tool and graph-wide coverage is not unified yet
 
@@ -90,6 +84,7 @@ The final answer owner remains the Go runtime in the current architecture.
 - Go owns session state
 - Go owns tool execution
 - Go owns policy validation
+- Go owns post-run output validation
 - Go owns SSE and the trace envelope
 - Go owns the final response assembly
 - Eino owns the ChatModel backend abstraction
@@ -109,3 +104,15 @@ The current Eino migration is intentionally hybrid:
 - Phase 5B: `knowledge_search` retriever spans are now sourced from Eino retriever callbacks; generic tool callback migration is deferred
 
 Graph migration is deferred until the runtime actually needs deeper branching, true parallel fan-out, or interrupt/resume.
+
+## Phase 1 Routing Tightening (2026-06-19)
+
+The current routing contract was tightened without changing the top-level schema:
+
+- **Supervisor** now chooses `bazi / ziwei / qimen` by problem frame first:
+  - natal structure / long-term trend
+  - palace-oriented life themes
+  - current timing / action decision
+- **normalizeApprovedRoute** performs deterministic override only when the user explicitly names the method
+- **runtime** blocks final output when a `qimen` or `ziwei` primary route did not actually produce the required chart result
+- **prefill** is narrowed back to reusable bazi preparation only; it is no longer allowed to silently satisfy ziwei correctness

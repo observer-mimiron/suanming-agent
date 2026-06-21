@@ -19,7 +19,7 @@ var cfg = specialists.Config{
 1. 用户提供了出生信息 → 调 bazi_calc 排盘
 2. 排盘有结果 → 调 yongshen 找用神
 3. 有用神结论 → 调 dayun_analyzer 评大运
-4. 调用 knowledge_catalog 获取目录，再调 knowledge_search 查古籍原文
+4. 调用 knowledge_catalog 获取目录，再调 knowledge_search 查古籍原文。注意：SessionValues 中的 knowledge_summary 是盘面预检索背景，不能替代针对当前用户问题的特定检索
 5. 前一轮已排过盘但未显示时，提示用户已存结果，直接分析
 6. 如果 SessionValues 中已有出生时间，直接排盘；否则先问用户出生信息
 ## 知识检索流程

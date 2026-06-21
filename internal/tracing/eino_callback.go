@@ -9,6 +9,7 @@ import (
 	einocallbacks "github.com/cloudwego/eino/callbacks"
 	einomodel "github.com/cloudwego/eino/components/model"
 	einoretriever "github.com/cloudwego/eino/components/retriever"
+	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	einoutils "github.com/cloudwego/eino/utils/callbacks"
 )
@@ -55,11 +56,16 @@ func NewEinoTraceCallbackHandler() einocallbacks.Handler {
 				for k, v := range cfg.Attributes {
 					span.SetAttribute(k, v)
 				}
+				if model, ok := cfg.Attributes["model"].(string); ok && model != "" {
+					span.SetAttribute("gen_ai.request.model", model)
+				}
 				if input != nil && input.Config != nil && input.Config.Model != "" {
 					if _, exists := cfg.Attributes["model"]; !exists {
 						span.SetAttribute("model", input.Config.Model)
 					}
+					span.SetAttribute("gen_ai.request.model", input.Config.Model)
 				}
+				span.SetAttribute("gen_ai.operation.name", cfg.Name)
 				return context.WithValue(ctx, einoCallbackSpanKey_, span)
 			},
 			OnEnd: func(ctx context.Context, _ *einocallbacks.RunInfo, output *einomodel.CallbackOutput) context.Context {
@@ -127,7 +133,40 @@ func NewEinoTraceCallbackHandler() einocallbacks.Handler {
 				finishEinoRetrieverErrorSpan(ctx, err)
 				return ctx
 			},
-		}).
+		}).Tool(&einoutils.ToolCallbackHandler{
+		OnStart: func(ctx context.Context, info *einocallbacks.RunInfo, input *einotool.CallbackInput) context.Context {
+			name := "tool"
+			if info != nil && info.Name != "" {
+				name = info.Name
+			}
+			span := SpanFromContext(ctx, name, KindTool)
+			if input != nil && input.ArgumentsInJSON != "" {
+				span.SetAttribute("args", input.ArgumentsInJSON)
+			}
+			return context.WithValue(ctx, einoCallbackSpanKey_, span)
+		},
+		OnEnd: func(ctx context.Context, _ *einocallbacks.RunInfo, output *einotool.CallbackOutput) context.Context {
+			span := einoSpanFromContext(ctx)
+			if span != nil {
+				if output != nil && output.Response != "" {
+					span.SetAttribute("response", output.Response)
+				}
+				span.End()
+			}
+			return ctx
+		},
+		OnError: func(ctx context.Context, _ *einocallbacks.RunInfo, err error) context.Context {
+			span := einoSpanFromContext(ctx)
+			if span != nil {
+				if err != nil {
+					span.RecordError(err)
+				}
+				span.SetStatus("error")
+				span.End()
+			}
+			return ctx
+		},
+	}).
 		Handler()
 }
 
@@ -138,6 +177,8 @@ func finishEinoCallbackSpan(ctx context.Context, err error, usage *einomodel.Tok
 	}
 	if usage != nil {
 		span.SetAttribute("output_tokens", usage.CompletionTokens)
+		span.SetAttribute("gen_ai.usage.output_tokens", usage.CompletionTokens)
+		span.SetAttribute("gen_ai.usage.input_tokens", usage.PromptTokens)
 	}
 	if err != nil {
 		span.RecordError(err)

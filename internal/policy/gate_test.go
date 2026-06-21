@@ -205,3 +205,54 @@ func TestGate_QimenPrimaryWithProfileRequirementFullStillClarifies(t *testing.T)
 		t.Fatal("qimen primary with full profile requirement should still force clarification")
 	}
 }
+
+func TestGate_QimenPrimaryForRecentLuckWithoutProfileAllowed(t *testing.T) {
+	st := makeSession(false, false)
+	d := schemas.SupervisorDecision{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "qimen",
+		TaskIntent:         "fortune_followup",
+		Confidence:         0.85,
+		Slots: schemas.DecisionSlots{
+			QuestionText: "最近运气怎么样",
+			TimeScope:    "最近",
+		},
+		PolicyHints: schemas.PolicyHints{
+			NeedsQimen:         true,
+			QimenMode:          "primary",
+			ProfileRequirement: "none",
+		},
+	}
+	d.Normalize()
+
+	route := Apply(d, st)
+	if route.NeedsClarification {
+		t.Fatal("recent luck qimen primary should not force clarification without profile")
+	}
+	if route.PrimaryDomain != "qimen" {
+		t.Fatalf("PrimaryDomain: got %q, want qimen", route.PrimaryDomain)
+	}
+}
+
+func TestGate_ZiweiPrimaryForChildrenQuestionStillNeedsProfileOrChart(t *testing.T) {
+	st := makeSession(false, false)
+	d := schemas.SupervisorDecision{
+		ConversationIntent: "consult",
+		PrimaryDomain:      "ziwei",
+		TaskIntent:         "fortune_followup",
+		Confidence:         0.85,
+		Slots: schemas.DecisionSlots{
+			QuestionText: "命里有几个孩子",
+		},
+	}
+	d.Normalize()
+
+	route := Apply(d, st)
+	if !route.NeedsClarification {
+		t.Fatal("ziwei primary without profile or chart should still force clarification")
+	}
+	if route.PrimaryDomain != "ziwei" {
+		t.Fatalf("PrimaryDomain: got %q, want ziwei", route.PrimaryDomain)
+	}
+}
+

@@ -2,7 +2,10 @@
 
 package tracing
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // SpanKind 遵循 OpenInference 语义约定的 Span 类型。
 type SpanKind string
@@ -42,28 +45,27 @@ type TurnTrace struct {
 	Status      string         `json:"status"`
 	Attributes  map[string]any `json:"attributes,omitempty"`
 	Spans       []TraceSpan    `json:"spans"`
+	otelCtx     context.Context
+	otelRoot    otelSpanBridge
+	otelBridge  otelBridge
 }
 
 // AddSpan 向追踪追加一个子 span。
 func (t *TurnTrace) AddSpan(s TraceSpan) { t.Spans = append(t.Spans, s) }
 
-// BuildDigest 从 TurnTrace 生成面向用户的 TraceDigest。
-// 仅包含可安全展示的字段，不含 CoT、原始提示词和内部参数。
+// BuildDigest 从 TurnTrace 生成 legacy TraceDigest。
+// 它保留原有步骤摘要契约用于兼容旧消费方，但不再是新的产品展示模型。
 func (t *TurnTrace) BuildDigest() TraceDigest {
-	var totalMs int64
-	if !t.EndedAt.IsZero() {
-		totalMs = t.EndedAt.Sub(t.StartedAt).Milliseconds()
-	} else {
-		totalMs = time.Since(t.StartedAt).Milliseconds()
-	}
-	if totalMs < 0 {
-		totalMs = 0
-	}
 	steps := make([]TraceStepDigest, 0, len(t.Spans))
 
 	for _, s := range t.Spans {
 		// 跳过根 agent span 自身——它不是一个步骤
 		if s.Kind == KindAgent {
+			continue
+		}
+		// `sse_emit` 仍保留在原始 trace 里做排障，但不进入用户可见的处理过程，
+		// 否则流式 chunk 会把时间线膨胀成上千步。
+		if s.Name == "sse_emit" {
 			continue
 		}
 
@@ -89,15 +91,11 @@ func (t *TurnTrace) BuildDigest() TraceDigest {
 			Meta:   meta,
 		})
 	}
-	if totalMs < 0 {
-		totalMs = 0
-	}
-
 	return TraceDigest{
 		TraceID:  t.TraceID,
 		TurnType: t.TurnType,
-		TotalMs:  totalMs,
-		Status:   t.Status,
+		TotalMs:  traceTotalMs(t),
+		Status:   normalizeStatus(t.Status),
 		Steps:    steps,
 	}
 }
@@ -118,9 +116,13 @@ func stepLabel(name string) string {
 		"supervisor_decision":  "路由决策",
 		"supervisor_model":     "路由模型",
 		"policy_gate":          "策略校验",
+		"preflight":            "执行前校验",
+		"prefill":              "预填充复用",
 		"domain_dispatch":      "领域调度",
 		"specialist_bazi":      "八字分析",
 		"specialist_qimen":     "奇门分析",
+		"contract_gate":        "结果验收",
+		"sse_emit":             "SSE 输出",
 	}
 	if label, ok := m[name]; ok {
 		return label
@@ -128,8 +130,8 @@ func stepLabel(name string) string {
 	return name
 }
 
-// TraceDigest 是从 TurnTrace 生成的面向用户摘要。
-// 仅包含可安全展示的字段，不含 CoT、原始提示词和内部参数。
+// TraceDigest 是旧版 trace 摘要契约。
+// 新的产品过程展示应改用 ProcessDigest；调试展示应改用 DebugTraceDigest。
 type TraceDigest struct {
 	TraceID  string            `json:"trace_id"`
 	TurnType string            `json:"turn_type"`

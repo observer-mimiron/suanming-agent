@@ -38,6 +38,7 @@ description: Use when prompted to run tests against the agent test suite, when c
 | `quiz-marriage` | Standard | 婚姻感情：时机、正缘、配偶、风险 |
 | `quiz-career-wealth` | Standard | 事业财运：方向、转行、投资、升职 |
 | `quiz-ziwei` | Standard | 紫微斗数：排盘、十二宫、流年、婚姻事业 |
+| `quiz-ziwei-oral` | Standard | 紫微口语化路由：口语表达路由稳定性、多术数混合 domain 选择 |
 | `edge-input` | Standard | 边界输入：短消息、缺性别、无关话题、中英混杂 |
 | `quiz-knowledge` | Exhaustive | 知识库检索：古籍引用、出处标注、伪书检测 |
 | `quiz-knowledge-edge` | Exhaustive | 知识图谱专项：catalog、3次预算、GetGraph、Agentic RAG |
@@ -116,8 +117,9 @@ description: Use when prompted to run tests against the agent test suite, when c
 ```bash
 # 终端 1：启动服务
 cd "$(git rev-parse --show-toplevel)"
+make build
 set -a; source .env; set +a
-LISTEN_ADDR=:18080 go run ./cmd/server/
+LISTEN_ADDR=:18080 /tmp/suanming-server &
 
 # 终端 2：跑测试
 python3 testsets/suites/runner.py testsets/suites/flow-basic.jsonl http://localhost:18080
@@ -134,8 +136,10 @@ python3 testsets/suites/runner.py testsets/suites/flow-basic.jsonl http://localh
 这是防止 30 分钟时间黑洞的第一道防线。runner 内置的 `check_server_ready()` 会自动执行此检查并输出时间/大小，但 **AI 在调用 runner 前也要自行判断**：
 
 ```
-runner 输出示例:
-✓ 服务就绪 (commit=56e459c, route_primary=bazi, probe=12.3s, body=45.2KB)
+runner 输出示例 (三层门禁):
+✓ 服务启动校验通过 (commit=56e459c)
+✓ 探针门禁通过 (probe=12.3s, body=45.2KB)
+✓ 业务能力探针通过 (route_primary=bazi)
 ```
 
 **AI 上下文健康指标**（宽松设置，只拦截明显异常）：
@@ -146,7 +150,7 @@ runner 输出示例:
 | 响应大小 | 1MB | `PROBE_SIZE_LIMIT` | 正常 SSE 响应 < 100KB，1MB 已留足 10 倍余量 |
 | 预估总时长 | 见 runner 输出 | — | runner 启动后打印 `Est. total: ~Xs`，AI 据此判断是否继续 |
 
-**任一超限，runner 自动退出 (exit code 2)，AI 不得继续尝试跑 suite。** 此时应：
+**Tier 1/2 任一超限，runner 自动退出 (exit code 2)，AI 不得继续尝试跑 suite。Tier 3 仅 WARN 不退出。** 此时应：
 - 检查模型是否切换导致输出变长
 - 检查 prompt 是否膨胀
 - 缩小套件范围或降低 workers
@@ -190,13 +194,12 @@ curl http://localhost:18080/api/health  # 确认 {"status":"ok","commit":"xxxxx"
 ```
 **不要用 `go run ./cmd/server/ &`** — 进程崩溃后不易察觉，导致用旧二进制测试。
 
-**runner 内置 smoke check** — `run_suite`/`run_suite_parallel` 启动时自动：
-1. 校验 `/api/health` 可达
-2. 对比服务 commit 与本地 `git rev-parse HEAD`
-3. 发一条探针请求，确认 SSE 包含 `route-decision` 且可解析
-4. **测量探针耗时和响应大小，超过上限即退出 (exit code 2)**
+**runner 内置 smoke check** — `run_suite`/`run_suite_parallel` 启动时自动执行三层门禁：
+1. **Tier 1 (硬)**：校验 `/api/health` 可达 + 对比 commit → 失败 exit code 2
+2. **Tier 2 (硬)**：发探针请求，测量耗时和响应大小 → 超限 exit code 2
+3. **Tier 3 (软)**：检查 SSE 包含 `route-decision` 且 `route_primary` 可解析 → 不满足打 WARN 但继续执行
 
-任意一步失败即退出（exit code 2），不进入 suite 执行。这杜绝了「旧二进制跑新测试」和「格式变化盲跑」两类时间黑洞。第 4 步新增的「AI 探针门禁」进一步防止「单轮响应过大/过慢导致 suite 跑不完」的时间黑洞。
+Tier 1/2 任一失败即退出，杜绝「旧二进制跑新测试」和「响应膨胀导致 suite 跑不完」两类时间黑洞。Tier 3 为软门禁，避免「服务正常但 `"你好"` 探针语义不稳定」的误判。
 
 ## 执行
 
@@ -212,7 +215,7 @@ done
 
 ### workers 选择
 
-- `--workers 1`：包含紫微斗数 specialist 的套件（`quiz-ziwei`、`edge-resilience`），ziwei 排盘 LLM 调用重，并行会超时
+- `--workers 1`：包含紫微斗数 specialist 的套件（`quiz-ziwei`、`quiz-ziwei-oral`、`edge-resilience`），ziwei 排盘 LLM 调用重，并行会超时
 - `--workers 4`：纯路由/八字/奇门类套件，这些 LLM 调用轻量
 - 默认值 4 对轻量级套件安全，但遇到间歇性空路由时先降到 1 复验
 

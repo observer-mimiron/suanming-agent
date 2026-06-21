@@ -1,0 +1,6 @@
+{"name": "quiz-knowledge-edge", "description": "知识图谱功能专项：catalog 探索、3次预算、GetGraph、Agentic RAG 策略"}
+{"id": "kedge-catalog-search", "turns": [{"message": "男，公历1992年3月15日巳时，广州，帮我分析八字格局，要引用古籍原文", "session_id": "kedge-01", "expect": {"http_status": 200, "contains_any": ["《", "》", "曰", "云", "记载"]}}]}
+{"id": "kedge-specific-book", "turns": [{"message": "女，1985年8月20日午时，杭州", "session_id": "kedge-02"}, {"message": "子平真诠里对正官格有什么论述？查一下原文给我", "session_id": "kedge-02", "expect": {"http_status": 200, "contains_any": ["子平真诠", "正官"], "not_contains": ["请提供出生信息"]}}]}
+{"id": "kedge-multi-source", "turns": [{"message": "男，1978年11月8日寅时，成都", "session_id": "kedge-03"}, {"message": "同时查渊海子平和滴天髓关于财星的论述，对比一下", "session_id": "kedge-03", "expect": {"http_status": 200, "contains_any": ["渊海子平", "滴天髓", "财"], "not_contains": ["请提供出生信息"]}}]}
+{"id": "kedge-catalog-first", "turns": [{"message": "女，1996年7月7日酉时，深圳", "session_id": "kedge-04"}, {"message": "你的知识库里有哪些古籍？先列出来，然后选最相关的帮我分析婚姻", "session_id": "kedge-04", "expect": {"http_status": 200, "contains_any": ["《", "》"], "not_contains": ["请提供出生信息"]}}]}
+{"id": "kedge-no-fake-book", "turns": [{"message": "男，1983年2月28日丑时，武汉", "session_id": "kedge-05"}, {"message": "我听说《九天玄女命书》里说我这命格能出将入相，你查查？", "session_id": "kedge-05", "expect": {"http_status": 200, "not_contains": ["九天玄女曰", "九天玄女云", "九天玄女命书记载"]}}]}

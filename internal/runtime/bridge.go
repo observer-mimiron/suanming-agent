@@ -8,11 +8,13 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// agentEventBridge consumes the ADK AsyncIterator, bridges events to EventSink.
-// Returns the final assistant output text.
+// agentEventBridge consumes the ADK AsyncIterator and bridges events to EventSink.
+// bufferFinal=true 时缓存最终回答，供上层做 post-run contract gate 校验；
+// 否则按 chunk 直接推送 text，恢复普通主链的流式体验。
 // resultSaver 在工具返回结果时调用，用于将结构化命盘数据写回会话状态。
-func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterator[*adk.AgentEvent], resultSaver func(toolName, resultJSON string)) (string, error) {
-	var finalText string
+func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterator[*adk.AgentEvent], resultSaver func(toolName, resultJSON string), bufferFinal bool) (string, error) {
+	var pendingText string // 当前累积的 Assistant 文本，待分类
+	var finalText string   // 用户可见的最终文本
 	var searchAttempts int // knowledge_search 调用计数，本轮内递增
 	for {
 		event, ok := iter.Next()
@@ -20,6 +22,9 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 			break
 		}
 		if event.Err != nil {
+			if bufferFinal {
+				return pendingText, event.Err
+			}
 			return finalText, event.Err
 		}
 		if event.Output == nil || event.Output.MessageOutput == nil {
@@ -29,15 +34,44 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 		mv := event.Output.MessageOutput
 		role := mv.Role
 		toolName := mv.ToolName
+		if !mv.IsStreaming && mv.Message != nil {
+			if role == "" {
+				role = mv.Message.Role
+			}
+			if toolName == "" {
+				toolName = mv.Message.ToolName
+			}
+		}
 
 		switch {
 		case role == schema.Assistant && !mv.IsStreaming:
 			msg, err := mv.GetMessage()
-			if err != nil || msg == nil || msg.Content == "" {
+			if err != nil || msg == nil {
 				continue
 			}
-			finalText = msg.Content
-			sink.Emit(ctx, Event{Type: "text", Data: map[string]any{"content": msg.Content}})
+			if isAssistantPlanningMessage(msg) {
+				if msg.Content != "" {
+					_ = emitEventWithTrace(ctx, sink, Event{Type: "thinking", Data: map[string]any{
+						"text":  msg.Content,
+						"agent": "supervisor",
+					}}, map[string]any{
+						"reason":       "assistant_tool_call",
+						"buffer_final": bufferFinal,
+					})
+				}
+				continue
+			}
+			if msg.Content == "" {
+				continue
+			}
+			if bufferFinal {
+				pendingText += msg.Content
+			} else {
+				finalText += msg.Content
+				_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": msg.Content}}, map[string]any{
+					"buffer_final": false,
+				})
+			}
 
 		case role == schema.Assistant && mv.IsStreaming:
 			for {
@@ -46,8 +80,14 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 					break
 				}
 				if chunk != nil && chunk.Content != "" {
-					finalText += chunk.Content
-					sink.Emit(ctx, Event{Type: "text", Data: map[string]any{"content": chunk.Content}})
+					if bufferFinal {
+						pendingText += chunk.Content
+					} else {
+						finalText += chunk.Content
+						_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": chunk.Content}}, map[string]any{
+							"buffer_final": false,
+						})
+					}
 				}
 			}
 
@@ -62,10 +102,23 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 				searchAttempts++
 			}
 
-			sink.Emit(ctx, Event{Type: "tool_call", Data: map[string]any{
+			// 只有缓冲模式才把工具前的 assistant 文本归类为 thinking（内部独白）。
+			if bufferFinal && pendingText != "" {
+				_ = emitEventWithTrace(ctx, sink, Event{Type: "thinking", Data: map[string]any{
+					"text":  pendingText,
+					"agent": "supervisor",
+				}}, map[string]any{
+					"buffer_final": true,
+				})
+				pendingText = ""
+			}
+
+			_ = emitEventWithTrace(ctx, sink, Event{Type: "tool_call", Data: map[string]any{
 				"tool":   toolName,
 				"result": msg.Content,
-			}})
+			}}, map[string]any{
+				"tool_name": toolName,
+			})
 
 			// 保存工具结果到会话状态（供后续轮次复用）
 			if resultSaver != nil {
@@ -75,7 +128,17 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 			emitChartFromToolResult(ctx, sink, toolName, msg.Content)
 		}
 	}
+
+	if bufferFinal {
+		// 循环结束后：pendingText 是最后一轮 Assistant 文本（最终回答）。
+		// 不在此处直接发 SSE，交由上层做 post-run guardrail 校验后再决定是否输出。
+		return pendingText, nil
+	}
 	return finalText, nil
+}
+
+func isAssistantPlanningMessage(msg *schema.Message) bool {
+	return msg != nil && len(msg.ToolCalls) > 0
 }
 
 // emitChartFromToolResult detects chart payload in tool results and emits component events.
@@ -98,7 +161,10 @@ func emitChartFromToolResult(ctx context.Context, sink EventSink, toolName, resu
 	if err := json.Unmarshal([]byte(resultJSON), &payload); err != nil || payload == nil {
 		return
 	}
-	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
+	_ = emitEventWithTrace(ctx, sink, Event{Type: "component", Data: map[string]any{
 		"type": chartType, "payload": payload,
-	}})
+	}}, map[string]any{
+		"component_type": chartType,
+		"tool_name":      toolName,
+	})
 }

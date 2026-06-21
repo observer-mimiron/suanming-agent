@@ -512,11 +512,10 @@ func TestParseAndValidate_CollectProfileWithoutProfileData(t *testing.T) {
 		}
 	}`
 
-	_, err := parseAndValidate(raw)
-	if err == nil {
-		t.Fatal("collect_profile with empty profile must return error")
-	}
-}
+		_, err := parseAndValidate(raw)
+		if err != nil {
+			t.Fatalf("collect_profile with empty profile is valid: %v", err)
+		}}
 
 func TestParseAndValidate_CollectProfileWithProfileData(t *testing.T) {
 	raw := `{

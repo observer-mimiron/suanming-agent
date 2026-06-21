@@ -157,6 +157,37 @@ def assert_final_output_not_contains(trace: CanonicalTrace, keywords: list) -> l
     return errors
 
 
+# ── 旧格式兼容 (contains_any / contains_all / not_contains) ──
+
+def assert_contains_any(trace: CanonicalTrace, keywords: list) -> list:
+    """至少命中一个关键词 (substring match on final_output + raw_body)."""
+    search_in = trace.final_output + " " + trace.raw_body
+    for kw in keywords:
+        if re.search(kw, search_in):
+            return []
+    return [f"contains_any 未命中: {keywords}"]
+
+
+def assert_contains_all(trace: CanonicalTrace, keywords: list) -> list:
+    """全部关键词命中."""
+    search_in = trace.final_output + " " + trace.raw_body
+    errors = []
+    for kw in keywords:
+        if not re.search(kw, search_in):
+            errors.append(f"contains_all 缺失: {kw}")
+    return errors
+
+
+def assert_not_contains(trace: CanonicalTrace, keywords: list) -> list:
+    """关键词全部不出现."""
+    search_in = trace.final_output + " " + trace.raw_body
+    errors = []
+    for kw in keywords:
+        if re.search(kw, search_in):
+            errors.append(f"not_contains 违规出现: {kw}")
+    return errors
+
+
 # ── 注册表 ──
 
 ASSERTION_REGISTRY = {
@@ -175,6 +206,9 @@ ASSERTION_REGISTRY = {
     "no_errors":               (assert_no_errors, "bool"),
     "final_output_contains":   (assert_final_output_contains, "list"),
     "final_output_not_contains": (assert_final_output_not_contains, "list"),
+    "contains_any":             (assert_contains_any, "list"),
+    "contains_all":             (assert_contains_all, "list"),
+    "not_contains":             (assert_not_contains, "list"),
 }
 
 

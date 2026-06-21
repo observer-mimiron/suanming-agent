@@ -35,7 +35,7 @@ export function useSSE() {
         try {
           const data = JSON.parse(line.slice(6))
           if (currentEvent === 'thinking') { target.segments.push({ type:'thinking', text:data.text, agent:data.agent }) }
-          else if (currentEvent === 'tool_call') { target.segments.push({ type:'tool_call', tool:data.tool, params:data.params }) }
+          else if (currentEvent === 'tool_call') { target.segments.push({ type:'tool_call', tool:data.tool, params:data.params, result:data.result }) }
           else if (currentEvent === 'component') { target.segments.push({ type:'component', componentType:data.type, payload:data.payload }) }
           else if (currentEvent === 'error') { target.segments.push({ type:'error', message:data.message }) }
           else if (currentEvent === 'text') {

@@ -2,27 +2,7 @@
   <div class="assistant-turn">
     <div class="turn-header">
       <span class="turn-role">命理大师</span>
-      <span class="turn-meta" v-if="vm.process">{{ fmtMs(vm.process.trace.total_ms) }}</span>
-    </div>
-
-    <!-- Thinking + tool chain: collapsible timeline -->
-    <div v-if="vm.thoughts.length || vm.toolCalls.length" class="turn-chain">
-      <div class="chain-toggle" @click="showChain = !showChain">
-        <span class="chain-toggle-icon">{{ showChain ? '▾' : '▸' }}</span>
-        <span v-if="vm.thoughts.length" class="chain-badge">思考 {{ vm.thoughts.length }}</span>
-        <span v-if="vm.toolCalls.length" class="chain-badge">工具 {{ vm.toolCalls.length }}</span>
-      </div>
-      <div v-if="showChain" class="chain-body">
-        <div class="chain-line"></div>
-        <div class="chain-items">
-          <div v-for="(t, i) in vm.thoughts" :key="'th-' + i" class="chain-thought">{{ t }}</div>
-          <div v-for="(tc, i) in vm.toolCalls" :key="'tc-' + i" class="chain-tool">
-            <Wrench :size="11" class="tool-icon" />
-            <span class="tool-name">{{ tc.name }}</span>
-            <code v-if="tc.arguments" class="tool-args">{{ tc.arguments }}</code>
-          </div>
-        </div>
-      </div>
+      <span class="turn-meta" v-if="vm.process">{{ fmtMs(vm.process.digest.total_ms) }}</span>
     </div>
 
     <!-- Structured results -->
@@ -48,12 +28,17 @@
 
     <!-- Trace -->
     <section v-if="vm.process" class="turn-zone">
-      <TracePanel :digest="vm.process.trace" />
+      <TracePanel :digest="vm.process.digest" />
     </section>
 
     <!-- Evidence -->
     <section v-if="vm.evidence?.length" class="turn-zone">
       <KnowledgeSourceCard :groups="vm.evidence" />
+    </section>
+
+    <!-- Debug -->
+    <section v-if="vm.debugTrace || vm.debugEvents.length" class="turn-zone">
+      <DebugTracePanel :digest="vm.debugTrace" :events="vm.debugEvents" />
     </section>
 
     <!-- Errors -->
@@ -79,7 +64,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import MarkdownIt from 'markdown-it'
-import { Copy, CheckCheck, Wrench } from 'lucide-vue-next'
+import { Copy, CheckCheck } from 'lucide-vue-next'
 import type { ChatMessage } from '../types/chat'
 import { buildAssistantTurnViewModel } from '../utils/assistantTurn'
 import ResultBlock from './ResultBlock.vue'
@@ -87,6 +72,7 @@ import BaziChartCard from './BaziChartCard.vue'
 import QimenChart from './QimenChart.vue'
 import ZiweiChartCard from './ZiweiChartCard.vue'
 import TracePanel from './TracePanel.vue'
+import DebugTracePanel from './DebugTracePanel.vue'
 import KnowledgeSourceCard from './KnowledgeSourceCard.vue'
 
 const props = defineProps<{ message: ChatMessage; isLoading?: boolean }>()
@@ -94,7 +80,6 @@ const md = new MarkdownIt({ html: false, breaks: true, linkify: true })
 const vm = computed(() => buildAssistantTurnViewModel(props.message))
 const renderedAnswer = computed(() => md.render(vm.value.answerBlocks.join('\n\n')))
 const copied = ref(false)
-const showChain = ref(false)
 
 async function copyAnswer() {
   await navigator.clipboard.writeText(vm.value.answerBlocks.join('\n\n'))
@@ -130,82 +115,6 @@ function fmtMs(ms: number): string {
 .turn-meta {
   font-size: 11px;
   color: var(--text-muted);
-}
-
-/* Collapsible chain */
-.turn-chain {
-  margin-bottom: 14px;
-  padding: 0 8px;
-}
-.chain-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-muted);
-  user-select: none;
-  transition: background 0.12s;
-}
-.chain-toggle:hover { background: var(--bg-hover); }
-.chain-toggle-icon { font-size: 9px; width: 10px; text-align: center; }
-.chain-badge {
-  padding: 1px 7px;
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.chain-body {
-  display: flex;
-  gap: 10px;
-  margin-top: 8px;
-  padding-left: 4px;
-}
-.chain-line {
-  width: 2px;
-  background: var(--border);
-  border-radius: 1px;
-  flex-shrink: 0;
-  align-self: stretch;
-}
-.chain-items {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.chain-thought {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-style: italic;
-  line-height: 1.5;
-  padding: 2px 0;
-}
-.chain-tool {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  padding: 4px 8px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.tool-icon { color: var(--accent-dim); flex-shrink: 0; }
-.tool-name { color: var(--text-secondary); font-weight: 500; }
-.tool-args {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-left: 4px;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .turn-zone { margin-bottom: 12px; }

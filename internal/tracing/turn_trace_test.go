@@ -159,6 +159,30 @@ func TestTurnTrace_BuildDigest_MapsSupervisorLabels(t *testing.T) {
 	}
 }
 
+func TestTurnTrace_BuildDigest_SkipsSSEEmitSteps(t *testing.T) {
+	now := time.Now()
+	tr := &TurnTrace{
+		TraceID:   "trc_sse_skip",
+		SessionID: "sess_1",
+		TurnType:  "agent_reading",
+		StartedAt: now,
+		Status:    "ok",
+		Spans: []TraceSpan{
+			{SpanID: "root", Name: "chat.turn", Kind: KindAgent, Status: "ok", StartedAt: now, DurationMs: 1000},
+			{SpanID: "s1", ParentSpanID: "root", Name: "knowledge_search", Kind: KindRetriever, Status: "ok", DurationMs: 20},
+			{SpanID: "s2", ParentSpanID: "root", Name: "sse_emit", Kind: KindChain, Status: "ok", DurationMs: 1, Attributes: map[string]any{"event_type": "text"}},
+		},
+	}
+
+	digest := tr.BuildDigest()
+	if len(digest.Steps) != 1 {
+		t.Fatalf("steps = %d, want 1 after skipping sse_emit", len(digest.Steps))
+	}
+	if digest.Steps[0].Label != "知识检索" {
+		t.Fatalf("step 0 label = %q, want %q", digest.Steps[0].Label, "知识检索")
+	}
+}
+
 func TestFileCollector_Save(t *testing.T) {
 	dir := t.TempDir()
 	fc := NewFileCollector(dir)

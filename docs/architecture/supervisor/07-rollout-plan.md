@@ -136,7 +136,7 @@ supervisor decision plane.
 
 - `knowledge_search` retriever spans are now sourced from Eino retriever callbacks; generic tool callback migration is deferred
 - if later Eino graph/runtime nodes are adopted, route their events through the same adapter path
-- keep `TurnTrace` as the persisted envelope and `TracePanel` input contract during the migration
+- keep `TurnTrace` as the persisted envelope, then project `ProcessDigest` for the product UI and `DebugTraceDigest` for the debug drawer during the migration
 - prefer removing duplicated hand-written model/tool spans over adding more manual instrumentation
 
 ---

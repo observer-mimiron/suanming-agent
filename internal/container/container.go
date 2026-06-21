@@ -9,25 +9,26 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/handler"
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
+	"github.com/wikiglobal/suanming-agent/internal/orchestrator"
+	appRuntime "github.com/wikiglobal/suanming-agent/internal/runtime"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
 	"github.com/wikiglobal/suanming-agent/internal/specialists/bazi"
 	qimenSp "github.com/wikiglobal/suanming-agent/internal/specialists/qimen"
 	"github.com/wikiglobal/suanming-agent/internal/specialists/ziwei"
-	"github.com/wikiglobal/suanming-agent/internal/orchestrator"
-	appRuntime "github.com/wikiglobal/suanming-agent/internal/runtime"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/supervisor"
 	"github.com/wikiglobal/suanming-agent/internal/tools"
 	baziCalc "github.com/wikiglobal/suanming-agent/internal/tools/bazi"
-	"github.com/wikiglobal/suanming-agent/internal/tracing"
 	ziweiTools "github.com/wikiglobal/suanming-agent/internal/tools/ziwei"
+	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
 // Container 持有所有顶层组件（配置、路由、处理器）。
 type Container struct {
-	Config  *config.Config
-	Router  *gin.Engine
-	Handler *handler.ChatHandler
+	Config   *config.Config
+	Router   *gin.Engine
+	Handler  *handler.ChatHandler
+	Shutdown func(context.Context) error
 }
 
 // BuildContainer 按依赖顺序组装全部组件并返回根容器。
@@ -77,14 +78,30 @@ func BuildContainer() *Container {
 	if cfg.DebugTrace {
 		collector = tracing.NewFileCollector("logs/traces")
 	}
+	var shutdown func(context.Context) error
 	tracer := tracing.NewRealTracer(collector)
+	if cfg.OTelEnabled {
+		bridge, closeFn, err := tracing.NewOTelBridge(context.Background(), tracing.OTelConfig{
+			Enabled:     cfg.OTelEnabled,
+			Endpoint:    cfg.OTelEndpoint,
+			Headers:     cfg.OTelHeaders,
+			ServiceName: cfg.OTelServiceName,
+			Insecure:    cfg.OTelInsecure,
+		})
+		if err != nil {
+			panic(err)
+		}
+		tracer = tracing.NewRealTracerWithOTel(collector, bridge)
+		shutdown = closeFn
+	}
 
 	// 运行时执行器 — 使用 ADK ChatModelAgent 动态调度工具。
 	runtimeModel, err := llm.NewToolCallingModel(context.Background(), llm.FactoryConfig{
-		APIKey:      cfg.LLMApiKey,
-		BaseURL:     cfg.LLMBaseURL,
-		Model:       cfg.LLMModel,
-		Temperature: llmTemp,
+		APIKey:          cfg.LLMApiKey,
+		BaseURL:         cfg.LLMBaseURL,
+		Model:           cfg.LLMModel,
+		Temperature:     llmTemp,
+		DisableThinking: true,
 	})
 	if err != nil {
 		panic(err)
@@ -100,6 +117,7 @@ func BuildContainer() *Container {
 		panic(err)
 	}
 	executor.SetLLMModel(cfg.LLMModel)
+	executor.SetFlashChat(flashClient)
 	executor.SetHistoryLimit(cfg.ConversationLimit)
 
 	// Orchestrator — 会话生命周期管理，注入已构建的执行器。
@@ -136,9 +154,10 @@ func BuildContainer() *Container {
 	r.POST("/api/chat", chatHandler.HandleChat)
 
 	return &Container{
-		Config:  cfg,
-		Router:  r,
-		Handler: chatHandler,
+		Config:   cfg,
+		Router:   r,
+		Handler:  chatHandler,
+		Shutdown: shutdown,
 	}
 }
 

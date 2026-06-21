@@ -3,7 +3,6 @@ package policy
 import (
 	"testing"
 
-	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
 
@@ -26,65 +25,6 @@ func TestReduceGuidance_AcceptedOfferTransitionsToChooseTopic(t *testing.T) {
 	}
 }
 
-func TestReduceGuidance_ProgressesPendingSlotAndPreservesTopicAndRetry(t *testing.T) {
-	got := ReduceGuidance(GuidanceReducerInput{
-		Current: &state.GuidanceState{
-			DirectiveKind: "collect_slot",
-			ChosenTopic:   "事业",
-			PendingSlot:   "birth_date",
-			RetryCount:    2,
-		},
-		Directive: &schemas.ConversationDirective{
-			Kind:     "collect_slot",
-			SlotName: "birth_date",
-		},
-		Profile: map[string]any{
-			"year":  1990.0,
-			"month": 5.0,
-			"day":   20.0,
-		},
-	})
-
-	if got == nil {
-		t.Fatal("ReduceGuidance() = nil, want guidance state")
-	}
-	if got.DirectiveKind != "collect_slot" {
-		t.Fatalf("DirectiveKind = %q, want collect_slot", got.DirectiveKind)
-	}
-	if got.ChosenTopic != "事业" {
-		t.Fatalf("ChosenTopic = %q, want 事业", got.ChosenTopic)
-	}
-	if got.RetryCount != 2 {
-		t.Fatalf("RetryCount = %d, want 2", got.RetryCount)
-	}
-	if got.PendingSlot != "birth_time" {
-		t.Fatalf("PendingSlot = %q, want birth_time", got.PendingSlot)
-	}
-}
-
-func TestReduceGuidance_RepeatedDirectiveEscalatesToGuidedFallback(t *testing.T) {
-	got := ReduceGuidance(GuidanceReducerInput{
-		Current: &state.GuidanceState{
-			DirectiveKind: "choose_topic",
-			RetryCount:    1,
-		},
-		Directive: &schemas.ConversationDirective{
-			Kind:      "choose_topic",
-			OptionSet: "top_topics",
-		},
-		Message: "嗯",
-	})
-
-	if got == nil {
-		t.Fatal("ReduceGuidance() = nil, want guidance state")
-	}
-	if got.DirectiveKind != "guided_fallback" {
-		t.Fatalf("DirectiveKind = %q, want guided_fallback", got.DirectiveKind)
-	}
-	if got.RetryCount != 2 {
-		t.Fatalf("RetryCount = %d, want 2", got.RetryCount)
-	}
-}
 
 func TestReduceGuidance_OfferConsultAmbiguousReplyAccumulatesRetry(t *testing.T) {
 	got := ReduceGuidance(GuidanceReducerInput{

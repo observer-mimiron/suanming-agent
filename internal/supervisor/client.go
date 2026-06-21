@@ -42,7 +42,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wikiglobal/suanming-agent/internal/guidance"
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -114,7 +113,6 @@ func (c *Client) Decide(ctx context.Context, msg string, st *state.SessionState)
 	// 这保证响应 JSON 符合模式定义。
 	decision, err := c.structuredDecide(ctx, prompt, messages)
 	if err == nil {
-		applyGuidanceSniffDecision(msg, st, &decision)
 		return decision, nil
 	}
 	log.Printf("[supervisor] layer-1 structuredDecide failed: %v, falling back to text-based routing", err)
@@ -124,7 +122,6 @@ func (c *Client) Decide(ctx context.Context, msg string, st *state.SessionState)
 	if err != nil {
 		log.Printf("[supervisor] layer-2/3 textDecide also failed: %v, using degraded fallback", err)
 	}
-	applyGuidanceSniffDecision(msg, st, &decision)
 	return decision, err
 }
 
@@ -268,7 +265,7 @@ func looksHallucinated(profile map[string]any) bool {
 // 使用重点明确的单一用途提示词——不进行复杂路由，只提取已有内容。
 // 即使此步骤也失败时返回硬编码默认值。
 // fallbackExtractPrompt 返回 fallback 提取器的提示词。
-// 它只负责资料/问题提取，并允许极少量 directive 兜底。
+// 它只负责资料/问题提取。
 func fallbackExtractPrompt() string {
 	return `从用户消息中提取信息，只返回一个 JSON 对象。
 
@@ -281,10 +278,6 @@ func fallbackExtractPrompt() string {
 - birthplace: 城市名称（如提及）
 
 如果消息没有出生信息，把用户问题放进 slots.question_text；不要猜缺失资料。
-
-只有当消息只是宽泛入口时，才允许一个很小的 directive 兜底：
-- 情绪/求助式入口（如倒霉、不顺、迷茫）→ directive.kind="offer_consult"
-- 主题词入口（如星座、姻缘、财运、事业）→ directive.kind="choose_topic"，directive.option_set="top_topics"
 
 不要在这里扩展完整术数路由策略。其他缺省字段保持保守默认值即可。
 
@@ -375,79 +368,6 @@ func buildSessionContext(st *state.SessionState) string {
 	return strings.Join(parts, "\n")
 }
 
-func applyGuidanceSniffDecision(msg string, st *state.SessionState, decision *schemas.SupervisorDecision) {
-	if decision == nil {
-		return
-	}
-	if containsBirthTime(msg) || len(decision.Slots.Profile) > 0 {
-		return
-	}
-	if mentionsQimenMethod(msg) || mentionsZiweiMethod(msg) || mentionsBaziMethod(msg) {
-		return
-	}
-
-	signal := guidance.Sniff(msg)
-	if signal.TimingFocus || isQimenPrimaryDecision(*decision) {
-		return
-	}
-	if hasDirective(decision.Directive) {
-		return
-	}
-
-	currentGuidance := ""
-	if st != nil && st.Guidance != nil {
-		currentGuidance = st.Guidance.DirectiveKind
-	}
-
-	if currentGuidance == "offer_consult" && (signal.GuidanceAcceptance || signal.BroadIntent || signal.Topic != "") {
-		applyGuidanceDirectiveDecision(decision, &schemas.ConversationDirective{
-			Kind:      "choose_topic",
-			Reason:    "guidance_acceptance",
-			OptionSet: "top_topics",
-		})
-		return
-	}
-	if currentGuidance == "choose_topic" && (signal.Topic != "" || signal.ShouldChooseTopic()) {
-		applyGuidanceDirectiveDecision(decision, &schemas.ConversationDirective{
-			Kind:      "choose_topic",
-			Reason:    "choose_topic_continuation",
-			OptionSet: "top_topics",
-		})
-		return
-	}
-
-	if signal.ShouldOfferConsult() {
-		applyGuidanceDirectiveDecision(decision, &schemas.ConversationDirective{
-			Kind:   "offer_consult",
-			Reason: "fate_adjacent",
-		})
-		return
-	}
-	if signal.ShouldChooseTopic() {
-		applyGuidanceDirectiveDecision(decision, &schemas.ConversationDirective{
-			Kind:      "choose_topic",
-			Reason:    "broad_intent",
-			OptionSet: "top_topics",
-		})
-	}
-}
-
-func applyGuidanceDirectiveDecision(decision *schemas.SupervisorDecision, directive *schemas.ConversationDirective) {
-	if decision == nil || directive == nil {
-		return
-	}
-	decision.Directive = directive
-	decision.NeedsClarification = false
-	decision.ClarificationQuestion = ""
-}
-
-func isQimenPrimaryDecision(decision schemas.SupervisorDecision) bool {
-	return decision.PrimaryDomain == "qimen" && decision.PolicyHints.QimenMode == "primary"
-}
-
-func hasDirective(directive *schemas.ConversationDirective) bool {
-	return directive != nil && strings.TrimSpace(directive.Kind) != ""
-}
 
 func reusableProfileKeys(profile map[string]any) []string {
 	if len(profile) == 0 {

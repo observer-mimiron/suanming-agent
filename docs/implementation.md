@@ -6,7 +6,7 @@
 
 **v1.5 Supervisor Phase 1.5 收口 + Eino Phase 1-5B 进行中**
 
-最后更新：2026-06-16
+最后更新：2026-06-19
 
 ## 已完成
 
@@ -21,6 +21,8 @@
 - Policy Gate（白名单、并行硬禁用、低置信度强制澄清）
 - `ApprovedRoute` 主控 runtime 分发
 - `bridgeDecision` 已删除
+- routing prompt 已改为“术数能力画像 + 判题步骤”，不再依赖逐条 case 词表
+- 显式术数方法（八字 / 紫微 / 奇门）由 `normalizeApprovedRoute` 做 deterministic obey
 
 ### 多 Agent 执行（AgentAsTool）
 - Supervisor Agent + AgentAsTool + Specialist Agent 架构
@@ -28,6 +30,8 @@
 - `internal/orchestrator/` 收缩为生命周期壳层
 - Bazi / Qimen / Ziwei 三个领域 Specialist
 - agentEventBridge 桥接 ADK 事件到 SSE
+- post-run contract gate：`qimen` / `ziwei` 主链必须真拿到对应命盘结果才允许输出最终结论
+- `prefill` 已收缩为八字可复用链，不再承担紫微 correctness
 
 ### Eino 迁移
 - `llm.Chat` 底座 Eino-only
@@ -70,7 +74,8 @@ orchestrator (生命周期壳)
         ├── executor (AgentAsTool 调度)
         │     ├── agent_route (Supervisor Agent 构建)
         │     ├── adapter (Tool -> Eino BaseTool)
-        │     └── bridge (ADK 事件 -> SSE)
+        │     ├── bridge (ADK 事件 -> SSE 中间事件)
+        │     └── final_guard (最终文本契约验收)
         ├── specialist configs
         │     ├── bazi (bazi_calc / yongshen / dayun / knowledge_search)
         │     ├── qimen (qimen_dunjia / knowledge_search)

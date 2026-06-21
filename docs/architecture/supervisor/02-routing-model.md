@@ -25,9 +25,7 @@ flowchart TD
 
 - `bazi`
 - `qimen`
-- `emotion`
-- `career`
-- `general`
+- `ziwei`
 
 ### L2 Task Intent
 
@@ -52,7 +50,10 @@ Initial `bazi` tasks:
 - `parallelizable`
 - `needs_knowledge`
 - `needs_qimen`
+- `qimen_mode`
+- `profile_requirement`
 - `can_reuse_session_profile`
+- `can_reuse_cached_result`
 
 ## Supervisor Decision Contract
 
@@ -82,10 +83,36 @@ classDiagram
     class PolicyHints {
       bool needs_knowledge
       bool needs_qimen
+      string qimen_mode
+      string profile_requirement
       bool can_reuse_session_profile
       bool can_reuse_cached_result
     }
 ```
+
+## Domain Selection Strategy
+
+The current router is not intended to be a large keyword table. It should reason in this order:
+
+1. Is the user asking about **natal structure / long-term baseline**?
+2. Is the user asking about a **palace-oriented life theme** such as marriage structure, children, or life-role distribution?
+3. Is the user asking about **current timing / whether to act now / short-window fortune**?
+4. Did the user explicitly name a method and therefore constrain the answer space?
+
+That maps to domains as follows:
+
+| Problem frame | Preferred primary domain |
+|---|---|
+| natal structure / long-term trend | `bazi` |
+| palace-oriented life theme | `ziwei` |
+| current timing / action decision | `qimen` |
+
+Important clarifications:
+
+- marriage questions do **not** automatically mean `ziwei`
+- “marriage structure / spouse traits / relationship pattern” usually points to `ziwei`
+- “recent relationship timing / should I push this month / is now suitable” usually points to `qimen`
+- “long-term marriage fortune / destiny tendency” should remain `bazi` or `ziwei`, not `qimen`
 
 ## Execution Modes
 
@@ -102,24 +129,30 @@ flowchart TD
 
 ## Phase 1.5: Route-Driven Dispatch
 
-Since phase 1.5, the `ApprovedRoute` (post-policy-gate) directly drives runtime execution via `executeRoute()`. The intermediate `action` string conversion has been removed from the supervisor path.
+Since phase 1.5, the `ApprovedRoute` (post-policy-gate) directly drives runtime execution through `runtime.Execute()`. The intermediate `action` string conversion has been removed from the supervisor path.
 
 ```mermaid
 flowchart TD
-    R["ApprovedRoute"] --> EX["executeRoute(route)"]
-    EX -->|NeedsClarification| CL["executeClarificationRoute"]
-    EX -->|collect_profile| CP["executeCollectProfileRoute"]
-    EX -->|amend_profile| AP["executeAmendProfileRoute"]
-    EX -->|direct_bazi| DB["executeDirectBaziRoute"]
-    EX -->|timing / followup / default| FU["executeFollowupRoute"]
-    CL --> H1["handleAsk | handleFollowupReading"]
-    CP --> H2["handleAsk | handleFullReading"]
-    AP --> H3["handleAsk | handleFullReading | handleFollowupReading"]
-    DB --> H4["handleBaziInput"]
-    FU --> H5["handleAsk | handleFullReading | handleFollowupReading (+qimen)"]
+    R["ApprovedRoute"] --> EX["runtime.Execute(route, message)"]
+    EX --> PF["preflight"]
+    PF -->|NeedsClarification / missing profile| CL["short-circuit text"]
+    PF -->|pass| AG["Supervisor Agent + AgentTool specialists"]
+    AG --> VG["post-run contract gate"]
+    VG --> O["final text SSE"]
 ```
 
-**Key principle:** `ApprovedRoute` fields (`TaskIntent`, `NeedsClarification`, `PolicyHints`) are now the primary control inputs. The `bridgeDecision()` function only extracts slot data (`profilePatch`, `questionText`, `needsQimen`, `rawBazi`) — it no longer decides execution flow.
+**Key principle:** `ApprovedRoute` fields (`TaskIntent`, `NeedsClarification`, `PolicyHints`) are now the primary control inputs. Runtime no longer converts route intent back into a separate legacy control language.
+
+## Phase 1 Contract Tightening
+
+As of 2026-06-19, route execution has two additional guarantees:
+
+1. **explicit method obey**
+   - if the user explicitly says “use ziwei / qimen / bazi”, `normalizeApprovedRoute` forces the corresponding primary domain
+2. **post-run contract check**
+   - if `primary_domain=qimen`, runtime must observe `QimenResult`
+   - if `primary_domain=ziwei`, runtime must observe `ZiWeiResult`
+   - otherwise the final domain conclusion is blocked instead of silently shipping a fake success
 
 ## Mode Selection Rules
 
@@ -142,3 +175,9 @@ flowchart LR
 ```
 
 This keeps the design debuggable even if an optimized implementation later compresses these into one structured call.
+
+The practical routing stack today is:
+
+- prompt-level **domain capability framing**
+- policy-level **deterministic explicit-intent correction**
+- runtime-level **artifact contract validation**

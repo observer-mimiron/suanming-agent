@@ -3,7 +3,6 @@ package policy
 import (
 	"strings"
 
-	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
 
@@ -11,25 +10,20 @@ const guidanceFallbackRetryLimit = 2
 
 // GuidanceReducerInput 是 guidance reducer 的最小输入。
 type GuidanceReducerInput struct {
-	Current   *state.GuidanceState
-	Directive *schemas.ConversationDirective
-	Message   string
-	Profile   map[string]any
+	Current *state.GuidanceState
+	Message string
+	Profile map[string]any
 }
 
-// ReduceGuidance 根据当前 guidance、最新 directive、用户消息和资料补丁计算下一状态。
+// ReduceGuidance 根据当前 guidance、用户消息和资料补丁计算下一状态。
 func ReduceGuidance(input GuidanceReducerInput) *state.GuidanceState {
 	next := cloneGuidanceState(input.Current)
 	if next == nil {
-		next = &state.GuidanceState{}
+		return nil
 	}
 
 	if topic := detectChosenTopic(input.Message); topic != "" {
 		next.ChosenTopic = topic
-	}
-
-	if input.Directive != nil {
-		return reduceGuidanceDirective(next, input)
 	}
 
 	return reduceGuidanceMessageOnly(next, input)
@@ -88,70 +82,6 @@ func reduceGuidanceMessageOnly(next *state.GuidanceState, input GuidanceReducerI
 	}
 
 	return normalizeGuidanceState(next)
-}
-
-func reduceGuidanceDirective(next *state.GuidanceState, input GuidanceReducerInput) *state.GuidanceState {
-	directive := input.Directive
-	nextRetry := carriedRetryCount(input.Current, directive.Kind, directive.SlotName)
-	repeatedDirective := sameGuidanceStep(input.Current, directive.Kind, directive.SlotName)
-
-	switch directive.Kind {
-	case "offer_consult":
-		next.DirectiveKind = "offer_consult"
-		next.ChosenTopic = ""
-		next.PendingSlot = ""
-		next.RetryCount = nextRetry
-	case "choose_topic":
-		next.DirectiveKind = "choose_topic"
-		next.PendingSlot = ""
-		next.RetryCount = nextRetry
-	case "collect_slot":
-		next.DirectiveKind = "collect_slot"
-		next.PendingSlot = nextCollectSlot(input.Current, directive.SlotName, input.Profile)
-		repeatedDirective = sameGuidanceStep(input.Current, directive.Kind, next.PendingSlot)
-		next.RetryCount = carriedRetryCount(input.Current, directive.Kind, next.PendingSlot)
-	case "guided_fallback":
-		next.DirectiveKind = "guided_fallback"
-		next.PendingSlot = ""
-		next.RetryCount = nextRetry
-	default:
-		next.DirectiveKind = directive.Kind
-		next.PendingSlot = directive.SlotName
-		next.RetryCount = nextRetry
-	}
-
-	if repeatedDirective && next.RetryCount >= guidanceFallbackRetryLimit && next.DirectiveKind != "guided_fallback" {
-		next.DirectiveKind = "guided_fallback"
-		next.PendingSlot = ""
-	}
-
-	return normalizeGuidanceState(next)
-}
-
-func nextCollectSlot(current *state.GuidanceState, requested string, profile map[string]any) string {
-	if current != nil && current.PendingSlot != "" && slotFilled(current.PendingSlot, profile) {
-		if pending := nextMissingGuidanceSlot(profile); pending != "" {
-			return pending
-		}
-	}
-	if requested != "" {
-		return requested
-	}
-	return nextMissingGuidanceSlot(profile)
-}
-
-func carriedRetryCount(current *state.GuidanceState, kind, slot string) int {
-	if current == nil {
-		return 0
-	}
-	if sameGuidanceStep(current, kind, slot) {
-		return current.RetryCount + 1
-	}
-	return current.RetryCount
-}
-
-func sameGuidanceStep(current *state.GuidanceState, kind, slot string) bool {
-	return current != nil && current.DirectiveKind == kind && current.PendingSlot == slot
 }
 
 func nextMissingGuidanceSlot(profile map[string]any) string {

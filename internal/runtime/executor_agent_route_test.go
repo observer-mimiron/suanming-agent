@@ -180,3 +180,58 @@ func TestRouteBound_UnknownPrimaryFallsBackToBazi(t *testing.T) {
 		t.Fatal("bazi_specialist should be allowed as fallback for unknown primary domain")
 	}
 }
+
+// TestRouteBound_CrossDomainBaziZiweiAllowsBoth 验证跨领域路由 (PrimaryDomain=bazi,
+// SecondaryDomains=["ziwei"]) 同时包含 bazi_specialist 和 ziwei_specialist。
+func TestRouteBound_CrossDomainBaziZiweiAllowsBoth(t *testing.T) {
+	route := policy.ApprovedRoute{
+		PrimaryDomain:      "bazi",
+		SecondaryDomains:   []string{"ziwei"},
+		TaskIntent:         "cross_domain_consult",
+		PolicyHints: schemas.PolicyHints{
+			QimenMode: "none",
+		},
+	}
+
+	allowed := allowedSpecialists(route, testConfigs())
+
+	var names []string
+	for _, cfg := range allowed {
+		names = append(names, cfg.Name)
+	}
+
+	has := func(name string) bool {
+		for _, n := range names {
+			if n == name {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !has("bazi_specialist") {
+		t.Fatal("bazi_specialist should be allowed")
+	}
+	if !has("ziwei_specialist") {
+		t.Fatal("ziwei_specialist should be allowed for cross-domain bazi+ziwei")
+	}
+}
+
+// TestRouteBound_PureBaziFortuneFollowupDoesNotLeakZiwei 验证普通八字追问
+// (fortune_followup, primary=bazi, 无 ziwei secondary) 不泄露 ziwei_specialist。
+func TestRouteBound_PureBaziFortuneFollowupDoesNotLeakZiwei(t *testing.T) {
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "fortune_followup",
+		PolicyHints: schemas.PolicyHints{
+			QimenMode: "none",
+		},
+	}
+
+	allowed := allowedSpecialists(route, testConfigs())
+	for _, cfg := range allowed {
+		if cfg.Name == "ziwei_specialist" {
+			t.Fatal("ziwei_specialist should not be allowed for pure bazi fortune_followup")
+		}
+	}
+}

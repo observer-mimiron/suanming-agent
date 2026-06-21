@@ -1,4 +1,4 @@
-import type { ChatMessage, TraceDigest } from '../types/chat'
+import type { ChatMessage, DebugEvent, DebugTraceDigest, ProcessDigest } from '../types/chat'
 
 export interface Passage {
   content: string
@@ -16,23 +16,18 @@ export interface EvidenceGroup {
 }
 
 export interface ProcessInfo {
-  trace: TraceDigest
+  digest: ProcessDigest
   status: string
-  stepCount: number
-}
-
-export interface ToolCallInfo {
-  name: string
-  arguments?: string
+  phaseCount: number
 }
 
 export interface AssistantTurnViewModel {
   resultBlocks: ResultBlock[]
   answerBlocks: string[]
   process: ProcessInfo | null
+  debugTrace: DebugTraceDigest | null
+  debugEvents: DebugEvent[]
   evidence: EvidenceGroup[] | null
-  thoughts: string[]
-  toolCalls: ToolCallInfo[]
   errors: string[]
 }
 
@@ -42,18 +37,23 @@ export function buildAssistantTurnViewModel(message: ChatMessage): AssistantTurn
   const resultBlocks: ResultBlock[] = []
   const answerBlocks: string[] = []
   let process: ProcessInfo | null = null
+  let debugTrace: DebugTraceDigest | null = null
   let rawPassages: Passage[] = []
-  const thoughts: string[] = []
-  const toolCalls: ToolCallInfo[] = []
+  const debugEvents: DebugEvent[] = []
   const errors: string[] = []
 
   for (const seg of segments) {
     if (seg.type === 'text') {
       answerBlocks.push(seg.content)
     } else if (seg.type === 'thinking') {
-      thoughts.push(seg.text)
+      debugEvents.push({ type: 'thinking', label: `思考 · ${seg.agent}`, preview: seg.text, agent: seg.agent })
     } else if (seg.type === 'tool_call') {
-      toolCalls.push({ name: seg.tool, arguments: seg.params ? JSON.stringify(seg.params) : undefined })
+      debugEvents.push({
+        type: 'tool_call',
+        label: `工具 · ${seg.tool}`,
+        preview: seg.params ? JSON.stringify(seg.params) : '',
+        result: seg.result,
+      })
     } else if (seg.type === 'error') {
       errors.push(seg.message)
     } else if (seg.type === 'component') {
@@ -67,12 +67,15 @@ export function buildAssistantTurnViewModel(message: ChatMessage): AssistantTurn
         case 'ziwei-chart':
           resultBlocks.push({ type: 'ziwei-chart', payload: seg.payload })
           break
-        case 'trace-panel':
+        case 'process-panel':
           process = {
-            trace: seg.payload as TraceDigest,
-            status: (seg.payload as TraceDigest)?.status ?? 'ok',
-            stepCount: (seg.payload as TraceDigest)?.steps?.length ?? 0,
+            digest: seg.payload as ProcessDigest,
+            status: (seg.payload as ProcessDigest)?.status ?? 'ok',
+            phaseCount: (seg.payload as ProcessDigest)?.phases?.length ?? 0,
           }
+          break
+        case 'debug-trace':
+          debugTrace = seg.payload as DebugTraceDigest
           break
         case 'knowledge-sources': {
           // Backend sends passages as a direct array, not wrapped in { passages: [...] }
@@ -93,9 +96,9 @@ export function buildAssistantTurnViewModel(message: ChatMessage): AssistantTurn
     resultBlocks,
     answerBlocks,
     process,
+    debugTrace,
+    debugEvents,
     evidence,
-    thoughts,
-    toolCalls,
     errors,
   }
 }

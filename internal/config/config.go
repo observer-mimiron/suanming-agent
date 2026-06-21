@@ -5,24 +5,30 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
 
 // Config 包含全部由环境变量驱动的应用配置。
 type Config struct {
-	LLMApiKey      string
-	LLMBaseURL     string
-	LLMModel       string
-	LLMFlashModel  string  // 可选的快速模型，用于轻量任务（分类、提取）
-	LLMTemperature float64 // 0.0-1.0，越低越确定
-	KnowledgeURL   string
-	StaticDir      string
-	ListenAddr     string
-	DebugHTTP      bool
-	DebugTrace     bool   // 为 true 时，将 TurnTrace 持久化到 logs/traces/ 目录
-	PromptMode     string // "soft"（默认）或 "direct" — 直接模式用于基准测试
-	ConversationLimit int  // 传入 agent 的最近对话消息条数上限，默认 10
+	LLMApiKey         string
+	LLMBaseURL        string
+	LLMModel          string
+	LLMFlashModel     string  // 可选的快速模型，用于轻量任务（分类、提取）
+	LLMTemperature    float64 // 0.0-1.0，越低越确定
+	KnowledgeURL      string
+	StaticDir         string
+	ListenAddr        string
+	DebugHTTP         bool
+	DebugTrace        bool // 为 true 时，将 TurnTrace 持久化到 logs/traces/ 目录
+	OTelEnabled       bool
+	OTelEndpoint      string
+	OTelHeaders       string
+	OTelServiceName   string
+	OTelInsecure      bool
+	PromptMode        string // "soft"（默认）或 "direct" — 直接模式用于基准测试
+	ConversationLimit int    // 传入 agent 的最近对话消息条数上限，默认 10
 }
 
 // Load 从环境变量读取并返回应用配置。
@@ -35,18 +41,23 @@ func Load() *Config {
 		mode = "soft"
 	}
 	return &Config{
-		LLMApiKey:      os.Getenv("LLM_API_KEY"),
-		LLMBaseURL:     getEnv("LLM_BASE_URL", "https://api.deepseek.com/anthropic"),
-		LLMModel:       getEnv("LLM_MODEL", "deepseek-v4-pro"),
-		LLMFlashModel:  os.Getenv("LLM_FLASH_MODEL"),
-		LLMTemperature: getEnvFloat("LLM_TEMPERATURE", 0.3),
-		KnowledgeURL:   getEnv("KNOWLEDGE_MCP_URL", "http://localhost:3100"),
-		StaticDir:      getEnv("STATIC_DIR", "web/dist"),
-		ListenAddr:     getEnv("LISTEN_ADDR", ":8080"),
-		DebugHTTP:      os.Getenv("DEBUG_HTTP") == "1",
-		DebugTrace:     os.Getenv("DEBUG_TRACE") == "1",
+		LLMApiKey:         os.Getenv("LLM_API_KEY"),
+		LLMBaseURL:        getEnv("LLM_BASE_URL", "https://api.deepseek.com/anthropic"),
+		LLMModel:          getEnv("LLM_MODEL", "deepseek-v4-pro"),
+		LLMFlashModel:     os.Getenv("LLM_FLASH_MODEL"),
+		LLMTemperature:    getEnvFloat("LLM_TEMPERATURE", 0.3),
+		KnowledgeURL:      getEnv("KNOWLEDGE_MCP_URL", "http://localhost:3100"),
+		StaticDir:         getEnv("STATIC_DIR", "web/dist"),
+		ListenAddr:        getEnv("LISTEN_ADDR", ":8080"),
+		DebugHTTP:         os.Getenv("DEBUG_HTTP") == "1",
+		DebugTrace:        os.Getenv("DEBUG_TRACE") == "1",
+		OTelEnabled:       getEnvBool("OTEL_ENABLED", false) || resolveOTelEndpoint() != "",
+		OTelEndpoint:      resolveOTelEndpoint(),
+		OTelHeaders:       getEnv("OTEL_EXPORTER_OTLP_HEADERS", ""),
+		OTelServiceName:   getEnv("OTEL_SERVICE_NAME", "suanming-agent"),
+		OTelInsecure:      getEnvBool("OTEL_EXPORTER_OTLP_INSECURE", false),
 		ConversationLimit: getEnvInt("CONVERSATION_LIMIT", 10),
-		PromptMode:     mode,
+		PromptMode:        mode,
 	}
 }
 
@@ -80,4 +91,23 @@ func getEnvInt(key string, fallback int) int {
 		return n
 	}
 	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func resolveOTelEndpoint() string {
+	if v := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")); v != "" {
+		return v
+	}
+	return strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 }

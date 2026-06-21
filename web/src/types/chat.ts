@@ -4,24 +4,53 @@ export interface ChatMessage {
 export type Segment =
   | { type: 'text'; content: string }
   | { type: 'thinking'; text: string; agent: string }
-  | { type: 'tool_call'; tool: string; params: Record<string,any> }
+  | { type: 'tool_call'; tool: string; params: Record<string,any>; result?: string }
   | { type: 'component'; componentType: string; payload: any }
   | { type: 'error'; message: string }
 
-export interface TraceStep {
+export interface ProcessPhase {
+  key: string;
+  label: string;
+  ms: number;
+  status: 'ok' | 'degraded' | 'fallback' | 'error';
+  summary?: string;
+  meta?: {
+    model?: string;
+    hits?: number;
+    artifact_present?: boolean;
+    guardrail_result?: string;
+  };
+}
+
+export interface ProcessDigest {
+  trace_id?: string;
+  turn_type?: string;
+  status: 'ok' | 'degraded' | 'fallback' | 'error';
+  total_ms: number;
+  phases: ProcessPhase[];
+}
+
+export interface DebugTraceStep {
+  name: string;
   label: string;
   kind: string;
   ms: number;
   status: 'ok' | 'degraded' | 'fallback' | 'error';
-  meta?: {
-    model?: string;
-    hits?: number;
-  };
+  meta?: Record<string, any>;
 }
 
-export interface TraceDigest {
+export interface DebugTraceDigest {
+  trace_id?: string;
+  turn_type?: string;
   status: 'ok' | 'degraded' | 'fallback' | 'error';
   total_ms: number;
-  steps: TraceStep[];
+  steps: DebugTraceStep[];
 }
 
+export interface DebugEvent {
+  type: 'thinking' | 'tool_call';
+  label: string;
+  preview: string;
+  agent?: string;
+  result?: string;
+}

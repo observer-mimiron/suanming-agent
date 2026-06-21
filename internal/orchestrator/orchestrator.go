@@ -9,32 +9,33 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	appRuntime "github.com/wikiglobal/suanming-agent/internal/runtime"
-	
+
 	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
 // Orchestrator 是单个用户会话的中央协调器。
 type Orchestrator struct {
-	store         state.Store
-	locker        state.Locker
-	flash         llm.Chat
-	tracer        tracing.Tracer
-	runtime       *appRuntime.Executor
-	supervisor    RouteAdvisor
+	store      state.Store
+	locker     state.Locker
+	flash      llm.Chat
+	tracer     tracing.Tracer
+	runtime    *appRuntime.Executor
+	supervisor RouteAdvisor
 }
 
 // New 使用给定的依赖创建 Orchestrator。
 func New(executor *appRuntime.Executor, flashClient llm.Chat, store state.Store, locker state.Locker, tracer tracing.Tracer) *Orchestrator {
 	return &Orchestrator{
-		store:         store,
-		locker:        locker,
-		flash:         flashClient,
-		tracer:        tracer,
-		runtime:       executor,
+		store:   store,
+		locker:  locker,
+		flash:   flashClient,
+		tracer:  tracer,
+		runtime: executor,
 	}
 }
 
@@ -43,7 +44,6 @@ func (o *Orchestrator) SetLLMModel(model string) { o.runtime.SetLLMModel(model) 
 
 // SetSupervisor 注入 supervisor 客户端用于阶段一路由。
 func (o *Orchestrator) SetSupervisor(sv RouteAdvisor) { o.supervisor = sv }
-
 
 // Run 处理会话中的一条用户消息。这是主入口点。
 //
@@ -66,6 +66,10 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 		t.SessionID = sessionID
 		t.UserMessage = message
 	}
+	tracing.SetTraceAttributes(ctx, map[string]any{
+		"session_id":           sessionID,
+		"user_message_summary": summarizeTraceMessage(message),
+	})
 
 	if o.supervisor == nil || o.runtime == nil {
 		return fmt.Errorf("orchestrator: supervisor not configured")
@@ -86,19 +90,22 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 	if t := tracing.TraceFromContext(ctx); t != nil {
 		t.TurnType = turnType
 	}
+	tracing.SetTraceAttribute(ctx, "turn_type", turnType)
 	if turnErr != nil {
 		trace.SetStatus("error")
 	}
 
-	o.emitTraceDigest(ctx, sink, turnType)
+	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
+		"type":    "route-decision",
+		"payload": st.Routing,
+	}})
+	o.emitTracePanels(ctx, sink, turnType)
 	sink.Emit(ctx, Event{Type: "done", Data: map[string]any{}})
 	return turnErr
 }
 
-
-
-// emitTraceDigest 从 TurnTrace 构建摘要并通过 component SSE 事件发送。
-func (o *Orchestrator) emitTraceDigest(ctx context.Context, sink EventSink, turnType string) {
+// emitTracePanels 发送产品态 process panel 和显式 debug trace。
+func (o *Orchestrator) emitTracePanels(ctx context.Context, sink EventSink, turnType string) {
 	t := tracing.TraceFromContext(ctx)
 	if t == nil {
 		return
@@ -106,10 +113,15 @@ func (o *Orchestrator) emitTraceDigest(ctx context.Context, sink EventSink, turn
 	if t.TurnType == "" {
 		t.TurnType = turnType
 	}
-	digest := t.BuildDigest()
+	process := t.BuildProcessDigest()
 	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
-		"type":    "trace-panel",
-		"payload": digest,
+		"type":    "process-panel",
+		"payload": process,
+	}})
+	debug := t.BuildDebugDigest()
+	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
+		"type":    "debug-trace",
+		"payload": debug,
 	}})
 }
 
@@ -135,4 +147,12 @@ func (o *Orchestrator) recordTurnAndMaintainContext(ctx context.Context, st *sta
 		return
 	}
 	st.RunningSummary = summary
+}
+
+func summarizeTraceMessage(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if len(msg) <= 120 {
+		return msg
+	}
+	return msg[:120]
 }

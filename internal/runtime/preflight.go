@@ -26,20 +26,6 @@ type preflightResult struct {
 //  5. bazi 主域无资料且无命盘 → 短路
 //  6. ziwei 主域无资料且无命盘 → 短路
 func preflight(st *state.SessionState, route policy.ApprovedRoute, message string) preflightResult {
-	// 0. 旧 directive 兼容（Task 4 删除后移除）
-	if route.Directive != nil {
-		return preflightResult{
-			ShortCircuit: true,
-			TurnType:     "clarification",
-			Text: guidance.Render(guidance.Request{
-				Directive: route.Directive,
-				Context: guidance.Context{
-					ClarificationQuestion: route.ClarificationQuestion,
-				},
-			}),
-		}
-	}
-
 	// 1. sniff + guidance 判定（code-owned 路径）
 	if st.Guidance != nil || ShouldEnterGuidance(message, route, st) {
 		var next *state.GuidanceState

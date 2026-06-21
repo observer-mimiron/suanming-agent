@@ -15,6 +15,7 @@ import (
 type realTracer struct {
 	mu        sync.Mutex
 	collector *FileCollector
+	bridge    otelBridge
 }
 
 // NewRealTracer 创建一个真实 Tracer，收集追踪数据并可选的写入文件。
@@ -23,13 +24,30 @@ func NewRealTracer(collector *FileCollector) Tracer {
 	return &realTracer{collector: collector}
 }
 
+func newRealTracerWithBridge(collector *FileCollector, bridge otelBridge) *realTracer {
+	return &realTracer{collector: collector, bridge: bridge}
+}
+
+// NewRealTracerWithOTel creates a real tracer that keeps the local TurnTrace
+// contract while mirroring spans to an optional OTel bridge.
+func NewRealTracerWithOTel(collector *FileCollector, bridge otelBridge) Tracer {
+	return newRealTracerWithBridge(collector, bridge)
+}
+
 func (r *realTracer) StartTrace(ctx context.Context, name string) (context.Context, Trace) {
 	t := &TurnTrace{
-		TraceID:   genID("trc"),
-		StartedAt: time.Now(),
-		Status:    "ok",
-		Spans:     []TraceSpan{},
+		TraceID:    genID("trc"),
+		StartedAt:  time.Now(),
+		Status:     "ok",
+		Spans:      []TraceSpan{},
 		Attributes: map[string]any{},
+	}
+	var rootBridgeSpan otelSpanBridge
+	if r.bridge != nil {
+		ctx, rootBridgeSpan = r.bridge.StartRoot(ctx, name, KindAgent)
+		t.otelCtx = ctx
+		t.otelBridge = r.bridge
+		t.otelRoot = rootBridgeSpan
 	}
 	root := &realTrace{
 		turn:     t,
@@ -38,6 +56,7 @@ func (r *realTracer) StartTrace(ctx context.Context, name string) (context.Conte
 		kind:     KindAgent,
 		start:    t.StartedAt,
 		tracer:   r,
+		otelSpan: rootBridgeSpan,
 	}
 	root.turn.Spans = append(root.turn.Spans, root.toSpan())
 	return contextWithTrace(ctx, t), root
@@ -56,27 +75,34 @@ func (r *realTracer) finish(t *TurnTrace) {
 
 // realTrace 是 Trace 接口的实现。
 type realTrace struct {
-	turn   *TurnTrace
-	spanID string
-	name   string
-	kind   SpanKind
-	start  time.Time
-	end    time.Time
-	status string
-	err    string
-	attrs  map[string]any
-	tracer *realTracer
+	turn     *TurnTrace
+	spanID   string
+	name     string
+	kind     SpanKind
+	start    time.Time
+	end      time.Time
+	status   string
+	err      string
+	attrs    map[string]any
+	tracer   *realTracer
+	otelSpan otelSpanBridge
 }
 
 func (rt *realTrace) StartSpan(name string) Span {
+	var bridgeSpan otelSpanBridge
+	if rt.turn != nil && rt.turn.otelBridge != nil {
+		bridgeSpan = rt.turn.otelBridge.StartChild(rt.turn.otelCtx, name, KindChain)
+		propagateTraceAttrsToBridge(rt.turn, bridgeSpan)
+	}
 	s := &realSpan{
-		turn:   rt.turn,
-		spanID: genID("spn"),
-		parent: rt.spanID,
-		name:   name,
-		start:  time.Now(),
-		status: "ok",
-		attrs:  map[string]any{},
+		turn:     rt.turn,
+		spanID:   genID("spn"),
+		parent:   rt.spanID,
+		name:     name,
+		start:    time.Now(),
+		status:   "ok",
+		attrs:    map[string]any{},
+		otelSpan: bridgeSpan,
 	}
 	return s
 }
@@ -84,6 +110,9 @@ func (rt *realTrace) StartSpan(name string) Span {
 func (rt *realTrace) SetStatus(status string) {
 	rt.status = status
 	rt.turn.Status = status
+	if rt.otelSpan != nil {
+		rt.otelSpan.SetStatus(status)
+	}
 }
 
 func (rt *realTrace) End() {
@@ -100,6 +129,9 @@ func (rt *realTrace) End() {
 	rt.turn.Status = rt.status
 	if rt.turn.Spans[0].SpanID == rt.spanID {
 		rt.turn.Spans[0] = rt.toSpan()
+	}
+	if rt.otelSpan != nil {
+		rt.otelSpan.End()
 	}
 	rt.tracer.finish(rt.turn)
 }
@@ -125,16 +157,17 @@ func (rt *realTrace) toSpan() TraceSpan {
 
 // realSpan 是 Span 接口的实现。
 type realSpan struct {
-	turn   *TurnTrace
-	spanID string
-	parent string
-	name   string
-	kind   SpanKind
-	start  time.Time
-	end    time.Time
-	status string
-	err    string
-	attrs  map[string]any
+	turn     *TurnTrace
+	spanID   string
+	parent   string
+	name     string
+	kind     SpanKind
+	start    time.Time
+	end      time.Time
+	status   string
+	err      string
+	attrs    map[string]any
+	otelSpan otelSpanBridge
 }
 
 func (rs *realSpan) End() {
@@ -143,16 +176,32 @@ func (rs *realSpan) End() {
 		rs.status = "error"
 	}
 	rs.turn.Spans = append(rs.turn.Spans, rs.toSpan())
+	if rs.otelSpan != nil {
+		rs.otelSpan.End()
+	}
 }
 
-func (rs *realSpan) SetKind(kind SpanKind)  { rs.kind = kind }
-func (rs *realSpan) SetStatus(status string) { rs.status = status }
+func (rs *realSpan) SetKind(kind SpanKind) {
+	rs.kind = kind
+	if rs.otelSpan != nil {
+		rs.otelSpan.SetAttribute("span_kind", string(kind))
+	}
+}
+func (rs *realSpan) SetStatus(status string) {
+	rs.status = status
+	if rs.otelSpan != nil {
+		rs.otelSpan.SetStatus(status)
+	}
+}
 
 func (rs *realSpan) SetAttribute(key string, value any) {
 	if rs.attrs == nil {
 		rs.attrs = map[string]any{}
 	}
 	rs.attrs[key] = value
+	if rs.otelSpan != nil {
+		rs.otelSpan.SetAttribute(key, value)
+	}
 }
 
 func (rs *realSpan) RecordError(err error) {
@@ -160,6 +209,9 @@ func (rs *realSpan) RecordError(err error) {
 		rs.err = err.Error()
 		if rs.status == "ok" {
 			rs.status = "error"
+		}
+		if rs.otelSpan != nil {
+			rs.otelSpan.RecordError(err)
 		}
 	}
 }
@@ -198,15 +250,30 @@ func SpanFromContext(ctx context.Context, name string, kind SpanKind) Span {
 	if len(t.Spans) > 0 {
 		parentID = t.Spans[0].SpanID
 	}
+	var bridgeSpan otelSpanBridge
+	if t.otelBridge != nil {
+		bridgeSpan = t.otelBridge.StartChild(t.otelCtx, name, kind)
+		propagateTraceAttrsToBridge(t, bridgeSpan)
+	}
 	return &realSpan{
-		turn:   t,
-		spanID: genID("spn"),
-		parent: parentID,
-		name:   name,
-		kind:   kind,
-		start:  time.Now(),
-		status: "ok",
-		attrs:  map[string]any{},
+		turn:     t,
+		spanID:   genID("spn"),
+		parent:   parentID,
+		name:     name,
+		kind:     kind,
+		start:    time.Now(),
+		status:   "ok",
+		attrs:    map[string]any{},
+		otelSpan: bridgeSpan,
+	}
+}
+
+func propagateTraceAttrsToBridge(t *TurnTrace, bridgeSpan otelSpanBridge) {
+	if t == nil || bridgeSpan == nil || len(t.Attributes) == 0 {
+		return
+	}
+	for k, v := range t.Attributes {
+		bridgeSpan.SetAttribute(k, v)
 	}
 }
 

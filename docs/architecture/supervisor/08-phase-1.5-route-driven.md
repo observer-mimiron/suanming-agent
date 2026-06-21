@@ -1,8 +1,8 @@
 # 08 Phase 1.5: Route-Driven Execution
 
 **Date:** 2026-06-12
-**Status:** Implemented, later simplified by the 2026-06-15 runtime package reset
-**Tests:** 47 (5 new for phase 1.5)
+**Status:** Implemented, later simplified by the 2026-06-15 runtime package reset and tightened by the 2026-06-19 Phase 1 routing contract pass
+**Tests:** route/runtime tests retained; supervisor/routing regressions extended over time
 
 ## Motivation
 
@@ -12,7 +12,7 @@ Phase 1 introduced `ApprovedRoute` but the runtime still converted it back to le
 - The `switch action` block remained the sole dispatcher
 - `bridgeDecision` was a control function masquerading as a compatibility shim
 
-Phase 1.5 removed this indirection. On 2026-06-15, the follow-up runtime reset finished the job by deleting `bridgeDecision()` entirely and moving approved-route execution into `internal/runtime/`.
+Phase 1.5 removed this indirection. On 2026-06-15, the follow-up runtime reset finished the job by deleting `bridgeDecision()` entirely and moving approved-route execution into `internal/runtime/`. On 2026-06-19, a second tightening pass clarified which concerns live in prompt, policy, and runtime.
 
 ## Before / After
 
@@ -37,48 +37,62 @@ AFTER (current):
                                ↓
                          runtime.Execute(route, message)
                                ↓
-                         executeRoute(route, message)
+                            preflight
                                ↓
-                    switch route.TaskIntent {
-                      case "collect_profile": executeCollectProfileRoute
-                      case "amend_profile":   executeAmendProfileRoute
-                      case "direct_bazi":     executeDirectBaziRoute
-                      case "timing_followup": executeFollowupRoute(qimen=true)
-                      default:                executeFollowupRoute
-                    }
-                    + route.NeedsClarification → executeClarificationRoute
+                 short-circuit text OR agent main path
+                               ↓
+             Supervisor Agent + AgentTool specialists
+                               ↓
+                    post-run contract gate
+                               ↓
+                         final SSE output
 ```
 
 ## Key Components
 
-### `executeRoute()` — runtime/candidate.go
+### `Execute()` — runtime/executor.go
 
-The main dispatcher. Takes `policy.ApprovedRoute` plus the original user message. Routes by `NeedsClarification` first, then by `TaskIntent`.
+The main runtime entry. It merges extracted profile fields, writes the routing snapshot, runs deterministic preflight, executes the route-bound agent path, and only then emits the final answer after contract validation.
 
 ```go
-func (e *Executor) ExecuteRoute(ctx, sink, st, route, message) (turnType, assistantText, error)
+func (e *Executor) Execute(ctx, sink, st, route, message) (turnType, assistantText, error)
 ```
 
-### 5 Route Handlers
+### `preflight()` — runtime/preflight.go
 
-Each handler encapsulates: clone state → setup candidate → call handler → conditionally persist.
+The deterministic short-circuit layer. It handles:
 
-| Handler | TaskIntent | Behavior |
-|---------|-----------|----------|
-| `executeClarificationRoute` | `NeedsClarification=true` | Merge patch, ask or followup if chart exists |
-| `executeCollectProfileRoute` | `collect_profile` | Reset profile/chart, ask or full reading |
-| `executeAmendProfileRoute` | `amend_profile` | Merge patch (preserving chart), ask/full/followup |
-| `executeDirectBaziRoute` | `direct_bazi` | Merge gender, direct bazi input |
-| `executeFollowupRoute` | `interpret_chart`, `fortune_followup`, `timing_followup`, `cross_domain_consult`, default | Reuse chart or fall through to ask/full |
+- clarification routes
+- missing-profile routes
+- profile-required domain gates
+
+### `runAgentRoute()` — runtime/executor.go
+
+The main route-bound execution path:
+
+- prepares session values
+- performs safe reusable prefill for bazi only
+- builds the supervisor agent plus allowed specialists
+- runs the ADK loop
+- captures tool results back into session state
+
+### `guardFinalAnswer()` — runtime/final_guard.go
+
+The Phase 1 contract gate added on 2026-06-19. It prevents final domain conclusions from being emitted if the corresponding required artifact was never produced.
+
+Current checks:
+
+- `primary_domain=qimen` requires `QimenResult`
+- `primary_domain=ziwei` requires `ZiWeiResult`
 
 ### Slot Consumption
 
 The runtime now consumes slots directly from `route.Slots`:
 
-- `profilePatch` from `route.Slots.Profile`
-- `userQuestion` from `route.Slots.QuestionText` with message fallback
-- `needsQimen` from `route.PolicyHints.NeedsQimen` plus task intent
-- `rawBazi` from direct extraction inside the `direct_bazi` route path
+- profile patch from `route.Slots.Profile`
+- user question from `route.Slots.QuestionText` with message fallback
+- timing hints from `route.Slots.TimeScope`
+- domain behavior from `route.PolicyHints`
 
 ### `Supervisor` Interface — orchestrator.go
 
@@ -92,7 +106,11 @@ Defined locally in the orchestrator package (Go idiom: define interfaces where c
 
 ## Reclassification Logic
 
-A single reclassification check remains in `executeRoute()`: if `TaskIntent == "collect_profile"` but the session already has data and the message doesn't contain birth time, reclassify as `amend_profile`. This prevents wiping existing profile/chart on spurious collection intents.
+Deterministic reclassification now lives in `normalizeApprovedRoute()`:
+
+- `collect_profile -> amend_profile` when session data already exists
+- `collect_profile -> fortune_followup` when chart exists and the message is not actually new birth-time info
+- explicit method obey when the user clearly names `ziwei`, `qimen`, or `bazi`
 
 ## Runtime Boundary After Reset
 
@@ -103,14 +121,20 @@ As of 2026-06-15:
 - `internal/specialists` consumes the shared `policy.ApprovedRoute` contract
 - `bridgeDecision()` and the duplicated `specialists.ApprovedRoute` type are both removed
 
+After 2026-06-19, the responsibility split is even sharper:
+
+- **prompt** chooses the domain by capability framing
+- **policy** only does deterministic correction and rollout safety
+- **runtime** verifies the selected domain truly produced its required artifact
+
 ## Design Constraints Maintained
 
 - No parallel fan-out (`ParallelAllowed` still hard-disabled in policy gate)
-- No non-mingli domains enabled (allowlist: bazi, qimen)
+- No non-mingli domains enabled (allowlist: bazi, qimen, ziwei)
 - No changes to `internal/tools/`
-- No changes to frontend SSE protocol
-- No changes to specialist interfaces
-- Session file format unchanged
+- No changes to frontend SSE protocol shape
+- Specialist interfaces remain bounded by the shared runtime contract
+- Session file format remains compatible; `RoutingSnapshot` now carries `QimenMode`
 
 ## Files Changed
 
@@ -118,9 +142,10 @@ As of 2026-06-15:
 |------|--------|
 | `internal/orchestrator/orchestrator.go` | lifecycle shell only |
 | `internal/runtime/executor.go` | approved-route execution entry |
-| `internal/runtime/candidate.go` | route handlers |
-| `internal/runtime/answer.go` | answer pipeline |
-| `internal/runtime/bazi.go` / `qimen.go` / `ziwei.go` | domain execution lanes |
+| `internal/runtime/preflight.go` | deterministic short-circuit gate |
+| `internal/runtime/final_guard.go` | post-run contract gate |
+| `internal/runtime/agent_route.go` | route-bound supervisor/specialist agent construction |
+| `internal/supervisor/approved_route.go` | explicit-method deterministic normalization |
 | `internal/orchestrator/orchestrator_test.go` | route/runtime regression coverage retained |
 
 ## Verification
