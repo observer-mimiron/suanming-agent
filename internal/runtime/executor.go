@@ -74,40 +74,55 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 	preflightSpan := tracing.SpanFromContext(ctx, "preflight", tracing.KindChain)
 	preflightSpan.SetAttribute("primary_domain", route.PrimaryDomain)
 	preflightSpan.SetAttribute("task_intent", route.TaskIntent)
-	result := preflight(st, &route, message)
+	result := preflight(st, route, message)
 	preflightSpan.SetAttribute("short_circuit", result.ShortCircuit)
 	if result.TurnType != "" {
 		preflightSpan.SetAttribute("turn_type", result.TurnType)
 	}
 	preflightSpan.End()
 	if result.ShortCircuit {
-		e.updateGuidanceState(st, route, message, true)
+		e.updateGuidanceState(st, route, message, result)
 		_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": result.Text}}, map[string]any{
 			"turn_type": result.TurnType,
 		})
 		return result.TurnType, result.Text, nil
 	}
 
-	e.updateGuidanceState(st, route, message, false)
+	// ForcedRoute: guided_fallback accepted → use forced route for this turn
+	if result.ForcedRoute != nil {
+		route = *result.ForcedRoute
+	}
+
+	e.updateGuidanceState(st, route, message, result)
 
 	// 主路径: AgentAsTool 执行
 	return e.runAgentRoute(ctx, sink, st, route, message)
 }
 
-func (e *Executor) updateGuidanceState(st *state.SessionState, route policy.ApprovedRoute, message string, shortCircuit bool) {
+func (e *Executor) updateGuidanceState(st *state.SessionState, route policy.ApprovedRoute, message string, result preflightResult) {
 	if st == nil {
 		return
 	}
-	if shortCircuit {
-		if route.Directive == nil {
-			return
+	if result.ShortCircuit {
+		// preflight 返回 GuidanceNext → executor 是唯一 mutation owner
+		if result.GuidanceNext != nil {
+			st.Guidance = result.GuidanceNext
 		}
-		st.Guidance = policy.ReduceGuidance(policy.GuidanceReducerInput{
-			Current:   st.Guidance,
-			Directive: route.Directive,
-			Message:   message,
-			Profile:   st.Profile,
-		})
+		// 旧 directive 兼容路径（Task 4 后删除）
+		if result.GuidanceNext == nil && route.Directive != nil {
+			st.Guidance = policy.ReduceGuidance(policy.GuidanceReducerInput{
+				Current:   st.Guidance,
+				Directive: route.Directive,
+				Message:   message,
+				Profile:   st.Profile,
+			})
+		}
+		return
+	}
+
+	// guided_fallback accepted → 清除 guidance
+	if result.ForcedRoute != nil {
+		st.Guidance = nil
 		return
 	}
 

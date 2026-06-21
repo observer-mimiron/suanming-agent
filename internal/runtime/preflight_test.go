@@ -43,7 +43,7 @@ func TestPreflight_ProfileRequiredRouteBlocksWithoutProfile(t *testing.T) {
 	st := makeSession(false, false, false)
 	route := routeWithHints("bazi", "fortune_followup", "none", "full")
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if !result.ShortCircuit {
 		t.Fatal("expected ShortCircuit=true for profile-required route without profile")
 	}
@@ -58,7 +58,7 @@ func TestPreflight_ProfileRequiredRouteAllowsWithProfile(t *testing.T) {
 	st := makeSession(true, true, false)
 	route := routeWithHints("bazi", "fortune_followup", "none", "full")
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if result.ShortCircuit {
 		t.Fatalf("expected no short circuit for complete profile, got TurnType=%q", result.TurnType)
 	}
@@ -70,7 +70,7 @@ func TestPreflight_QimenPrimaryWithoutProfile(t *testing.T) {
 	st := makeSession(false, false, false)
 	route := routeWithHints("qimen", "fortune_followup", "primary", "none")
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if result.ShortCircuit {
 		t.Fatalf("qimen primary with profile_requirement=none should not short circuit, got TurnType=%q", result.TurnType)
 	}
@@ -82,7 +82,7 @@ func TestPreflight_QimenPrimaryWithFullProfileRequirementBlocks(t *testing.T) {
 	st := makeSession(false, false, false)
 	route := routeWithHints("qimen", "fortune_followup", "primary", "full")
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if !result.ShortCircuit {
 		t.Fatal("qimen primary with profile_requirement=full and no profile should short circuit")
 	}
@@ -97,7 +97,7 @@ func TestPreflight_ClarificationRouteShortCircuits(t *testing.T) {
 		ClarificationQuestion: "  请问您想了解哪方面？\n",
 	}
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if !result.ShortCircuit {
 		t.Fatal("NeedsClarification route should short circuit")
 	}
@@ -127,7 +127,7 @@ func TestPreflight_DirectiveShortCircuitsThroughRenderer(t *testing.T) {
 		},
 	}
 
-	result := preflight(st, &route, "我想了解财运")
+	result := preflight(st, route, "")
 	if !result.ShortCircuit {
 		t.Fatal("directive route should short circuit")
 	}
@@ -146,7 +146,7 @@ func TestPreflight_BaziWithoutProfileOrChartBlocks(t *testing.T) {
 	st := makeSession(false, false, false)
 	route := routeWithHints("bazi", "interpret_chart", "none", "none")
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if !result.ShortCircuit {
 		t.Fatal("bazi route without profile or chart should short circuit")
 	}
@@ -161,7 +161,7 @@ func TestPreflight_CollectProfileIntentShortCircuits(t *testing.T) {
 	st := makeSession(false, false, false)
 	route := routeWithHints("bazi", "collect_profile", "none", "none")
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if !result.ShortCircuit {
 		t.Fatal("collect_profile with empty profile should short circuit with domain prompt")
 	}
@@ -179,7 +179,7 @@ func TestPreflight_ZiweiWithoutProfileOrChartBlocks(t *testing.T) {
 	st := makeSession(false, false, false)
 	route := routeWithHints("ziwei", "fortune_followup", "none", "none")
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if !result.ShortCircuit {
 		t.Fatal("ziwei route without profile or chart should short circuit")
 	}
@@ -195,7 +195,7 @@ func TestPreflight_CollectProfileMissingGenderUsesBoundaryRenderer(t *testing.T)
 	})
 	route := routeWithHints("bazi", "collect_profile", "none", "none")
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if !result.ShortCircuit {
 		t.Fatal("collect_profile missing gender should short circuit")
 	}
@@ -212,7 +212,7 @@ func TestPreflight_ZiweiMissingProfileUsesBoundaryRenderer(t *testing.T) {
 	st := makeSession(false, false, false)
 	route := routeWithHints("ziwei", "fortune_followup", "none", "none")
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if !result.ShortCircuit {
 		t.Fatal("ziwei route without profile or chart should short circuit")
 	}
@@ -231,7 +231,7 @@ func TestPreflight_CollectProfileWithFullRequirementShortCircuits(t *testing.T) 
 	st := makeSession(false, false, false)
 	route := routeWithHints("bazi", "collect_profile", "none", "full")
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if !result.ShortCircuit {
 		t.Fatal("collect_profile with empty profile should short circuit")
 	}
@@ -243,7 +243,7 @@ func TestPreflight_ZiweiCollectProfileShortCircuits(t *testing.T) {
 	st := makeSession(false, false, false)
 	route := routeWithHints("ziwei", "collect_profile", "none", "none")
 
-	result := preflight(st, &route, "")
+	result := preflight(st, route, "")
 	if !result.ShortCircuit {
 		t.Fatal("ziwei collect_profile with empty profile should short circuit")
 	}
@@ -253,5 +253,101 @@ func TestPreflight_ZiweiCollectProfileShortCircuits(t *testing.T) {
 	want := guidance.Render(guidance.Request{Boundary: guidance.BoundaryAskZiweiProfile})
 	if result.Text != want {
 		t.Fatalf("Text: got %q, want %q", result.Text, want)
+	}
+}
+
+// TestPreflight_Purity_DoesNotMutateSession 验证 preflight 不直接写 session。
+func TestPreflight_Purity_DoesNotMutateSession(t *testing.T) {
+	st := makeSession(false, false, false)
+	route := routeWithHints("bazi", "fortune_followup", "none", "none")
+	snapshot := st.Guidance
+	_ = preflight(st, route, "最近真是喝凉水都塞牙")
+	if st.Guidance != snapshot {
+		t.Fatal("preflight mutated session.Guidance — purity violation")
+	}
+}
+
+// TestPreflight_FateAdjacentReturnsGuidanceNext 验证命运感叹消息返回 GuidanceNext。
+func TestPreflight_FateAdjacentReturnsGuidanceNext(t *testing.T) {
+	st := makeSession(false, false, false)
+	route := routeWithHints("bazi", "collect_profile", "none", "none")
+	result := preflight(st, route, "最近真是喝凉水都塞牙")
+	if !result.ShortCircuit {
+		t.Fatal("fate-adjacent should short circuit")
+	}
+	if result.GuidanceNext == nil {
+		t.Fatal("GuidanceNext is nil, want offer_consult")
+	}
+	if result.GuidanceNext.DirectiveKind != "offer_consult" {
+		t.Fatalf("GuidanceNext.DirectiveKind = %q, want offer_consult", result.GuidanceNext.DirectiveKind)
+	}
+}
+
+// TestPreflight_BroadIntentReturnsGuidanceNext 验证 broad intent 消息返回 GuidanceNext。
+func TestPreflight_BroadIntentReturnsGuidanceNext(t *testing.T) {
+	st := makeSession(false, false, false)
+	route := routeWithHints("bazi", "collect_profile", "none", "none")
+	result := preflight(st, route, "看看事业")
+	if !result.ShortCircuit {
+		t.Fatal("broad-intent should short circuit")
+	}
+	if result.GuidanceNext == nil {
+		t.Fatal("GuidanceNext is nil, want choose_topic")
+	}
+	if result.GuidanceNext.DirectiveKind != "choose_topic" {
+		t.Fatalf("GuidanceNext.DirectiveKind = %q, want choose_topic", result.GuidanceNext.DirectiveKind)
+	}
+}
+
+// TestPreflight_ExplicitActionNotGuidance 验证 "帮我算一下八字" 不进入 guidance。
+func TestPreflight_ExplicitActionNotGuidance(t *testing.T) {
+	st := makeSession(false, false, false)
+	route := routeWithHints("bazi", "collect_profile", "none", "none")
+	result := preflight(st, route, "帮我算一下八字")
+	if result.GuidanceNext != nil {
+		t.Fatalf("GuidanceNext = %+v, want nil for explicit action", result.GuidanceNext)
+	}
+	if !result.ShortCircuit {
+		t.Fatal("collect_profile without data should short circuit")
+	}
+}
+
+// TestPreflight_ActiveGuidanceProgresses 验证已有 guidance 时继续推进。
+func TestPreflight_ActiveGuidanceProgresses(t *testing.T) {
+	st := makeSession(false, false, false)
+	st.Guidance = &state.GuidanceState{DirectiveKind: "offer_consult"}
+	route := routeWithHints("bazi", "collect_profile", "none", "none")
+	result := preflight(st, route, "行，那你看看")
+	if !result.ShortCircuit {
+		t.Fatal("active guidance continuation should short circuit")
+	}
+	if result.GuidanceNext == nil {
+		t.Fatal("GuidanceNext is nil, want choose_topic after acceptance")
+	}
+	if result.GuidanceNext.DirectiveKind != "choose_topic" {
+		t.Fatalf("GuidanceNext.DirectiveKind = %q, want choose_topic", result.GuidanceNext.DirectiveKind)
+	}
+}
+
+// TestPreflight_GuidedFallbackAcceptanceReturnsForcedRoute 验证 guided_fallback 接受后返回 ForcedRoute。
+func TestPreflight_GuidedFallbackAcceptanceReturnsForcedRoute(t *testing.T) {
+	st := makeSession(false, false, false)
+	st.Guidance = &state.GuidanceState{DirectiveKind: "guided_fallback"}
+	route := routeWithHints("bazi", "collect_profile", "none", "none")
+	result := preflight(st, route, "好，那你综合看看")
+	if !result.ShortCircuit {
+		t.Fatal("guided_fallback acceptance should short circuit")
+	}
+	if result.ForcedRoute == nil {
+		t.Fatal("ForcedRoute is nil, want qimen primary route")
+	}
+	if result.ForcedRoute.PrimaryDomain != "qimen" {
+		t.Fatalf("ForcedRoute.PrimaryDomain = %q, want qimen", result.ForcedRoute.PrimaryDomain)
+	}
+	if result.ForcedRoute.PolicyHints.QimenMode != "primary" {
+		t.Fatalf("ForcedRoute.QimenMode = %q, want primary", result.ForcedRoute.PolicyHints.QimenMode)
+	}
+	if result.ForcedRoute.PolicyHints.ProfileRequirement != "none" {
+		t.Fatalf("ForcedRoute.ProfileRequirement = %q, want none", result.ForcedRoute.PolicyHints.ProfileRequirement)
 	}
 }

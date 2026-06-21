@@ -123,7 +123,7 @@ func TestExecutor_UpdateGuidanceState_ClearsOnExecutionEntry(t *testing.T) {
 		RetryCount:    2,
 	}
 
-	exec.updateGuidanceState(st, policy.ApprovedRoute{TaskIntent: "interpret_chart"}, "继续分析", false)
+	exec.updateGuidanceState(st, policy.ApprovedRoute{TaskIntent: "interpret_chart"}, "继续分析", preflightResult{})
 
 	if st.Guidance != nil {
 		t.Fatalf("Guidance = %#v, want nil", st.Guidance)
@@ -145,7 +145,7 @@ func TestExecutor_UpdateGuidanceState_PreservesCollectProfileFlowWhenProfileInco
 		"day":   20.0,
 	})
 
-	exec.updateGuidanceState(st, policy.ApprovedRoute{TaskIntent: "collect_profile"}, "1990年5月20日", false)
+	exec.updateGuidanceState(st, policy.ApprovedRoute{TaskIntent: "collect_profile"}, "1990年5月20日", preflightResult{})
 
 	if st.Guidance == nil {
 		t.Fatal("Guidance = nil, want preserved guidance state")
@@ -174,7 +174,7 @@ func TestExecutor_UpdateGuidanceState_GenericShortCircuitDoesNotMutateGuidance(t
 	exec.updateGuidanceState(st, policy.ApprovedRoute{
 		NeedsClarification:    true,
 		ClarificationQuestion: "请确认一下问题范围。",
-	}, "行，那你看看感情", true)
+	}, "行，那你看看感情", preflightResult{ShortCircuit: true})
 
 	if st.Guidance == nil {
 		t.Fatal("Guidance = nil, want unchanged guidance state")
