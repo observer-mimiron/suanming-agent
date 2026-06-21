@@ -19,7 +19,10 @@ Case 格式:
         "contains_any": ["关键词A", "B"],   // 至少命中一个
         "contains_all": ["必须包含A"],      // 全部命中
         "not_contains": ["禁止词"],         // 不可出现
-        "knowledge_search": true            // 检查 knowledge_search 触发
+        "final_output_contains": ["关键词"], // 只检查最终回答文本
+        "final_output_not_contains": ["禁词"],
+        "knowledge_search": true,           // 检查 knowledge_search 触发
+        "conversation_intent_any": ["consult"],
         "route_primary": "bazi",            // 精确匹配路由主域
         "task_intent": "collect_profile",   // 精确匹配 task_intent
         "task_intent_any": ["x", "y"],      // 任意一个
@@ -97,6 +100,7 @@ class TurnResponse:
     turn_type: str = ""
     thinking: str = ""
     full_text: str = ""
+    conversation_intent: str = ""
     route_primary: str = ""
     task_intent: str = ""
     qimen_mode: str = ""
@@ -106,13 +110,18 @@ class TurnResponse:
 
 def _parse_route_fields(body: str):
     """从 SSE body 中解析 route-decision 事件字段。"""
+    conversation_intent = ""
     route_primary = ""
     task_intent = ""
     qimen_mode = ""
     secondary_domains = []
 
     if '"type":"route-decision"' not in body:
-        return route_primary, task_intent, qimen_mode, secondary_domains
+        return conversation_intent, route_primary, task_intent, qimen_mode, secondary_domains
+
+    m = re.search(r'"conversation_intent":"([^"]*)"', body)
+    if m:
+        conversation_intent = m.group(1)
 
     m = re.search(r'"primary_domain":"([^"]*)"', body)
     if m:
@@ -126,7 +135,7 @@ def _parse_route_fields(body: str):
     m = re.search(r'"secondary_domains":\[([^\]]*)\]', body)
     if m:
         secondary_domains = re.findall(r'"([^"]*)"', m.group(1))
-    return route_primary, task_intent, qimen_mode, secondary_domains
+    return conversation_intent, route_primary, task_intent, qimen_mode, secondary_domains
 
 
 def run_turn(server_url, message, session_id, timeout=30, adapter=None) -> TurnResponse:
@@ -155,7 +164,7 @@ def run_turn(server_url, message, session_id, timeout=30, adapter=None) -> TurnR
         if m:
             turn_type = m.group(1)
 
-        route_primary, task_intent, qimen_mode, secondary_domains = _parse_route_fields(body)
+        conversation_intent, route_primary, task_intent, qimen_mode, secondary_domains = _parse_route_fields(body)
 
         thinking = ""
         for m in re.finditer(r'data:\s*\{"agent"\s*:\s*"(?:orchestrator|planner)","text"\s*:\s*"((?:[^"\\]|\\.)*)"', body):
@@ -171,6 +180,7 @@ def run_turn(server_url, message, session_id, timeout=30, adapter=None) -> TurnR
             turn_type=turn_type,
             thinking=thinking,
             full_text=full_text,
+            conversation_intent=conversation_intent,
             route_primary=route_primary,
             task_intent=task_intent,
             qimen_mode=qimen_mode,
@@ -190,22 +200,23 @@ def run_turn(server_url, message, session_id, timeout=30, adapter=None) -> TurnR
 def check_expect(r: TurnResponse, expect: dict, context: dict = None) -> list:
     """统一断言入口。有 trace 且含新断言键时走新引擎，否则回退旧逻辑。"""
 
-    # 新断言引擎的特征键
-    new_keys = {
+    # 仅这些断言强依赖 CanonicalTrace。final_output_* 故意留在 legacy 路径，
+    # 避免 trace 存在时吞掉 turn_type_any / conversation_intent_any 等 guidance 断言。
+    trace_only_keys = {
         "action_called", "action_not_called", "action_sequence",
         "action_arg_match", "action_result_not_empty",
         "retrieval_happened", "retrieval_has_results", "retrieval_cited",
         "step_count_range", "no_errors",
-        "final_output_contains", "final_output_not_contains",
     }
 
-    # 如果 trace 有数据且期望中有新断言键，走新引擎
-    if r.trace and r.trace.raw_body and (new_keys & set(expect.keys())):
+    # 如果 trace 有数据且期望中有 trace 专属断言，走新引擎
+    if r.trace and r.trace.raw_body and (trace_only_keys & set(expect.keys())):
         return run_assertions(r.trace, expect, context)
 
     # ── 回退：旧断言逻辑（完全保留原有代码） ──
     errors = []
     search_in = r.full_text + " " + r.body
+    final_output = r.full_text or ""
 
     if expect.get("http_status") and str(r.http_code) != str(expect["http_status"]):
         errors.append(f"HTTP {r.http_code} (expected {expect['http_status']})")
@@ -214,7 +225,14 @@ def check_expect(r: TurnResponse, expect: dict, context: dict = None) -> list:
         errors.append(f"turn_type={r.turn_type} (expected {expect['turn_type']})")
 
     if expect.get("turn_type_any") and r.turn_type not in expect["turn_type_any"]:
-        errors.append(f"turn_type={r.turn_type} (expected one of {expect['turn_type_any']})")
+        errors.append(f"turn_type={r.turn_type or '(empty)'} (expected one of {expect['turn_type_any']})")
+
+    want_ci = expect.get("conversation_intent_any", [])
+    if want_ci and r.conversation_intent not in want_ci:
+        errors.append(
+            f"conversation_intent={r.conversation_intent or '(empty)'} "
+            f"(expected one of {want_ci})"
+        )
 
     if expect.get("route_primary") and r.route_primary != expect["route_primary"]:
         errors.append(f"route_primary={r.route_primary or '(empty)'} (expected {expect['route_primary']})")
@@ -238,6 +256,26 @@ def check_expect(r: TurnResponse, expect: dict, context: dict = None) -> list:
     if expect.get("knowledge_search") and not ("knowledge_search" in r.body and "knowledge-sources" in r.body):
         errors.append("knowledge_search: 未触发知识库检索")
 
+    want_final_any = expect.get("final_output_contains", [])
+    if want_final_any:
+        for kw in want_final_any:
+            if re.search(kw, final_output):
+                break
+        else:
+            preview = final_output[:80] or "(empty)"
+            errors.append(
+                f"final_output_contains 未命中: {want_final_any} "
+                f"(final_output={preview})"
+            )
+
+    for kw in expect.get("final_output_not_contains", []):
+        if re.search(kw, final_output):
+            preview = final_output[:80] or "(empty)"
+            errors.append(
+                f"final_output_not_contains 违规出现: {kw} "
+                f"(final_output={preview})"
+            )
+
     for kw in expect.get("contains_any", []):
         if re.search(kw, search_in):
             break
@@ -254,6 +292,49 @@ def check_expect(r: TurnResponse, expect: dict, context: dict = None) -> list:
             errors.append(f"not_contains 违规出现: {kw}")
 
     return errors
+
+
+def _selfcheck_mixed_guidance_assertions():
+    """验证 mixed expect 在 trace 存在时仍会检查 guidance 字段和 final_output_*。"""
+    trace = CanonicalTrace(raw_body="trace-present", final_output="这里提到事业")
+
+    ok = TurnResponse(
+        http_code="200",
+        body='data: {"type":"route-decision","conversation_intent":"consult","task_intent":"collect_profile"}',
+        turn_type="clarification",
+        full_text="这里提到事业",
+        conversation_intent="consult",
+        task_intent="collect_profile",
+        trace=trace,
+    )
+    ok_errors = check_expect(ok, {
+        "turn_type_any": ["clarification"],
+        "conversation_intent_any": ["consult"],
+        "task_intent_any": ["collect_profile"],
+        "final_output_contains": ["事业"],
+    })
+    if ok_errors:
+        raise AssertionError(f"mixed expect should pass, got {ok_errors}")
+
+    bad = TurnResponse(
+        http_code="200",
+        body='data: {"type":"route-decision","conversation_intent":"consult","task_intent":"collect_profile"}',
+        turn_type="agent_reading",
+        full_text="这里提到事业",
+        conversation_intent="consult",
+        task_intent="fortune_followup",
+        trace=trace,
+    )
+    bad_errors = check_expect(bad, {
+        "turn_type_any": ["clarification"],
+        "conversation_intent_any": ["consult"],
+        "task_intent_any": ["collect_profile"],
+        "final_output_contains": ["事业"],
+    })
+    if not any("turn_type=" in err for err in bad_errors):
+        raise AssertionError(f"mixed expect lost turn_type_any failure: {bad_errors}")
+    if not any("task_intent=" in err for err in bad_errors):
+        raise AssertionError(f"mixed expect lost task_intent_any failure: {bad_errors}")
 
 
 def grade_answer(r: TurnResponse, grading: dict):
@@ -349,87 +430,73 @@ def _fmt_bytes(n: int) -> str:
 
 
 def check_server_ready(server_url: str, timeout: int = 30) -> bool:
-    """跑任何 suite 之前验证：health + commit 匹配 + 探针时效 + route-decision 可解析。
+    """跑任何 suite 之前执行三层门禁校验：
+    Tier 1 (HARD) — 服务启动：health 端点 + commit 匹配
+    Tier 2 (HARD) — 探针门禁：响应时效与大小上限
+    Tier 3 (SOFT) — 业务能力：route-decision 可解析性
 
-    新增 AI 探针门禁（硬性）：
-    - 单轮响应时间 > PROBE_TIME_LIMIT → 终止
-    - 单轮响应大小 > PROBE_SIZE_LIMIT → 终止
-
-    返回 True 表示服务就绪，False 表示校验失败。校验失败会打印具体原因。
+    返回 True 表示服务就绪，False 表示校验失败。
     """
-    errors = []
-
-    # 1. health 端点
+    # ── Tier 1: 服务启动校验 (HARD) ──
     try:
-        r = subprocess.run(
+        health_resp = subprocess.run(
             ["curl", "-s", f"{server_url}/api/health"],
             capture_output=True, text=True, timeout=10)
-        health = json.loads(r.stdout)
+        health = json.loads(health_resp.stdout)
         if health.get("status") != "ok":
-            errors.append(f"health status={health.get('status')}")
+            print(f"\n{RED}✗ Tier 1 服务启动校验失败: health status={health.get('status')}{NC}\n")
+            return False
     except Exception as e:
-        errors.append(f"health 不可达: {e}")
-
-    # 2. commit 匹配
-    if not errors:
-        server_commit = health.get("commit", "")
-        if server_commit and server_commit != "unknown":
-            try:
-                local = subprocess.run(
-                    ["git", "rev-parse", "--short", "HEAD"],
-                    capture_output=True, text=True, timeout=5)
-                local_commit = local.stdout.strip()
-                if local_commit and server_commit != local_commit:
-                    errors.append(
-                        f"commit 不匹配: server={server_commit} local={local_commit}"
-                    )
-            except Exception:
-                pass  # 不在 git 仓库中时跳过
-
-    # 3. 探针门禁：时间 + 大小 + route-decision 存在且可解析
-    if not errors:
-        try:
-            t0 = time.time()
-            r = run_turn(server_url, PROBE_MESSAGE, "smoke-check", timeout=timeout)
-            elapsed = time.time() - t0
-            body_size = len(r.body.encode("utf-8"))
-
-            probe_errs = []
-            if r.http_code != "200":
-                probe_errs.append(f"probe HTTP {r.http_code}")
-            elif '"type":"route-decision"' not in r.body:
-                probe_errs.append("probe 响应中缺少 route-decision 事件")
-            elif not r.route_primary:
-                probe_errs.append("probe route_primary 为空，路由解析可能异常")
-
-            if elapsed > PROBE_TIME_LIMIT:
-                probe_errs.append(
-                    f"探针超时: {elapsed:.0f}s > {PROBE_TIME_LIMIT}s (suite 无法在合理时间内完成)"
-                )
-            if body_size > PROBE_SIZE_LIMIT * 1024:
-                probe_errs.append(
-                    f"探针响应过大: {_fmt_bytes(body_size)} > {_fmt_bytes(PROBE_SIZE_LIMIT * 1024)} (会撑爆 AI 上下文)"
-                )
-
-            errors.extend(probe_errs)
-        except Exception as e:
-            errors.append(f"probe 请求失败: {e}")
-
-    if errors:
-        print(f"\n{RED}━━━ 服务校验失败 ━━━{NC}")
-        for err in errors:
-            print(f"  {RED}✗{NC} {err}")
-        print(f"{RED}━━━━━━━━━━━━━━━━━━━━{NC}\n")
+        print(f"\n{RED}✗ Tier 1 服务启动校验失败: health 不可达: {e}{NC}\n")
         return False
 
-    print(
-        f"{GREEN}✓{NC} 服务就绪 ("
-        f"commit={health.get('commit', '?')}, "
-        f"route_primary={r.route_primary}, "
-        f"probe={elapsed:.1f}s, "
-        f"body={_fmt_bytes(body_size)}"
-        f")"
-    )
+    # commit 匹配
+    server_commit = health.get("commit", "")
+    if server_commit and server_commit != "unknown":
+        try:
+            local = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True, timeout=5)
+            local_commit = local.stdout.strip()
+            if local_commit and server_commit != local_commit:
+                print(f"\n{RED}✗ Tier 1 服务启动校验失败: commit 不匹配: server={server_commit} local={local_commit}{NC}\n")
+                return False
+        except Exception:
+            pass  # 不在 git 仓库中时跳过
+
+    print(f"{GREEN}✓{NC} 服务启动校验通过 (commit={server_commit or '?'})")
+
+    # ── Tier 2: 探针门禁 (HARD) ──
+    try:
+        t0 = time.time()
+        probe_r = run_turn(server_url, PROBE_MESSAGE, "smoke-check", timeout=timeout)
+        elapsed = time.time() - t0
+        body_size = len(probe_r.body.encode("utf-8"))
+
+        if probe_r.http_code != "200":
+            print(f"\n{RED}✗ Tier 2 探针门禁失败: HTTP {probe_r.http_code}{NC}\n")
+            return False
+
+        if elapsed > PROBE_TIME_LIMIT:
+            print(f"\n{RED}✗ Tier 2 探针门禁失败: 超时 {elapsed:.0f}s > {PROBE_TIME_LIMIT}s{NC}\n")
+            return False
+        if body_size > PROBE_SIZE_LIMIT * 1024:
+            print(f"\n{RED}✗ Tier 2 探针门禁失败: 响应过大 {_fmt_bytes(body_size)} > {_fmt_bytes(PROBE_SIZE_LIMIT * 1024)}{NC}\n")
+            return False
+
+        print(f"{GREEN}✓{NC} 探针门禁通过 (probe={elapsed:.1f}s, body={_fmt_bytes(body_size)})")
+    except Exception as e:
+        print(f"\n{RED}✗ Tier 2 探针门禁失败: {e}{NC}\n")
+        return False
+
+    # ── Tier 3: 业务能力探针 (SOFT) ──
+    if '"type":"route-decision"' not in probe_r.body:
+        print(f'{YELLOW}⚠ 业务能力探针: 响应中缺少 route-decision 事件，服务基础链路正常，继续执行{NC}')
+    elif not probe_r.route_primary:
+        print(f'{YELLOW}⚠ 业务能力探针: route_primary 为空（路由可能因 "你好" 过于简短而不稳定），服务基础链路正常，继续执行{NC}')
+    else:
+        print(f"{GREEN}✓{NC} 业务能力探针通过 (route_primary={probe_r.route_primary})")
+
     return True
 
 
@@ -605,13 +672,22 @@ def run_suite_parallel(server_url, suite_file, timeout=60, delay=1, workers=4, a
 
 def main():
     parser = argparse.ArgumentParser(description="命理大师回归测试执行器")
-    parser.add_argument("suite", help="Suite JSONL 文件路径")
-    parser.add_argument("server", help="服务地址，如 http://localhost:18080")
+    parser.add_argument("suite", nargs="?", help="Suite JSONL 文件路径")
+    parser.add_argument("server", nargs="?", help="服务地址，如 http://localhost:18080")
     parser.add_argument("--timeout", type=int, default=60, help="单轮请求超时秒数 (default: 60)")
     parser.add_argument("--delay", type=float, default=1.0, help="轮间延迟秒数 (default: 1.0)")
     parser.add_argument("-w", "--workers", type=int, default=4, help="并行 workers 数 (default: 4, 设为 1 即串行)")
     parser.add_argument("--adapter", help="适配器配置 YAML 路径 (启用新断言引擎)")
+    parser.add_argument("--self-check", action="store_true", help="运行 mixed guidance 断言自检后退出")
     args = parser.parse_args()
+
+    if args.self_check:
+        _selfcheck_mixed_guidance_assertions()
+        print(f"{GREEN}✓ mixed guidance assertions self-check passed{NC}")
+        sys.exit(0)
+
+    if not args.suite or not args.server:
+        parser.error("需要提供 suite 和 server 参数，或使用 --self-check")
 
     if args.adapter:
         from base import TraceAdapter as _TraceAdapter

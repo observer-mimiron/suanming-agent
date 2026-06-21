@@ -38,9 +38,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/wikiglobal/suanming-agent/internal/guidance"
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -112,6 +114,7 @@ func (c *Client) Decide(ctx context.Context, msg string, st *state.SessionState)
 	// 这保证响应 JSON 符合模式定义。
 	decision, err := c.structuredDecide(ctx, prompt, messages)
 	if err == nil {
+		applyGuidanceSniffDecision(msg, st, &decision)
 		return decision, nil
 	}
 	log.Printf("[supervisor] layer-1 structuredDecide failed: %v, falling back to text-based routing", err)
@@ -121,6 +124,7 @@ func (c *Client) Decide(ctx context.Context, msg string, st *state.SessionState)
 	if err != nil {
 		log.Printf("[supervisor] layer-2/3 textDecide also failed: %v, using degraded fallback", err)
 	}
+	applyGuidanceSniffDecision(msg, st, &decision)
 	return decision, err
 }
 
@@ -222,9 +226,9 @@ func parseDecision(raw string) schemas.SupervisorDecision {
 func parseAndValidate(raw string) (schemas.SupervisorDecision, error) {
 	d := parseDecision(raw)
 
-	if d.TaskIntent == "collect_profile" && len(d.Slots.Profile) == 0 {
-		return d, fmt.Errorf("task_intent 为 collect_profile，但 slots.profile 为空。必须从用户原始消息中提取出生信息")
-	}
+	// collect_profile + 空 profile 是合法状态：
+	// 用户表示想排盘但还没提供出生信息，系统应该追问。
+	// 出生信息被遗漏的情况由 normalizeApprovedRoute 的 extractBirthSlots 路径兜底。
 
 	// 检测编造的资料：当 LLM 为缺失字段填入默认值时。
 	// 如果资料有可疑的默认值（month=1, day=1, hour=0）且只有 1-2 个真实字段，
@@ -263,27 +267,37 @@ func looksHallucinated(profile map[string]any) bool {
 // fallbackExtract（第 3a 层）：所有重试均失败时的最后手段 LLM 提取。
 // 使用重点明确的单一用途提示词——不进行复杂路由，只提取已有内容。
 // 即使此步骤也失败时返回硬编码默认值。
-func (c *Client) fallbackExtract(ctx context.Context, msg string, st *state.SessionState) schemas.SupervisorDecision {
-	fallbackPrompt := `从用户消息中提取信息，只返回一个 JSON 对象。
+// fallbackExtractPrompt 返回 fallback 提取器的提示词。
+// 它只负责资料/问题提取，并允许极少量 directive 兜底。
+func fallbackExtractPrompt() string {
+	return `从用户消息中提取信息，只返回一个 JSON 对象。
 
-如果消息包含出生时间（年份+月份+日期），设置 task_intent="collect_profile"，并在 slots.profile 中提取：
+如果消息包含出生时间（年份+月份+日期），设置 task_intent="collect_profile"，并在 slots.profile 中只提取用户明确说出的字段：
 - year: 数字 (1900-2100)
 - month: 数字 (1-12)
 - day: 数字 (1-31)
 - hour: 数字 (0-23, 24小时制, 上午0-11, 下午12-23)
 - gender: "男" 或 "女"
 - birthplace: 城市名称（如提及）
-- calendar_type: "solar" 或 "lunar"（默认 solar）
 
-如果消息是纯问题（无出生信息），设置 task_intent="interpret_chart" 或 "fortune_followup"，slots.question_text 填问题内容。
-如果消息明显在问“今天/最近/此刻”的运势、时机、成败、宜忌，可设置 primary_domain="qimen"，policy_hints.qimen_mode="primary"。
+如果消息没有出生信息，把用户问题放进 slots.question_text；不要猜缺失资料。
 
-其他必填字段使用默认值: conversation_intent="consult", primary_domain="bazi", confidence=0.5, policy_hints.needs_knowledge=true。
+只有当消息只是宽泛入口时，才允许一个很小的 directive 兜底：
+- 情绪/求助式入口（如倒霉、不顺、迷茫）→ directive.kind="offer_consult"
+- 主题词入口（如星座、姻缘、财运、事业）→ directive.kind="choose_topic"，directive.option_set="top_topics"
+
+不要在这里扩展完整术数路由策略。其他缺省字段保持保守默认值即可。
 
 只返回 JSON，不要 markdown，不要额外说明。`
+}
 
+func (c *Client) fallbackExtract(ctx context.Context, msg string, st *state.SessionState) schemas.SupervisorDecision {
+	prompt := fallbackExtractPrompt()
+	if sessionCtx := buildSessionContext(st); sessionCtx != "" {
+		prompt += "\n\n## 当前会话状态\n\n" + sessionCtx
+	}
 	messages := []llm.Message{{Role: "user", Content: msg}}
-	resp, _, err := c.flash.Generate(ctx, fallbackPrompt, messages)
+	resp, _, err := c.flash.Generate(ctx, prompt, messages)
 	if err != nil {
 		return safeFallback(st)
 	}
@@ -309,35 +323,148 @@ func (c *Client) fallbackExtract(ctx context.Context, msg string, st *state.Sess
 //   - 命盘状态（是否已有计算结果可复用）
 //   - 上一轮用户问题（用于多轮对话的上下文连贯性）
 //   - 当前日期（用于判断"今天"/"最近"等相对时间表述）
-//
-// 末尾附有简短的路由指导，帮助模型在常见会话状态下做出正确判断。
 func buildSessionContext(st *state.SessionState) string {
+	now := time.Now().Format("2006-01-02")
+	if st == nil {
+		return fmt.Sprintf("会话状态：未知。\n当前日期：%s", now)
+	}
+
 	hasProfile := len(st.Profile) > 0
 	hasChart := st.HasBaziResult()
 	isComplete := st.IsProfileComplete()
+	hasGuidance := st.Guidance != nil
 
-	if !hasProfile && !hasChart {
-		return fmt.Sprintf("会话状态：新会话，尚无任何用户资料或命盘。\n当前日期：%s", time.Now().Format("2006-01-02"))
+	if !hasProfile && !hasChart && !hasGuidance && st.LastUserQuestion == "" {
+		return fmt.Sprintf("会话状态：新会话，尚无任何用户资料或命盘。\n当前日期：%s", now)
 	}
 
-	var parts []string
+	parts := []string{fmt.Sprintf("当前日期：%s", now)}
 	if hasProfile {
 		profileJSON, _ := json.Marshal(st.Profile)
-		parts = append(parts, fmt.Sprintf("当前日期：%s\n已有资料：%s", time.Now().Format("2006-01-02"), string(profileJSON)))
+		parts = append(parts, fmt.Sprintf("已有资料：%s", string(profileJSON)))
+		parts = append(parts, fmt.Sprintf("可复用资料字段：%s", strings.Join(reusableProfileKeys(st.Profile), ", ")))
 		if isComplete {
 			parts = append(parts, "资料完整度：完整")
 		} else {
 			parts = append(parts, "资料完整度：不完整（缺少必填字段）")
 		}
+	} else {
+		parts = append(parts, "已有资料：无")
 	}
-	if hasChart {
-		parts = append(parts, "命盘状态：已有八字命盘（可复用）")
+	parts = append(parts, fmt.Sprintf(
+		"命盘状态：bazi=%t qimen=%t ziwei=%t",
+		st.HasBaziResult(),
+		st.HasQimenResult(),
+		st.HasZiWeiResult(),
+	))
+	if hasGuidance {
+		parts = append(parts, fmt.Sprintf("引导状态：active(kind=%s)", st.Guidance.DirectiveKind))
+		if st.Guidance.ChosenTopic != "" {
+			parts = append(parts, fmt.Sprintf("已选主题：%s", st.Guidance.ChosenTopic))
+		}
+		if st.Guidance.PendingSlot != "" {
+			parts = append(parts, fmt.Sprintf("待补资料：%s", st.Guidance.PendingSlot))
+		}
+	} else {
+		parts = append(parts, "引导状态：inactive")
 	}
 	if st.LastUserQuestion != "" {
 		parts = append(parts, fmt.Sprintf("上一轮问题：%s", st.LastUserQuestion))
 	}
 
-	return strings.Join(parts, "\n") + "\n\n根据以上会话状态：\n- 如果用户刚提供出生信息且资料刚完整、尚无命盘 → task_intent 应为 interpret_chart（首次完整解读）\n- 如果用户提供新的出生信息，且已有完整资料+命盘 → task_intent 应为 amend_profile\n- 如果用户追问且已有命盘，默认可用 fortune_followup；但若问题是在问今天/最近/此刻的运势、时机、宜忌，可改为 primary_domain=qimen，并设置 policy_hints.qimen_mode=primary\n- 如果用户仅补充部分字段（如「我是女的」）且已有资料 → task_intent 应为 amend_profile，can_reuse_session_profile=true"
+	return strings.Join(parts, "\n")
+}
+
+func applyGuidanceSniffDecision(msg string, st *state.SessionState, decision *schemas.SupervisorDecision) {
+	if decision == nil {
+		return
+	}
+	if containsBirthTime(msg) || len(decision.Slots.Profile) > 0 {
+		return
+	}
+	if mentionsQimenMethod(msg) || mentionsZiweiMethod(msg) || mentionsBaziMethod(msg) {
+		return
+	}
+
+	signal := guidance.Sniff(msg)
+	if signal.TimingFocus || isQimenPrimaryDecision(*decision) {
+		return
+	}
+	if hasDirective(decision.Directive) {
+		return
+	}
+
+	currentGuidance := ""
+	if st != nil && st.Guidance != nil {
+		currentGuidance = st.Guidance.DirectiveKind
+	}
+
+	if currentGuidance == "offer_consult" && (signal.GuidanceAcceptance || signal.BroadIntent || signal.Topic != "") {
+		applyGuidanceDirectiveDecision(decision, &schemas.ConversationDirective{
+			Kind:      "choose_topic",
+			Reason:    "guidance_acceptance",
+			OptionSet: "top_topics",
+		})
+		return
+	}
+	if currentGuidance == "choose_topic" && (signal.Topic != "" || signal.ShouldChooseTopic()) {
+		applyGuidanceDirectiveDecision(decision, &schemas.ConversationDirective{
+			Kind:      "choose_topic",
+			Reason:    "choose_topic_continuation",
+			OptionSet: "top_topics",
+		})
+		return
+	}
+
+	if signal.ShouldOfferConsult() {
+		applyGuidanceDirectiveDecision(decision, &schemas.ConversationDirective{
+			Kind:   "offer_consult",
+			Reason: "fate_adjacent",
+		})
+		return
+	}
+	if signal.ShouldChooseTopic() {
+		applyGuidanceDirectiveDecision(decision, &schemas.ConversationDirective{
+			Kind:      "choose_topic",
+			Reason:    "broad_intent",
+			OptionSet: "top_topics",
+		})
+	}
+}
+
+func applyGuidanceDirectiveDecision(decision *schemas.SupervisorDecision, directive *schemas.ConversationDirective) {
+	if decision == nil || directive == nil {
+		return
+	}
+	decision.Directive = directive
+	decision.NeedsClarification = false
+	decision.ClarificationQuestion = ""
+}
+
+func isQimenPrimaryDecision(decision schemas.SupervisorDecision) bool {
+	return decision.PrimaryDomain == "qimen" && decision.PolicyHints.QimenMode == "primary"
+}
+
+func hasDirective(directive *schemas.ConversationDirective) bool {
+	return directive != nil && strings.TrimSpace(directive.Kind) != ""
+}
+
+func reusableProfileKeys(profile map[string]any) []string {
+	if len(profile) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(profile))
+	for key, value := range profile {
+		if value == nil {
+			continue
+		}
+		if text, ok := value.(string); ok && strings.TrimSpace(text) == "" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // safeFallback（第 3b 层）：LLM 不可用时的硬编码保守默认值。

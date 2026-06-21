@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 
 	einomodel "github.com/cloudwego/eino/components/model"
 
+	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -26,6 +29,7 @@ type Executor struct {
 	llmModel           string
 	promptBuilder      *Builder
 	historyLimit       int
+	flashChat          llm.Chat
 }
 
 // NewExecutor 创建运行时执行器。
@@ -48,6 +52,8 @@ func (e *Executor) PromptBuilder() *Builder { return e.promptBuilder }
 // SetHistoryLimit 设置传入 agent 的最近对话消息条数上限。
 func (e *Executor) SetHistoryLimit(n int) { e.historyLimit = n }
 
+func (e *Executor) SetFlashChat(chat llm.Chat) { e.flashChat = chat }
+
 // Execute 执行已批准的路由。
 //
 // 流程：
@@ -62,49 +68,86 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 	if len(route.Slots.Profile) > 0 {
 		st.MergeProfile(route.Slots.Profile)
 	}
+	annotateApprovedRouteTrace(ctx, st, route)
 
 	// 确定性 preflight
-	result := preflight(st, route)
+	preflightSpan := tracing.SpanFromContext(ctx, "preflight", tracing.KindChain)
+	preflightSpan.SetAttribute("primary_domain", route.PrimaryDomain)
+	preflightSpan.SetAttribute("task_intent", route.TaskIntent)
+	result := preflight(st, &route, message)
+	preflightSpan.SetAttribute("short_circuit", result.ShortCircuit)
+	if result.TurnType != "" {
+		preflightSpan.SetAttribute("turn_type", result.TurnType)
+	}
+	preflightSpan.End()
 	if result.ShortCircuit {
-		sink.Emit(ctx, Event{Type: "text", Data: map[string]any{"content": result.Text}})
+		e.updateGuidanceState(st, route, message, true)
+		_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": result.Text}}, map[string]any{
+			"turn_type": result.TurnType,
+		})
 		return result.TurnType, result.Text, nil
 	}
+
+	e.updateGuidanceState(st, route, message, false)
 
 	// 主路径: AgentAsTool 执行
 	return e.runAgentRoute(ctx, sink, st, route, message)
 }
 
+func (e *Executor) updateGuidanceState(st *state.SessionState, route policy.ApprovedRoute, message string, shortCircuit bool) {
+	if st == nil {
+		return
+	}
+	if shortCircuit {
+		if route.Directive == nil {
+			return
+		}
+		st.Guidance = policy.ReduceGuidance(policy.GuidanceReducerInput{
+			Current:   st.Guidance,
+			Directive: route.Directive,
+			Message:   message,
+			Profile:   st.Profile,
+		})
+		return
+	}
+
+	if shouldPreserveGuidanceOnExecution(route, st) {
+		st.Guidance = policy.ReduceGuidance(policy.GuidanceReducerInput{
+			Current: st.Guidance,
+			Message: message,
+			Profile: st.Profile,
+		})
+		return
+	}
+
+	st.Guidance = nil
+}
+
+func shouldPreserveGuidanceOnExecution(route policy.ApprovedRoute, st *state.SessionState) bool {
+	if st == nil || st.Guidance == nil {
+		return false
+	}
+	if st.IsProfileComplete() {
+		return false
+	}
+	switch route.TaskIntent {
+	case "collect_profile", "amend_profile":
+		return true
+	default:
+		return false
+	}
+}
+
 // runAgentRoute 根据 ApprovedRoute 动态构建 Supervisor Agent + AgentTool specialists，
 // 启动 Runner 执行并通过 agentEventBridge 桥接事件到 SSE。
 func (e *Executor) runAgentRoute(ctx context.Context, sink EventSink, st *state.SessionState, route policy.ApprovedRoute, message string) (string, string, error) {
-	allConfigs := e.specialistRegistry.All()
-	allowed := allowedSpecialists(route, allConfigs)
-
-	// 构建 route-bound supervisor agent，只挂本轮允许的 AgentTool
-	supervisor, err := e.builder.BuildSupervisor(ctx, route, st, allowed)
-	if err != nil {
-		return "", "", fmt.Errorf("build supervisor agent: %w", err)
-	}
-
-	// 注入追踪 span
-	ctx = tracing.WithEinoCallbackSpan(ctx, tracing.EinoCallbackSpanConfig{
-		Name:       "adk_supervisor_agent",
-		Kind:       tracing.KindChain,
-		Attributes: map[string]any{"model": e.llmModel, "domain": route.PrimaryDomain},
-	})
-
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{
-		Agent:           supervisor,
-		EnableStreaming: true,
-	})
-
-	// SessionValues: 传入 profile、已有命盘、路由信息供 specialist agent 使用
-	vals := map[string]any{
-		"profile": st.Profile,
-		"domain":  route.PrimaryDomain,
-	}
+	// SessionValues
+	vals := map[string]any{"profile": st.Profile, "domain": route.PrimaryDomain}
 	if st.BaziResult != nil {
 		vals["bazi_result"] = st.BaziResult
+		if bj, err := json.Marshal(st.BaziResult); err == nil {
+			vals["bazi_json"] = string(bj)
+		}
 	}
 	if st.QimenResult != nil {
 		vals["qimen_result"] = st.QimenResult
@@ -113,17 +156,226 @@ func (e *Executor) runAgentRoute(ctx context.Context, sink EventSink, st *state.
 		vals["ziwei_result"] = st.ZiWeiResult
 	}
 
+	e.prefill(ctx, sink, st, route, vals)
+
+	allConfigs := e.specialistRegistry.All()
+	allowed := allowedSpecialists(route, allConfigs)
+	supervisor, err := e.builder.BuildSupervisor(ctx, route, st, allowed)
+	if err != nil {
+		return "", "", fmt.Errorf("build supervisor agent: %w", err)
+	}
+
+	ctx = tracing.WithEinoCallbackSpan(ctx, tracing.EinoCallbackSpanConfig{
+		Name: "adk_supervisor_agent", Kind: tracing.KindChain,
+		Attributes: map[string]any{"model": e.llmModel, "domain": route.PrimaryDomain},
+	})
+
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: supervisor, EnableStreaming: true})
 	msgs := e.buildConversationMessages(st, message)
 	iter := runner.Run(ctx, msgs, adk.WithSessionValues(vals))
-
 	finalText, err := agentEventBridge(ctx, sink, iter, func(toolName, resultJSON string) {
 		e.saveToolResult(st, toolName, resultJSON)
-	})
+	}, shouldBufferFinalAnswer(route))
 	if err != nil {
 		return "agent_error", finalText, err
 	}
+	turnType, guardedText := guardFinalAnswerWithTrace(ctx, route, st, finalText)
+	if shouldBufferFinalAnswer(route) && guardedText != "" {
+		_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": guardedText}}, map[string]any{
+			"buffer_final": true,
+			"turn_type":    turnType,
+		})
+	}
+	return turnType, guardedText, nil
+}
 
-	return "agent_reading", finalText, nil
+// prefill 按领域预执行可安全复用的确定性工具链。
+// 当前只保留八字预填充；奇门/紫微必须走显式 AgentTool 路径，避免隐藏副作用和重复发图。
+func (e *Executor) prefill(ctx context.Context, sink EventSink, st *state.SessionState, route policy.ApprovedRoute, vals map[string]any) {
+	span := tracing.SpanFromContext(ctx, "prefill", tracing.KindChain)
+	span.SetAttribute("domain", route.PrimaryDomain)
+	executed := false
+	defer func() {
+		span.SetAttribute("executed", executed)
+		span.End()
+	}()
+
+	switch route.PrimaryDomain {
+	case "bazi":
+		executed = e.prefillBazi(ctx, sink, st, vals)
+	}
+}
+
+func (e *Executor) prefillBazi(ctx context.Context, sink EventSink, st *state.SessionState, vals map[string]any) bool {
+	profile := st.Profile
+	baziParams := buildToolParams(profile)
+	if baziParams == nil {
+		return false
+	}
+
+	if !st.HasBaziResult() {
+		if result := e.callTool(ctx, "bazi_calc", baziParams); result != nil {
+			st.BaziResult = result
+			vals["bazi_result"] = result
+			if bj, err := json.Marshal(result); err == nil {
+				vals["bazi_json"] = string(bj)
+				if sink != nil {
+					emitChartFromToolResult(ctx, sink, "bazi_calc", string(bj))
+				}
+			}
+		}
+	}
+
+	if st.BaziResult != nil {
+		if existing, ok := st.BaziResult["yongshen"].(map[string]any); ok && len(existing) > 0 {
+			vals["yongshen"] = existing
+		} else if result := e.callTool(ctx, "yongshen", baziParams); result != nil {
+			vals["yongshen"] = result
+			st.BaziResult["yongshen"] = result
+		}
+	}
+
+	if st.BaziResult != nil {
+		if existing, ok := st.BaziResult["dayun_analyzed"].(map[string]any); ok && len(existing) > 0 {
+			vals["dayun_analyzed"] = existing
+		} else {
+			dayunParams := map[string]any{"dayun": st.BaziResult["dayun"], "bazi_result": st.BaziResult}
+			if result := e.callTool(ctx, "dayun_analyzer", dayunParams); result != nil {
+				vals["dayun_analyzed"] = result
+				st.BaziResult["dayun_analyzed"] = result
+			}
+		}
+	}
+
+	// knowledge_search + flash 压缩
+	if e.flashChat != nil && st.BaziResult != nil {
+		if existing, ok := st.BaziResult["knowledge_summary"].(string); ok && existing != "" {
+			vals["knowledge_summary"] = existing
+		} else {
+			queries := buildKnowledgeQueries(st.BaziResult)
+			var allPassages []string
+			for i, q := range queries {
+				if i >= 3 {
+					break
+				}
+				if result := e.callTool(ctx, "knowledge_search", map[string]any{"query": q, "top_k": float64(3)}); result != nil {
+					if passages, ok := result["passages"].([]interface{}); ok {
+						for _, p := range passages {
+							if pm, ok := p.(map[string]interface{}); ok {
+								if c, ok := pm["content"].(string); ok {
+									allPassages = append(allPassages, c)
+								}
+							}
+						}
+					}
+				}
+			}
+			if len(allPassages) > 0 {
+				if summary := e.summarizeKnowledge(ctx, allPassages); summary != "" {
+					vals["knowledge_summary"] = summary
+					st.BaziResult["knowledge_summary"] = summary
+				}
+			}
+		}
+	}
+	// 标注 knowledge_summary 是盘面背景，不是针对当前问题的检索结果
+	if vals["knowledge_summary"] != nil {
+		vals["knowledge_summary_note"] = "以上 knowledge_summary 是根据八字盘面预检索的通用背景知识（非针对当前问题）。如果当前用户问题需要特定古籍引用、具体典籍解释或不同主题的内容，你必须调用 knowledge_search 做针对性检索。"
+	}
+
+	return true
+}
+
+func (e *Executor) callTool(ctx context.Context, name string, params map[string]any) map[string]any {
+	t, ok := e.reg.Get(name)
+	if !ok {
+		return nil
+	}
+	sp := tracing.SpanFromContext(ctx, name, tracing.KindTool)
+	sp.SetAttribute("source", "prefill")
+	defer sp.End()
+	result, err := t.Execute(ctx, params)
+	if err != nil || result == nil {
+		if err != nil {
+			log.Printf("prefill: tool %s failed: %v", name, err)
+			sp.RecordError(err)
+			sp.SetStatus("error")
+		} else {
+			sp.SetStatus("degraded")
+		}
+		return nil
+	}
+	m, _ := result.(map[string]any)
+	return m
+}
+
+func (e *Executor) summarizeKnowledge(ctx context.Context, passages []string) string {
+	if e.flashChat == nil || len(passages) == 0 {
+		return ""
+	}
+	prompt := "将以下古籍原文提炼为关键命理要点，保留典籍出处，每条不超过80字。只输出要点，不要解释。"
+	body := strings.Join(passages, "\n---\n")
+	if len(body) > 6000 {
+		body = body[:6000]
+	}
+	summary, _, err := e.flashChat.Generate(ctx, prompt, []llm.Message{{Role: "user", Content: body}})
+	if err != nil {
+		log.Printf("summarizeKnowledge: flash failed: %v", err)
+		return ""
+	}
+	return summary
+}
+
+func buildToolParams(profile map[string]any) map[string]any {
+	year := toFloat(profile["year"])
+	month := toFloat(profile["month"])
+	day := toFloat(profile["day"])
+	hour := toFloat(profile["hour"])
+	gender, _ := profile["gender"].(string)
+	if year == 0 || month == 0 || day == 0 {
+		return nil
+	}
+	params := map[string]any{"year": year, "month": month, "day": day, "hour": hour, "gender": gender}
+	if minute, ok := profile["minute"]; ok {
+		params["minute"] = toFloat(minute)
+	}
+	return params
+}
+
+func toFloat(v any) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case int:
+		return float64(val)
+	case json.Number:
+		f, _ := val.Float64()
+		return f
+	case string:
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
+	}
+	return 0
+}
+
+func buildKnowledgeQueries(baziResult map[string]any) []string {
+	dayGan, _ := baziResult["dayGan"].(string)
+	var monthZhi string
+	if pillars, ok := baziResult["pillars"].([]interface{}); ok && len(pillars) >= 2 {
+		if p, ok := pillars[1].(map[string]interface{}); ok {
+			monthZhi, _ = p["branch"].(string)
+		}
+	}
+	queries := []string{dayGan + " 日主 调候"}
+	if monthZhi != "" {
+		queries = append(queries, dayGan+" "+monthZhi+"月")
+	}
+	if dayGan != "" {
+		if dayZhi, ok := baziResult["dayZhi"].(string); ok {
+			queries = append(queries, dayGan+dayZhi+"日柱")
+		}
+	}
+	return queries
 }
 
 // saveToolResult 将工具执行结果写回会话状态，供后续轮次复用。
@@ -158,6 +410,7 @@ func updateRoutingSnapshot(st *state.SessionState, route policy.ApprovedRoute) {
 		PrimaryDomain:         route.PrimaryDomain,
 		SecondaryDomains:      route.SecondaryDomains,
 		TaskIntent:            route.TaskIntent,
+		QimenMode:             route.PolicyHints.QimenMode,
 		AwaitingClarification: route.NeedsClarification,
 		Confidence:            route.Confidence,
 		TimeScope:             route.Slots.TimeScope,

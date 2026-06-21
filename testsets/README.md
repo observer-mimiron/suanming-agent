@@ -31,6 +31,8 @@ python3 testsets/suites/runner.py testsets/suites/component/route-basic.jsonl \
   --adapter testsets/adapters/suanming-agent-sse.yaml
 ```
 
+> **注意：** `testsets/run_suites.py` 已废弃。所有测试统一使用 `testsets/suites/runner.py`，后者支持 adapter、并行执行、探针门禁等完整功能。
+
 ## 断言类型
 
 ### 新格式断言（架构无关）
@@ -39,7 +41,7 @@ python3 testsets/suites/runner.py testsets/suites/component/route-basic.jsonl \
 |------|---------|---------|------|
 | HTTP | `http_status` | int | HTTP 状态码 |
 | 路由 | `route_primary` | str | 路由主域 |
-| 路由 | `route_intent_any` | [str] | 任务意图（任一） |
+| 路由 | `task_intent_any` | [str] | 任务意图（任一） |
 | 动作 | `action_called` | [str] | 指定动作被调用 |
 | 动作 | `action_not_called` | [str] | 指定动作未被调用 |
 | 动作 | `action_sequence` | [str] | 动作调用顺序（subsequence） |
@@ -59,8 +61,11 @@ python3 testsets/suites/runner.py testsets/suites/component/route-basic.jsonl \
 |---------|------|
 | `http_status` | HTTP 状态码 |
 | `turn_type` / `turn_type_any` | 轮次类型 |
+| `conversation_intent_any` | 对话意图在给定列表内 |
 | `route_primary` | 路由主域 |
 | `task_intent` / `task_intent_any` | 任务意图 |
+| `final_output_contains` | 最终回答至少命中一个关键词 |
+| `final_output_not_contains` | 最终回答不得包含关键词 |
 | `contains_any` / `contains_all` | 关键词包含 |
 | `not_contains` | 禁止关键词 |
 | `knowledge_search` | 知识库检索触发 |
@@ -81,9 +86,11 @@ testsets/
 ├── suites/                             # 测试套件 (JSONL)
 │   ├── runner.py                       # 回归测试执行器
 │   ├── flow-basic.jsonl                # [Smoke] 基础会话流程
+│   ├── flow-guided-entry.jsonl         # [Flow] 引导式入口流程
 │   ├── quiz-marriage.jsonl             # [Standard] 婚姻感情类
 │   ├── quiz-career-wealth.jsonl        # [Standard] 事业财运类
 │   ├── quiz-ziwei.jsonl               # [Standard] 紫微斗数专项
+│   ├── quiz-ziwei-oral.jsonl          # [Standard] 紫微斗数口语化路由
 │   ├── edge-input.jsonl               # [Standard] 边界输入
 │   ├── quiz-knowledge.jsonl            # [Exhaustive] 知识库检索
 │   ├── quiz-knowledge-edge.jsonl        # [Exhaustive] 知识图谱专项
@@ -118,6 +125,21 @@ testsets/
 | followup-marriage | 同一会话追问婚姻 |
 | no-birth-info | 未提供八字时的闲聊 |
 
+### flow-guided-entry — 引导式入口流程
+验证引导式入口的状态推进与回归护栏：`offer_consult`、`choose_topic`、补资料、资料复用、模糊重试后的 `guided_fallback`，以及 `qimen` / 显式术数选择不被入口引导吞掉。
+
+| 用例 | 场景 |
+|------|------|
+| entry-bad-luck-offer | fate-adjacent 首轮先邀约而非立刻排盘 |
+| entry-accept-choose-topic | 接受邀约后继续收窄主题 |
+| entry-topic-then-collect-birth-date | 进入主题后补出生日期链路 |
+| entry-topic-then-collect-birthplace | `birthplace` 作为末槽位继续补齐 |
+| entry-reuse-profile-switch-topic | 已有资料后切换主题不重复追问 |
+| entry-fallback-after-ambiguous-retries | 连续模糊回复后进入 guided fallback |
+| regression-qimen-today-still-primary | 今天/此刻类问题仍走 qimen primary |
+| regression-explicit-method-obey | 用户显式指定术数时保持 obey |
+| regression-full-birth-first-turn-direct-chart | 首轮完整资料仍直接进入排盘主链 |
+
 ### quiz-marriage — 婚姻感情
 验证婚姻类问题的回答质量。
 
@@ -150,6 +172,19 @@ testsets/
 | ziwei-marriage | 紫微斗数看婚姻 |
 | ziwei-liunian | 紫微斗数流年分析 |
 | ziwei-followup | 排盘后追问命宫和感情 |
+
+### quiz-ziwei-oral — 紫微斗数口语化路由
+验证不同口语表达下的路由稳定性，以及多术数混合场景下的 domain 选择。
+
+| 用例 | 场景 |
+|------|------|
+| ziwei-oral-children | 口语化问子女 |
+| ziwei-oral-compatibility | 口语化问合婚→bazi |
+| ziwei-oral-fullview | 口语化问全盘→bazi |
+| ziwei-oral-today | 口语化问今日→qimen |
+| ziwei-oral-macroturn | 口语化问转运→bazi |
+| ziwei-oral-recent-luck | 口语化问近期运气 |
+| ziwei-oral-explicit-technique | 显式指定紫微斗数 |
 
 ### edge-input — 边界输入
 验证异常输入处理。
@@ -222,11 +257,15 @@ testsets/
 ## 第二节：使用方式
 
 ```bash
-# 启动后端
+# 启动后端（推荐用 Makefile）
+make backend-start
+
+# 或手动构建+启动
 cd "$(git rev-parse --show-toplevel)"
+make build
 set -a; source .env; set +a
-LISTEN_ADDR=:18080 go run ./cmd/server/ &
-sleep 5
+LISTEN_ADDR=:18080 /tmp/suanming-server &
+sleep 3
 curl http://localhost:18080/api/health
 
 # 跑单个套件
