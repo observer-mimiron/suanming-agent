@@ -20,10 +20,14 @@ func ShouldEnterGuidance(message string, route policy.ApprovedRoute, st *state.S
 
 	signal := guidance.Sniff(trimmed)
 
-	// ── Active guidance: check break conditions first, then allow continuation ──
+	// ── Active guidance: check break conditions, then allow continuation ──
 	if st.Guidance != nil {
 		if anyHardNegative(trimmed, route, signal) {
-			return false // break guidance, hand back to execution chain
+			return false // break guidance: birth info / explicit method / explicit action
+		}
+		// qimen primary timing or sniff timing focus → break guidance
+		if route.PolicyHints.QimenMode == "primary" || signal.TimingFocus {
+			return false
 		}
 		return true // continuation
 	}
@@ -41,7 +45,8 @@ func ShouldEnterGuidance(message string, route policy.ApprovedRoute, st *state.S
 	return false
 }
 
-// anyHardNegative 检查 hard negative 条件（birth info / explicit method / explicit action / qimen timing / collect_profile-only）。
+// anyHardNegative 检查硬性不进入/断开 guidance 的条件。
+// 这些条件无论是否有 active guidance 都生效（如 birth info / explicit method）。
 func anyHardNegative(msg string, route policy.ApprovedRoute, signal guidance.Signal) bool {
 	if containsBirthTime(msg) {
 		return true
@@ -52,23 +57,29 @@ func anyHardNegative(msg string, route policy.ApprovedRoute, signal guidance.Sig
 	if containsExplicitAction(msg) {
 		return true
 	}
+	return false
+}
+
+// anyHardNegativeForNewEntry 检查新入场（无 active guidance 时）的额外 hard negative。
+// sniff 的 fate-adjacent / broad-intent 信号优先于模型路由（qimen primary / collect_profile 等），
+// 防止模型误路由阻止 guidance 入场。
+func anyHardNegativeForNewEntry(msg string, route policy.ApprovedRoute, signal guidance.Signal) bool {
+	if anyHardNegative(msg, route, signal) {
+		return true
+	}
+	// sniff 明确命中引导信号 → 允许入场，不阻
+	hasGuidanceSignal := signal.ShouldOfferConsult() || signal.ShouldChooseTopic()
+	if hasGuidanceSignal {
+		return false
+	}
+	// 无引导信号时：qimen primary timing 和 collect_profile 不进场
 	if route.PolicyHints.QimenMode == "primary" {
 		return true
 	}
 	if signal.TimingFocus {
 		return true
 	}
-	return false
-}
-
-// anyHardNegativeForNewEntry 检查新入场（无 active guidance 时）的 hard negative。
-func anyHardNegativeForNewEntry(msg string, route policy.ApprovedRoute, signal guidance.Signal) bool {
-	if anyHardNegative(msg, route, signal) {
-		return true
-	}
-	// 无 guidance 信号时，collect_profile / amend_profile 不应进 guidance
-	if (route.TaskIntent == "collect_profile" || route.TaskIntent == "amend_profile") &&
-		!signal.ShouldOfferConsult() && !signal.ShouldChooseTopic() {
+	if route.TaskIntent == "collect_profile" || route.TaskIntent == "amend_profile" {
 		return true
 	}
 	return false

@@ -52,7 +52,7 @@ func TestShouldEnterGuidance_ExplicitActionReturnsFalse(t *testing.T) {
 	}
 }
 
-// Hard negative: qimen primary timing 问题不应进入 guidance
+// qimen primary timing: 无 guidance 信号时不应进入（如"今天运气怎么样"）但 fate-adjacent/broad-intent 除外
 func TestShouldEnterGuidance_QimenPrimaryTimingReturnsFalse(t *testing.T) {
 	st := state.NewSession("test")
 	route := policy.ApprovedRoute{
@@ -63,16 +63,32 @@ func TestShouldEnterGuidance_QimenPrimaryTimingReturnsFalse(t *testing.T) {
 			ProfileRequirement: "none",
 		},
 	}
+	// 纯 timing 消息：无 guidance 信号 → 不进入
 	cases := []string{
 		"今天运气怎么样",
 		"最近运势如何",
-		"本月财运",
 		"什么时候能转运",
 	}
 	for _, msg := range cases {
 		if ShouldEnterGuidance(msg, route, st) {
-			t.Fatalf("ShouldEnterGuidance(%q) should return false", msg)
+			t.Fatalf("ShouldEnterGuidance(%q) should return false (pure timing)", msg)
 		}
+	}
+}
+
+// qimen primary 不阻止 fate-adjacent 入场（sniff 信号优先于模型路由）
+func TestShouldEnterGuidance_QimenPrimaryDoesNotBlockFateAdjacent(t *testing.T) {
+	st := state.NewSession("test")
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "qimen",
+		TaskIntent:    "collect_profile",
+		PolicyHints: schemas.PolicyHints{
+			QimenMode:          "primary",
+			ProfileRequirement: "none",
+		},
+	}
+	if !ShouldEnterGuidance("最近真是喝凉水都塞牙", route, st) {
+		t.Fatal("fate-adjacent should enter guidance even if model routes to qimen primary")
 	}
 }
 
@@ -158,7 +174,7 @@ func TestShouldEnterGuidance_ActiveGuidanceBreaksOnFullBirthInfo(t *testing.T) {
 	}
 }
 
-// Break guidance: active guidance 中含 qimen timing → false
+// Break guidance: active guidance + qimen primary → break
 func TestShouldEnterGuidance_ActiveGuidanceBreaksOnQimenTiming(t *testing.T) {
 	st := state.NewSession("test")
 	st.Guidance = &state.GuidanceState{DirectiveKind: "choose_topic"}
@@ -170,9 +186,21 @@ func TestShouldEnterGuidance_ActiveGuidanceBreaksOnQimenTiming(t *testing.T) {
 			ProfileRequirement: "none",
 		},
 	}
-	result := ShouldEnterGuidance("今天适合出门吗", route, st)
-	if result {
+	if ShouldEnterGuidance("今天适合出门吗", route, st) {
 		t.Fatal("active guidance should break on qimen timing")
+	}
+}
+
+// Break guidance: active guidance + sniff timing focus → break
+func TestShouldEnterGuidance_ActiveGuidanceBreaksOnSniffTimingFocus(t *testing.T) {
+	st := state.NewSession("test")
+	st.Guidance = &state.GuidanceState{DirectiveKind: "offer_consult"}
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "collect_profile",
+	}
+	if ShouldEnterGuidance("最近运势怎么样", route, st) {
+		t.Fatal("active guidance should break on sniff timing focus")
 	}
 }
 
