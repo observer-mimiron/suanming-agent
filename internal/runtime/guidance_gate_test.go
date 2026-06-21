@@ -1,0 +1,208 @@
+package runtime
+
+import (
+	"testing"
+
+	"github.com/wikiglobal/suanming-agent/internal/policy"
+	"github.com/wikiglobal/suanming-agent/internal/schemas"
+	"github.com/wikiglobal/suanming-agent/internal/state"
+)
+
+// Hard negative: 含出生信息的首轮消息不应进入 guidance
+func TestShouldEnterGuidance_MessageWithBirthInfoReturnsFalse(t *testing.T) {
+	st := state.NewSession("test")
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "collect_profile",
+	}
+	result := ShouldEnterGuidance("我是1990年5月生的，男", route, st)
+	if result {
+		t.Fatal("ShouldEnterGuidance with birth info message should return false")
+	}
+}
+
+// Hard negative: 显式指定术数方法不应进入 guidance
+func TestShouldEnterGuidance_ExplicitMethodReturnsFalse(t *testing.T) {
+	st := state.NewSession("test")
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "ziwei",
+		TaskIntent:    "collect_profile",
+	}
+	result := ShouldEnterGuidance("用紫微看看我的婚姻", route, st)
+	if result {
+		t.Fatal("ShouldEnterGuidance with explicit method should return false")
+	}
+}
+
+// Hard negative: 显式要求执行动作不应进入 guidance
+func TestShouldEnterGuidance_ExplicitActionReturnsFalse(t *testing.T) {
+	st := state.NewSession("test")
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "collect_profile",
+	}
+	for _, msg := range []string{
+		"帮我算一下八字",
+		"帮我看一下运势",
+		"排盘分析一下",
+	} {
+		if ShouldEnterGuidance(msg, route, st) {
+			t.Fatalf("ShouldEnterGuidance(%q) should return false", msg)
+		}
+	}
+}
+
+// Hard negative: qimen primary timing 问题不应进入 guidance
+func TestShouldEnterGuidance_QimenPrimaryTimingReturnsFalse(t *testing.T) {
+	st := state.NewSession("test")
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "qimen",
+		TaskIntent:    "fortune_followup",
+		PolicyHints: schemas.PolicyHints{
+			QimenMode:          "primary",
+			ProfileRequirement: "none",
+		},
+	}
+	cases := []string{
+		"今天运气怎么样",
+		"最近运势如何",
+		"本月财运",
+		"什么时候能转运",
+	}
+	for _, msg := range cases {
+		if ShouldEnterGuidance(msg, route, st) {
+			t.Fatalf("ShouldEnterGuidance(%q) should return false", msg)
+		}
+	}
+}
+
+// Hard negative: collect_profile / amend_profile 进行中不应回退到 guidance
+func TestShouldEnterGuidance_CollectProfileInProgressReturnsFalse(t *testing.T) {
+	st := state.NewSession("test")
+	for _, intent := range []string{"collect_profile", "amend_profile"} {
+		route := policy.ApprovedRoute{
+			PrimaryDomain: "bazi",
+			TaskIntent:    intent,
+		}
+		if ShouldEnterGuidance("我1990年5月20日生的", route, st) {
+			t.Fatalf("ShouldEnterGuidance with %s should return false", intent)
+		}
+	}
+}
+
+// Hard positive: fate-adjacent 首轮消息应进入 guidance
+func TestShouldEnterGuidance_FateAdjacentReturnsTrue(t *testing.T) {
+	st := state.NewSession("test")
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "collect_profile",
+	}
+	result := ShouldEnterGuidance("最近真是喝凉水都塞牙", route, st)
+	if !result {
+		t.Fatal("ShouldEnterGuidance with fate-adjacent message should return true")
+	}
+}
+
+// Hard positive: broad intent 首轮消息应进入 guidance
+func TestShouldEnterGuidance_BroadIntentReturnsTrue(t *testing.T) {
+	st := state.NewSession("test")
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "collect_profile",
+	}
+	result := ShouldEnterGuidance("看看事业", route, st)
+	if !result {
+		t.Fatal("ShouldEnterGuidance with broad intent message should return true")
+	}
+}
+
+// Continuation: active guidance + normal continuation 应允许
+func TestShouldEnterGuidance_ActiveGuidanceContinuationReturnsTrue(t *testing.T) {
+	st := state.NewSession("test")
+	st.Guidance = &state.GuidanceState{DirectiveKind: "offer_consult"}
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "collect_profile",
+	}
+	result := ShouldEnterGuidance("行，那你看看", route, st)
+	if !result {
+		t.Fatal("ShouldEnterGuidance with active guidance continuation should return true")
+	}
+}
+
+// Break guidance: active guidance 中途改口显式执行动作 → false
+func TestShouldEnterGuidance_ActiveGuidanceBreaksOnExplicitMethod(t *testing.T) {
+	st := state.NewSession("test")
+	st.Guidance = &state.GuidanceState{DirectiveKind: "offer_consult"}
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "collect_profile",
+	}
+	result := ShouldEnterGuidance("用奇门看看", route, st)
+	if result {
+		t.Fatal("active guidance should break on explicit method")
+	}
+}
+
+// Break guidance: active guidance 中途给完整出生资料 → false
+func TestShouldEnterGuidance_ActiveGuidanceBreaksOnFullBirthInfo(t *testing.T) {
+	st := state.NewSession("test")
+	st.Guidance = &state.GuidanceState{DirectiveKind: "offer_consult"}
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "collect_profile",
+	}
+	result := ShouldEnterGuidance("我1990年5月20日早上8点生的，男，北京", route, st)
+	if result {
+		t.Fatal("active guidance should break on full birth info")
+	}
+}
+
+// Break guidance: active guidance 中含 qimen timing → false
+func TestShouldEnterGuidance_ActiveGuidanceBreaksOnQimenTiming(t *testing.T) {
+	st := state.NewSession("test")
+	st.Guidance = &state.GuidanceState{DirectiveKind: "choose_topic"}
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "qimen",
+		TaskIntent:    "fortune_followup",
+		PolicyHints: schemas.PolicyHints{
+			QimenMode:          "primary",
+			ProfileRequirement: "none",
+		},
+	}
+	result := ShouldEnterGuidance("今天适合出门吗", route, st)
+	if result {
+		t.Fatal("active guidance should break on qimen timing")
+	}
+}
+
+// Break guidance 续：active guidance 遇到显式"算/看"请求 → false
+func TestShouldEnterGuidance_ActiveGuidanceBreaksOnExplicitAction(t *testing.T) {
+	st := state.NewSession("test")
+	st.Guidance = &state.GuidanceState{DirectiveKind: "choose_topic"}
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "collect_profile",
+	}
+	msgs := []string{"帮我算算八字", "帮我看看财运"}
+	for _, msg := range msgs {
+		if ShouldEnterGuidance(msg, route, st) {
+			t.Fatalf("ShouldEnterGuidance(%q) with active guidance should be false (break guidance)", msg)
+		}
+	}
+}
+
+// 首轮消息含"算/看/排盘"关键词 → false
+func TestShouldEnterGuidance_FirstTurnExplicitActionReturnsFalse(t *testing.T) {
+	st := state.NewSession("test")
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "collect_profile",
+	}
+	if ShouldEnterGuidance("帮我算一下八字", route, st) {
+		t.Fatal("'帮我算一下八字' should NOT enter guidance")
+	}
+	if ShouldEnterGuidance("帮我看看运势", route, st) {
+		t.Fatal("'帮我看看运势' should NOT enter guidance")
+	}
+}
