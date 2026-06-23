@@ -42,6 +42,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wikiglobal/suanming-agent/internal/intent"
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -301,7 +302,11 @@ func (c *Client) fallbackExtract(ctx context.Context, msg string, st *state.Sess
 		d.ConversationIntent = "consult"
 	}
 	if d.PrimaryDomain == "" {
-		d.PrimaryDomain = "bazi"
+		if intent.ContainsTimingKeyword(msg) {
+			d.PrimaryDomain = "qimen"
+		} else {
+			d.PrimaryDomain = "bazi"
+		}
 	}
 	if d.TaskIntent == "" {
 		d.TaskIntent = "collect_profile"

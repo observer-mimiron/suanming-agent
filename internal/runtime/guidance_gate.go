@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/wikiglobal/suanming-agent/internal/guidance"
+	"github.com/wikiglobal/suanming-agent/internal/intent"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
@@ -26,7 +27,7 @@ func ShouldEnterGuidance(message string, route policy.ApprovedRoute, st *state.S
 			return false // break guidance: birth info / explicit method / explicit action
 		}
 		// qimen primary timing or sniff timing focus → break guidance
-		if route.PolicyHints.QimenMode == "primary" || signal.TimingFocus {
+		if route.PolicyHints.QimenMode == "primary" || intent.HasTimingFocus(trimmed) {
 			return false
 		}
 		return true // continuation
@@ -48,13 +49,13 @@ func ShouldEnterGuidance(message string, route policy.ApprovedRoute, st *state.S
 // anyHardNegative 检查硬性不进入/断开 guidance 的条件。
 // 这些条件无论是否有 active guidance 都生效（如 birth info / explicit method）。
 func anyHardNegative(msg string, route policy.ApprovedRoute, signal guidance.Signal) bool {
-	if containsBirthTime(msg) {
+	if intent.ContainsBirthInfo(msg) {
 		return true
 	}
-	if mentionsQimenMethod(msg) || mentionsZiweiMethod(msg) || mentionsBaziMethod(msg) {
+	if intent.MentionsQimenMethod(msg) || intent.MentionsZiweiMethod(msg) || intent.MentionsBaziMethod(msg) {
 		return true
 	}
-	if containsExplicitAction(msg) {
+	if intent.ContainsExplicitDivinationAction(msg) {
 		return true
 	}
 	return false
@@ -76,7 +77,7 @@ func anyHardNegativeForNewEntry(msg string, route policy.ApprovedRoute, signal g
 	if route.PolicyHints.QimenMode == "primary" {
 		return true
 	}
-	if signal.TimingFocus {
+	if intent.HasTimingFocus(msg) {
 		return true
 	}
 	if route.TaskIntent == "collect_profile" || route.TaskIntent == "amend_profile" {
@@ -85,42 +86,3 @@ func anyHardNegativeForNewEntry(msg string, route policy.ApprovedRoute, signal g
 	return false
 }
 
-// containsBirthTime 检查消息是否包含出生日期信息。
-func containsBirthTime(msg string) bool {
-	patterns := []string{
-		"年", "月", "日", "出生", "生的",
-	}
-	count := 0
-	for _, p := range patterns {
-		if strings.Contains(msg, p) {
-			count++
-		}
-	}
-	return count >= 2
-}
-
-// mentionsQimenMethod 检查消息是否显式提及奇门。
-func mentionsQimenMethod(msg string) bool {
-	return strings.Contains(msg, "奇门") || strings.Contains(msg, "遁甲")
-}
-
-// mentionsZiweiMethod 检查消息是否显式提及紫微。
-func mentionsZiweiMethod(msg string) bool {
-	return strings.Contains(msg, "紫微") || strings.Contains(msg, "斗数")
-}
-
-// mentionsBaziMethod 检查消息是否显式提及八字。
-func mentionsBaziMethod(msg string) bool {
-	return strings.Contains(msg, "八字")
-}
-
-// containsExplicitAction 检查消息是否包含显式执行请求。
-func containsExplicitAction(msg string) bool {
-	actions := []string{"帮我算", "帮我看", "排盘", "帮我看看", "算一下", "看一下"}
-	for _, a := range actions {
-		if strings.Contains(msg, a) {
-			return true
-		}
-	}
-	return false
-}

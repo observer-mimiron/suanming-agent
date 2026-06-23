@@ -3,9 +3,9 @@ package supervisor
 import (
 	"context"
 	"log"
-	"regexp"
 	"strings"
 
+	"github.com/wikiglobal/suanming-agent/internal/intent"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
@@ -47,7 +47,7 @@ func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *sta
 		}
 	}
 
-	if route.TaskIntent == "collect_profile" && st.HasBaziResult() && containsBirthTime(msg) {
+	if route.TaskIntent == "collect_profile" && st.HasBaziResult() && intent.ContainsBirthInfo(msg) {
 		// keep collect_profile if user really gave new birth-time info
 	} else if route.TaskIntent == "collect_profile" && st.HasBaziResult() {
 		route.TaskIntent = "fortune_followup"
@@ -56,7 +56,7 @@ func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *sta
 	}
 
 	profileReady := st.IsProfileComplete() || st.HasBaziResult()
-	if !profileReady && containsBirthTime(msg) &&
+	if !profileReady && intent.ContainsBirthInfo(msg) &&
 		route.TaskIntent != "collect_profile" &&
 		route.TaskIntent != "amend_profile" &&
 		route.TaskIntent != "direct_bazi" {
@@ -77,15 +77,19 @@ func applyExplicitMethodPreference(msg string, route *policy.ApprovedRoute) {
 		return
 	}
 	switch {
-	case mentionsZiweiMethod(trimmed):
+	case intent.MentionsZiweiMethod(trimmed):
 		route.PrimaryDomain = "ziwei"
 		route.SecondaryDomains = removeDomain(route.SecondaryDomains, "ziwei")
+		// 铁律：紫微必须结合八字
+		if !hasDomain(route.SecondaryDomains, "bazi") {
+			route.SecondaryDomains = append(route.SecondaryDomains, "bazi")
+		}
 		route.PolicyHints.QimenMode = "none"
 		route.PolicyHints.NeedsQimen = false
 		if route.PolicyHints.ProfileRequirement == "" {
 			route.PolicyHints.ProfileRequirement = "full"
 		}
-	case mentionsQimenMethod(trimmed):
+	case intent.MentionsQimenMethod(trimmed):
 		route.PrimaryDomain = "qimen"
 		route.SecondaryDomains = removeDomain(route.SecondaryDomains, "qimen")
 		route.PolicyHints.QimenMode = "primary"
@@ -93,12 +97,15 @@ func applyExplicitMethodPreference(msg string, route *policy.ApprovedRoute) {
 		if route.PolicyHints.ProfileRequirement == "" {
 			route.PolicyHints.ProfileRequirement = "none"
 		}
-	case mentionsBaziMethod(trimmed):
+	case intent.MentionsBaziMethod(trimmed):
 		route.PrimaryDomain = "bazi"
 		route.SecondaryDomains = removeDomain(route.SecondaryDomains, "bazi")
 		if route.PolicyHints.QimenMode == "" {
 			route.PolicyHints.QimenMode = "none"
 		}
+	case intent.ContainsTimingKeyword(trimmed) && route.PolicyHints.QimenMode == "none":
+		route.PolicyHints.QimenMode = "supplement"
+		route.PolicyHints.NeedsQimen = true
 	}
 }
 
@@ -130,29 +137,14 @@ func (c *Client) backfillRouteProfile(ctx context.Context, msg string, st *state
 	}
 }
 
-// birthTimeRe 匹配中文消息中可能包含出生时间的模式。
-// 覆盖：中文年月格式(2020年3月)、数字日期格式(2020-03)、农历/阴历关键词、农历月份别名。
-var birthTimeRe = regexp.MustCompile(`\d{4}\s*年.*\d{1,2}\s*月|\d{4}[-/]\d{1,2}|农历|阴历|正月|腊月`)
-var ziweiMethodRe = regexp.MustCompile(`紫微|紫薇|斗数|星盘`)
-var qimenMethodRe = regexp.MustCompile(`奇门|遁甲`)
-var baziMethodRe = regexp.MustCompile(`八字`)
 
-// containsBirthTime 快速检测用户消息是否可能包含出生时间信息。
-// 用于 normalizeApprovedRoute 中判断是否需要触发 profile 回填逻辑。
-func containsBirthTime(msg string) bool {
-	return birthTimeRe.MatchString(msg)
-}
-
-func mentionsZiweiMethod(msg string) bool {
-	return ziweiMethodRe.MatchString(msg)
-}
-
-func mentionsQimenMethod(msg string) bool {
-	return qimenMethodRe.MatchString(msg)
-}
-
-func mentionsBaziMethod(msg string) bool {
-	return baziMethodRe.MatchString(msg)
+func hasDomain(domains []string, target string) bool {
+	for _, d := range domains {
+		if d == target {
+			return true
+		}
+	}
+	return false
 }
 
 func removeDomain(domains []string, target string) []string {
