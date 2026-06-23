@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -19,7 +21,8 @@ type Client struct {
 
 // NewClient 创建一个 MCP 客户端，连接到指定 baseURL 的知识库服务。
 func NewClient(baseURL string) *Client {
-	return &Client{baseURL: baseURL, client: &http.Client{Timeout: 5 * time.Second}}
+	ensureLogDir()
+	return &Client{baseURL: baseURL, client: &http.Client{Timeout: 10 * time.Second}}
 }
 
 // Passage 是一条知识库检索结果，包含文本内容和来源标识。
@@ -51,6 +54,7 @@ type GraphEdge struct {
 func (c *Client) GetGraph() ([]GraphNode, []GraphEdge, error) {
 	resp, err := c.client.Get(c.baseURL + "/api/wiki/graph")
 	if err != nil {
+		logMCP("GetGraph", err)
 		return nil, nil, fmt.Errorf("get graph: %w", err)
 	}
 	defer resp.Body.Close()
@@ -77,6 +81,7 @@ func (c *Client) Search(query string, topK int) ([]Passage, error) {
 	}
 	resp, err := c.client.Post(c.baseURL+"/search", "application/json", bytes.NewReader(jsonBody))
 	if err != nil {
+		logMCP("Search POST /search", err)
 		return c.SearchKnowledge(query, topK) // 降级搜索
 	}
 	defer resp.Body.Close()
@@ -98,6 +103,7 @@ func (c *Client) SearchKnowledge(query string, topK int) ([]Passage, error) {
 		c.baseURL, url.QueryEscape(query), topK)
 	resp, err := c.client.Get(searchURL)
 	if err != nil {
+		logMCP("SearchKnowledge", err)
 		return nil, fmt.Errorf("knowledge search: %w", err)
 	}
 	defer resp.Body.Close()
@@ -132,4 +138,26 @@ func (c *Client) SearchKnowledge(query string, topK int) ([]Passage, error) {
 		return []Passage{}, nil
 	}
 	return passages, nil
+}
+
+// ——— error logging ———
+
+var mcpLogPath = "logs/mcp_error.log"
+
+func ensureLogDir() {
+	os.MkdirAll("logs", 0755)
+}
+
+func logMCP(method string, err error) {
+	f, openErr := os.OpenFile(mcpLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if openErr != nil {
+		log.Printf("mcp: cannot open error log: %v", openErr)
+		return
+	}
+	defer f.Close()
+	logger := log.New(f, "", log.LstdFlags)
+	// ponytail: global file lock; per-client lock if contention matters.
+	logger.Printf("%s: %v", method, err)
+	// Also write to stderr so `go run` shows it immediately.
+	log.Printf("mcp error [%s]: %v", method, err)
 }

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"time"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -200,8 +201,7 @@ func (e *Executor) runAgentRoute(ctx context.Context, sink EventSink, st *state.
 	return turnType, guardedText, nil
 }
 
-// prefill 按领域预执行可安全复用的确定性工具链。
-// 当前只保留八字预填充；奇门/紫微必须走显式 AgentTool 路径，避免隐藏副作用和重复发图。
+// prefill 按领域预执行可安全复用的确定性排盘工具链。所有领域的排盘由 Go 确定性执行，结果注入 vals 和 session state，LLM 不再接触排盘工具。
 func (e *Executor) prefill(ctx context.Context, sink EventSink, st *state.SessionState, route policy.ApprovedRoute, vals map[string]any) {
 	span := tracing.SpanFromContext(ctx, "prefill", tracing.KindChain)
 	span.SetAttribute("domain", route.PrimaryDomain)
@@ -214,7 +214,70 @@ func (e *Executor) prefill(ctx context.Context, sink EventSink, st *state.Sessio
 	switch route.PrimaryDomain {
 	case "bazi":
 		executed = e.prefillBazi(ctx, sink, st, vals)
+	case "qimen":
+		executed = e.prefillQimen(ctx, sink, st, vals)
+	case "ziwei":
+		executed = e.prefillZiWei(ctx, sink, st, vals)
 	}
+}
+
+// prefillQimen 确定性执行奇门遁甲排盘，结果注入 vals 和 session state。
+func (e *Executor) prefillQimen(ctx context.Context, sink EventSink, st *state.SessionState, vals map[string]any) bool {
+	if st.QimenResult != nil {
+		vals["qimen_result"] = st.QimenResult
+		return true
+	}
+
+	params := buildToolParams(st.Profile)
+	if params == nil {
+		// 无出生资料时用当前时间排盘
+		params = map[string]any{}
+	}
+	if result := e.callTool(ctx, "qimen_dunjia", params); result != nil {
+		st.QimenResult = result
+		vals["qimen_result"] = result
+		if bj, err := json.Marshal(result); err == nil && sink != nil {
+			emitChartFromToolResult(ctx, sink, "qimen_dunjia", string(bj))
+		}
+		return true
+	}
+	return false
+}
+
+// prefillZiWei 确定性执行紫微斗数排盘，结果注入 vals 和 session state。
+func (e *Executor) prefillZiWei(ctx context.Context, sink EventSink, st *state.SessionState, vals map[string]any) bool {
+	profile := st.Profile
+	params := buildToolParams(profile)
+	if params == nil {
+		return false
+	}
+
+	if st.ZiWeiResult != nil {
+		vals["ziwei_result"] = st.ZiWeiResult
+	} else if result := e.callTool(ctx, "ziwei_calc", params); result != nil {
+		st.ZiWeiResult = result
+		vals["ziwei_result"] = result
+		if bj, err := json.Marshal(result); err == nil && sink != nil {
+			emitChartFromToolResult(ctx, sink, "ziwei_calc", string(bj))
+		}
+	}
+
+	if st.ZiWeiResult != nil {
+		// 预排当前流年 (ziwei_liunian)
+		if _, ok := st.ZiWeiResult["liunian"]; !ok {
+			liunianParams := map[string]any{
+				"year":   float64(time.Now().Year()),
+				"gender": params["gender"],
+				"bazi":   st.ZiWeiResult,
+			}
+			if result := e.callTool(ctx, "ziwei_liunian", liunianParams); result != nil {
+				st.ZiWeiResult["liunian"] = result
+				vals["ziwei_liunian"] = result
+			}
+		}
+	}
+
+	return st.ZiWeiResult != nil
 }
 
 func (e *Executor) prefillBazi(ctx context.Context, sink EventSink, st *state.SessionState, vals map[string]any) bool {

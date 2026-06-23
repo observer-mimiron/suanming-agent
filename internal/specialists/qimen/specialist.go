@@ -46,7 +46,7 @@ var cfg = specialists.Config{
 ### 第五步：引用回答
 格式：渊海子平云 原文，用自己的话解释为何此原文支撑论断。
 `,
-	ToolNames: []string{"knowledge_catalog", "qimen_dunjia", "knowledge_search"},
+	ToolNames: []string{"knowledge_catalog", "knowledge_search"},
 }
 
 func Register(r *specialists.Registry) {

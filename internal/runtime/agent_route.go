@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	einomodel "github.com/cloudwego/eino/components/model"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/schema"
 
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
@@ -36,6 +38,18 @@ func NewAgentBuilder(model einomodel.ToolCallingChatModel, reg *tools.Registry) 
 // SetLLMModel 设置用于追踪 span 的模型名称。
 func (b *AgentBuilder) SetLLMModel(model string) { b.llmModel = model }
 
+// noFStringGenModelInput 是跳过 FString 模板格式化的 GenModelInput。
+// 当 instruction 包含字面花括号（如 JSON 数据块）时，用此函数替代默认的 defaultGenModelInput，
+// 避免 Eino 将 {key} 当成 SessionValues 模板变量而报 NodeRunError。
+func noFStringGenModelInput(ctx context.Context, instruction string, input *adk.AgentInput) ([]*schema.Message, error) {
+	msgs := make([]*schema.Message, 0, len(input.Messages)+1)
+	if instruction != "" {
+		msgs = append(msgs, schema.SystemMessage(instruction))
+	}
+	msgs = append(msgs, input.Messages...)
+	return msgs, nil
+}
+
 // BuildSpecialist 从 Config 构建一个领域专家 ChatModelAgent。
 // 如果会话状态中已有出生资料或命盘结果，会被注入到 instruction 中。
 func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Config, st *state.SessionState) (adk.Agent, error) {
@@ -45,26 +59,23 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 	}
 	instruction := cfg.Instruction
 	instruction += "\n\n## 当前运行时上下文\n当前系统日期：" + time.Now().Format("2006-01-02") + "。\n当前系统时区：Asia/Shanghai。"
-	if st != nil && (len(st.Profile) > 0 || st.HasBaziResult() || st.HasZiWeiResult()) {
+	if st != nil && (len(st.Profile) > 0 || st.HasBaziResult() || st.QimenResult != nil || st.HasZiWeiResult()) {
 		instruction += "\n\n## 会话已有上下文\n\n以下资料已在当前会话中提供，**直接使用，无需再次索要或调用工具获取**：\n"
 		if len(st.Profile) > 0 {
 			pb := NewBuilder("") // 只用 buildProfileSection
 			instruction += "\n### 出生资料\n" + pb.buildProfileSection(st) + "\n"
 		}
 		if st.HasBaziResult() {
-			instruction += "\n### 命盘结果\n命盘已排好，直接从会话上下文引用即可，**禁止重新调用 bazi_calc**。\n"
-			if _, ok := st.BaziResult["yongshen"]; ok {
-				instruction += "用神分析已预执行完成，结果在 SessionValues 中，**禁止调用 yongshen 工具**。\n"
-			}
-			if _, ok := st.BaziResult["dayun_analyzed"]; ok {
-				instruction += "大运分析已预执行完成，结果在 SessionValues 中，**禁止调用 dayun_analyzer 工具**。\n"
-			}
-			if _, ok := st.BaziResult["knowledge_summary"]; ok {
-				instruction += "古籍检索已预执行完成，结果在 SessionValues 中，**禁止调用 knowledge_search 工具**。\n"
-			}
+			instruction += "\n### 命盘结果（已就绪，严禁重新调用排盘/用神/大运工具）\n"
+			instruction += b.buildBaziDataBlock(st)
+		}
+		if st.QimenResult != nil {
+			instruction += "\n### 奇门遁甲盘结果（已就绪，严禁重新调用 qimen_dunjia 工具）\n"
+			instruction += b.buildQimenDataBlock(st)
 		}
 		if st.HasZiWeiResult() {
-			instruction += "\n### 紫微命盘结果\n紫微命盘已排好，直接从会话上下文引用即可，**禁止重新调用 ziwei_calc**。\n"
+			instruction += "\n### 紫微命盘结果（已就绪，严禁重新调用 ziwei_calc/ziwei_liunian 工具）\n"
+			instruction += b.buildZiWeiDataBlock(st)
 		}
 	}
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
@@ -78,8 +89,235 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 				Tools: adapters,
 			},
 		},
+		GenModelInput:    noFStringGenModelInput,
 		ModelRetryConfig: defaultRetryConfig(),
 	})
+}
+
+// buildBaziDataBlock 从会话状态中的 BaziResult 构建简明命盘数据摘要，注入 specialist instruction。
+func (b *AgentBuilder) buildBaziDataBlock(st *state.SessionState) string {
+	br := st.BaziResult
+	if br == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// 四柱十神
+	sb.WriteString("**四柱十神**：")
+	if pillars, ok := br["pillars"].([]interface{}); ok {
+		for _, p := range pillars {
+			if pm, ok := p.(map[string]interface{}); ok {
+				sb.WriteString(fmt.Sprintf(" %s%s(%s)",
+					pm["stem"], pm["branch"], pm["shiShen"]))
+			}
+		}
+	} else if pillars, ok := br["pillars"].([]map[string]any); ok {
+		for _, pm := range pillars {
+			sb.WriteString(fmt.Sprintf(" %s%s(%s)",
+				pm["stem"], pm["branch"], pm["shiShen"]))
+		}
+	}
+	sb.WriteString("\n")
+
+	// 五行统计
+	if wx, ok := br["wuxing"].(map[string]interface{}); ok {
+		sb.WriteString("**五行**：")
+		for k, v := range wx {
+			sb.WriteString(fmt.Sprintf(" %s:%v", k, v))
+		}
+		sb.WriteString("\n")
+	} else if wx, ok := br["wuxing"].(map[string]int); ok {
+		sb.WriteString("**五行**：")
+		for k, v := range wx {
+			sb.WriteString(fmt.Sprintf(" %s:%d", k, v))
+		}
+		sb.WriteString("\n")
+	}
+
+	// 用神
+	if ys, ok := br["yongshen"].(map[string]interface{}); ok {
+		sb.WriteString("**用神分析**：")
+		if j, err := json.Marshal(ys); err == nil {
+			sb.WriteString(string(j))
+		}
+		sb.WriteString("\n")
+	} else if ys, ok := br["yongshen"].(map[string]any); ok {
+		sb.WriteString("**用神分析**：")
+		if j, err := json.Marshal(ys); err == nil {
+			sb.WriteString(string(j))
+		}
+		sb.WriteString("\n")
+	}
+
+	// 大运
+	if da, ok := br["dayun_analyzed"].(map[string]interface{}); ok {
+		sb.WriteString("**大运分析**：")
+		if j, err := json.Marshal(da); err == nil {
+			sb.WriteString(string(j))
+		}
+		sb.WriteString("\n")
+	} else if da, ok := br["dayun_analyzed"].(map[string]any); ok {
+		sb.WriteString("**大运分析**：")
+		if j, err := json.Marshal(da); err == nil {
+			sb.WriteString(string(j))
+		}
+		sb.WriteString("\n")
+	} else if dayun, ok := br["dayun"].([]interface{}); ok && len(dayun) > 0 {
+		sb.WriteString("**大运脉络**：")
+		for i, d := range dayun {
+			if dm, ok := d.(map[string]interface{}); ok {
+				if i > 0 {
+					sb.WriteString(" | ")
+				}
+				sb.WriteString(fmt.Sprintf("%v-%v岁 %s",
+					dm["startAge"], dm["endAge"], dm["ganZhi"]))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// 神煞
+	if ss, ok := br["shensha_summary"].(map[string]interface{}); ok {
+		if all, ok := ss["all"].([]interface{}); ok && len(all) > 0 {
+			sb.WriteString("**主要神煞**：")
+			for i, name := range all {
+				if i > 0 {
+					sb.WriteString("、")
+				}
+				sb.WriteString(fmt.Sprintf("%v", name))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	// 古籍背景知识
+	if ks, ok := br["knowledge_summary"].(string); ok && ks != "" {
+		sb.WriteString("\n**古籍背景知识**（盘面预检索，非针对当前问题）：\n")
+		sb.WriteString(ks)
+		sb.WriteString("\n")
+	}
+
+	// 兜底：完整 JSON
+	if sb.Len() == 0 {
+		if bj, err := json.Marshal(br); err == nil {
+			sb.WriteString("<!-- 完整命盘 JSON（供推理引用，严禁逐项输出）\n")
+			sb.WriteString(string(bj))
+			sb.WriteString("\n-->\n")
+		}
+	}
+
+	sb.WriteString("\n**\u26a0\ufe0f 以上数据均已就绪。忽略「执行规则」中的 1-3 步（排盘/用神/大运），直接用以上数据解读。如需特定古籍引用，可调用 knowledge_search。**\n")
+	return sb.String()
+}
+
+// buildQimenDataBlock 从会话状态中的 QimenResult 构建简明奇门盘数据摘要。
+func (b *AgentBuilder) buildQimenDataBlock(st *state.SessionState) string {
+	qr := st.QimenResult
+	if qr == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	if juText, ok := qr["ju_text"].(string); ok && juText != "" {
+		sb.WriteString(fmt.Sprintf("**局数**：%s\n", juText))
+	}
+	if dutyStar, ok := qr["value_star"].(string); ok && dutyStar != "" {
+		sb.WriteString(fmt.Sprintf("**值符星**：%s\n", dutyStar))
+	}
+	if dutyDoor, ok := qr["value_door"].(string); ok && dutyDoor != "" {
+		sb.WriteString(fmt.Sprintf("**值使门**：%s\n", dutyDoor))
+	}
+
+	// 九宫信息
+	if palaces, ok := qr["palaces"].([]interface{}); ok {
+		sb.WriteString("**九宫**：")
+		for _, p := range palaces {
+			if pm, ok := p.(map[string]interface{}); ok {
+				sb.WriteString(fmt.Sprintf(" %v(%v%v)",
+					pm["name"], pm["star"], pm["door"]))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// 兜底 JSON
+	if sb.Len() == 0 {
+		if bj, err := json.Marshal(qr); err == nil {
+			sb.WriteString("<!-- 完整奇门盘 JSON（供推理引用）\n")
+			sb.WriteString(string(bj))
+			sb.WriteString("\n-->\n")
+		}
+	}
+
+	sb.WriteString("\n**⚠️ 奇门盘数据已就绪，直接引用解读，禁止调用 qimen_dunjia。**\n")
+	return sb.String()
+}
+
+// buildZiWeiDataBlock 从会话状态中的 ZiWeiResult 构建简明紫微命盘数据摘要。
+func (b *AgentBuilder) buildZiWeiDataBlock(st *state.SessionState) string {
+	zr := st.ZiWeiResult
+	if zr == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// 命宫主星
+	if palaces, ok := zr["palaces"].([]interface{}); ok {
+		for _, p := range palaces {
+			if pm, ok := p.(map[string]interface{}); ok {
+				name, _ := pm["name"].(string)
+				if name == "命宫" || name == "身宫" {
+					var stars []string
+					if ms, ok := pm["major_stars"].([]interface{}); ok {
+						for _, s := range ms {
+							if sm, ok := s.(map[string]interface{}); ok {
+								if sn, ok := sm["name"].(string); ok {
+									stars = append(stars, sn)
+								}
+							}
+						}
+					}
+					sb.WriteString(fmt.Sprintf("**%s主星**：%s\n", name, strings.Join(stars, "、")))
+				}
+			}
+		}
+	}
+
+	// 四化
+	if fp, ok := zr["four_pillars"].(map[string]interface{}); ok {
+		if yp, ok := fp["年柱"].(string); ok && yp != "" {
+			sb.WriteString(fmt.Sprintf("**生年年柱**：%s\n", yp))
+		}
+	}
+
+	// 五行局
+	if wx, ok := zr["wuxing_ju"].(string); ok && wx != "" {
+		sb.WriteString(fmt.Sprintf("**五行局**：%s\n", wx))
+	}
+
+	// 流年
+	if liunian, ok := zr["liunian"].(map[string]interface{}); ok {
+		sb.WriteString("**流年数据**：")
+		if j, err := json.Marshal(liunian); err == nil {
+			sb.WriteString(string(j))
+		}
+		sb.WriteString("\n")
+	}
+
+	// 兜底 JSON
+	if sb.Len() == 0 {
+		if bj, err := json.Marshal(zr); err == nil {
+			sb.WriteString("<!-- 完整紫微命盘 JSON（供推理引用）\n")
+			sb.WriteString(string(bj))
+			sb.WriteString("\n-->\n")
+		}
+	}
+
+	sb.WriteString("\n**⚠️ 紫微命盘数据已就绪，直接引用解读，禁止调用 ziwei_calc/ziwei_liunian。**\n")
+	return sb.String()
 }
 
 // Allowed returns a copy of the selected configs.
@@ -113,6 +351,7 @@ func (b *AgentBuilder) BuildSupervisor(ctx context.Context, route policy.Approve
 			},
 		},
 		MaxIterations:    10,
+		GenModelInput:    noFStringGenModelInput,
 		ModelRetryConfig: defaultRetryConfig(),
 	})
 }

@@ -306,53 +306,6 @@ func (b *Builder) buildZiweiKnowledgeQuery(question string, result map[string]an
 	return query
 }
 
-// BuildAgentInstruction 为 ADK ChatModelAgent 构建系统指令。
-func (b *Builder) BuildAgentInstruction(st *state.SessionState, primaryDomain string) string {
-	tpl := b.selectPrompt(st, primaryDomain)
-
-	prompt := string(tpl) + `
-
-## 运行时上下文
-
-当前日期：` + time.Now().Format("2006-01-02") + `
-
-### 出生资料
-` + b.buildProfileSection(st) + `
-` + b.buildChartSection(st, primaryDomain) + `
-
-### 可用工具及执行建议
-
-你拥有以下工具，请根据当前需求选择合适的工具并按合适的顺序调用：
-
-1. **bazi_calc** — 根据出生时间排八字四柱命盘。需要完整的年/月/日/时/性别。输出 JSON 含 pillars、dayGan、wuxing、dayun 等。
-2. **yongshen** — 分析日主强弱、取用神忌神。需要先调用 bazi_calc 获得日主和月令。
-3. **dayun_analyzer** — 分析大运走势、各步大运的起止时间。需要先调用 bazi_calc。
-4. **qimen_dunjia** — 排奇门遁甲盘，分析当前时空的吉凶方位、门星神组合。
-5. **ziwei_calc** — 排紫微斗数命盘，包括十二宫星曜分布、四化飞星。需要完整的出生年月日时和性别。
-6. **knowledge_search** — 从命理古籍知识库（含《渊海子平》《滴天髓》《子平真诠》等）中检索相关原文。建议在给出关键论断前先调用此工具获取经典依据。
-
-### 执行建议
-
-- **八字分析流程：** 先 bazi_calc 排盘，然后可调用 yongshen/dayun_analyzer 补充分析，再用 knowledge_search 查古籍，最后综合解读。
-- **奇门分析流程：** 先 qimen_dunjia 排盘，用 knowledge_search 查相关典籍，最后分析时空吉凶。
-- **紫微分析流程：** 先 ziwei_calc 排盘，用 knowledge_search 查相关典籍，最后解读命盘。
-- 你可以根据实际情况调整顺序或跳过不必要的步骤。
-- 如果上方「出生资料」和「命盘结果」已提供，直接使用，严禁再次索要出生信息或重新调用 bazi_calc`
-
-	if st.RunningSummary != "" {
-		prompt += "\n### 会话摘要\n\n" + st.RunningSummary + "\n"
-	}
-
-	prompt += `
-
-## 输出标记指令（必须遵守）
-
-你的输出必须包含 <analysis> 和 <response> XML 标签（见主 prompt 中的详细说明）。
-`
-
-	return prompt
-}
-
 func (b *Builder) extractSearchKeywords(ctx context.Context, question string, chartContext string) string {
 	_ = ctx
 	_ = chartContext

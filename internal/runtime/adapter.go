@@ -307,11 +307,17 @@ func newKnowledgeSearchAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 	})
 }
 
+// catalogInput is a dummy input struct for the knowledge_catalog tool.
+// Eino InferTool requires input structs to have at least one exported field.
+type catalogInput struct {
+	_ struct{}
+}
+
 // newKnowledgeCatalogAdapter 创建知识库目录工具的 Eino BaseTool 适配器。
 func newKnowledgeCatalogAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 	return utils.InferTool("knowledge_catalog",
 		"获取知识库目录（古籍名称、章节数、前5个章节标题），用于规划检索",
-		func(ctx context.Context, _ struct{}) (string, error) {
+		func(ctx context.Context, _ catalogInput) (string, error) {
 			gt, ok := reg.Get("knowledge_catalog")
 			if !ok {
 				return `{"error":"catalog not registered"}`, nil
@@ -321,41 +327,6 @@ func newKnowledgeCatalogAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 		})
 }
 
-
-// buildAdapters 创建所有已注册命理工具的 Eino BaseTool 适配器列表。
-//
-// 对未注册的工具直接跳过，不返回错误。
-// 返回的列表可直接注入到 Eino Agent 的 Tool 集合中。
-func buildAdapters(reg *tools.Registry) ([]tool.BaseTool, error) {
-	var adapters []tool.BaseTool
-
-	entries := []struct {
-		name    string
-		builder func() (tool.BaseTool, error)
-	}{
-		{"bazi_calc", func() (tool.BaseTool, error) { return newBaziCalcAdapter(reg) }},
-		{"yongshen", func() (tool.BaseTool, error) { return newYongshenAdapter(reg) }},
-		{"dayun_analyzer", func() (tool.BaseTool, error) { return newDayunAdapter(reg) }},
-		{"qimen_dunjia", func() (tool.BaseTool, error) { return newQimenAdapter(reg) }},
-		{"ziwei_calc", func() (tool.BaseTool, error) { return newZiweiAdapter(reg) }},
-		{"ziwei_liunian", func() (tool.BaseTool, error) { return newZiweiLiuNianAdapter(reg) }},
-		{"knowledge_search", func() (tool.BaseTool, error) { return newKnowledgeSearchAdapter(reg) }},
-		{"knowledge_catalog", func() (tool.BaseTool, error) { return newKnowledgeCatalogAdapter(reg) }},
-	}
-
-	for _, entry := range entries {
-		if _, ok := reg.Get(entry.name); !ok {
-			continue
-		}
-		t, err := entry.builder()
-		if err != nil {
-			return nil, err
-		}
-		adapters = append(adapters, t)
-	}
-
-	return adapters, nil
-}
 
 // BuildAdaptersFor 根据请求的工具名称列表创建 Eino BaseTool 适配器。
 //

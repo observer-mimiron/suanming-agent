@@ -42,7 +42,7 @@ backend-restart: backend-stop backend-start
 # ===== 知识库 =====
 knowledge-start:
 	@$(MAKE) knowledge-stop >/dev/null 2>&1 || true
-	@cd knowledge && set -a; source .env.local; set +a; npx next dev -p 3100 &
+	@cd knowledge && set -a; source .env.local; set +a; NODE_OPTIONS="--max-old-space-size=4096" npx next dev -p 3100 &
 	@sleep 6
 	@$(MAKE) knowledge-status
 
