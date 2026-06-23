@@ -43,10 +43,21 @@ func reduceGuidanceMessageOnly(next *state.GuidanceState, input GuidanceReducerI
 	switch next.DirectiveKind {
 	case "offer_consult":
 		if isGuidanceAcceptance(input.Message) {
-			next.DirectiveKind = "choose_topic"
-			next.PendingSlot = ""
-			next.RetryCount = 0
-			effective = true
+			if next.ChosenTopic != "" {
+				if pending := nextMissingGuidanceSlot(input.Profile); pending != "" {
+					next.DirectiveKind = "collect_slot"
+					next.PendingSlot = pending
+					next.RetryCount = 0
+					effective = true
+				} else {
+					return nil
+				}
+			} else {
+				next.DirectiveKind = "choose_topic"
+				next.PendingSlot = ""
+				next.RetryCount = 0
+				effective = true
+			}
 		}
 	case "choose_topic":
 		if next.ChosenTopic != "" {

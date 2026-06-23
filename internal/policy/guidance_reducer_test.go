@@ -190,3 +190,45 @@ func TestReduceGuidance_TopicSwitchReusesState(t *testing.T) {
 		t.Fatalf("RetryCount = %d, want 1", got.RetryCount)
 	}
 }
+
+func TestReduceGuidance_OfferConsultAcceptWithTopicSkipsChooseTopic(t *testing.T) {
+	got := ReduceGuidance(GuidanceReducerInput{
+		Current: &state.GuidanceState{
+			DirectiveKind: "offer_consult",
+		},
+		Message: "可以，看看事业",
+		Profile: map[string]any{},
+	})
+	if got == nil {
+		t.Fatal("ReduceGuidance() = nil, want collect_slot")
+	}
+	if got.DirectiveKind != "collect_slot" {
+		t.Fatalf("DirectiveKind = %q, want collect_slot (should skip choose_topic)", got.DirectiveKind)
+	}
+	if got.ChosenTopic != "事业" {
+		t.Fatalf("ChosenTopic = %q, want 事业", got.ChosenTopic)
+	}
+	if got.PendingSlot != "birth_date" {
+		t.Fatalf("PendingSlot = %q, want birth_date", got.PendingSlot)
+	}
+}
+
+func TestReduceGuidance_OfferConsultAcceptWithTopicAndFullProfileReturnsNil(t *testing.T) {
+	got := ReduceGuidance(GuidanceReducerInput{
+		Current: &state.GuidanceState{
+			DirectiveKind: "offer_consult",
+		},
+		Message: "可以，看看事业",
+		Profile: map[string]any{
+			"year":       1990.0,
+			"month":      5.0,
+			"day":        20.0,
+			"hour":       8.0,
+			"gender":     "男",
+			"birthplace": "北京",
+		},
+	})
+	if got != nil {
+		t.Fatalf("ReduceGuidance() = %#v, want nil (profile complete, guidance done)", got)
+	}
+}
