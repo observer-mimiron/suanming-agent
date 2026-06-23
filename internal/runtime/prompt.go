@@ -342,6 +342,14 @@ func (b *Builder) BuildAgentInstruction(st *state.SessionState, primaryDomain st
 	if st.RunningSummary != "" {
 		prompt += "\n### 会话摘要\n\n" + st.RunningSummary + "\n"
 	}
+
+	prompt += `
+
+## 输出标记指令（必须遵守）
+
+你的输出必须包含 <analysis> 和 <response> XML 标签（见主 prompt 中的详细说明）。
+`
+
 	return prompt
 }
 
@@ -456,6 +464,7 @@ func (b *Builder) buildProfileSection(st *state.SessionState) string {
 
 func (b *Builder) buildChartSection(st *state.SessionState, primaryDomain string) string {
 	var sb strings.Builder
+	sb.WriteString("<!-- 以下命盘 JSON 仅供内部推理使用，严禁逐项输出到回答中。行文中引用时自然带过即可 -->\n")
 	primaryJSON := b.marshalDomainResult(st, primaryDomain)
 	if primaryJSON != nil {
 		sb.WriteString(fmt.Sprintf("### 命盘结果（%s）\n\n%s\n", domainLabels[primaryDomain], primaryJSON))

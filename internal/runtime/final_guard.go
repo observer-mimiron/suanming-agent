@@ -17,10 +17,7 @@ func guardFinalAnswer(route policy.ApprovedRoute, st *state.SessionState, finalT
 }
 
 func shouldBufferFinalAnswer(route policy.ApprovedRoute) bool {
-	switch route.PrimaryDomain {
-	case "qimen", "ziwei":
-		return true
-	default:
-		return false
-	}
+	// 所有主域统一走 bufferFinal，确保 thinking/text 分离。
+	// 不再按 domain 区分；preflight 短路场景不经过 agent，不受影响。
+	return true
 }

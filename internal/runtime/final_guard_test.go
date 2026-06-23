@@ -13,7 +13,7 @@ func TestShouldBufferFinalAnswer(t *testing.T) {
 		route  policy.ApprovedRoute
 		buffer bool
 	}{
-		{name: "bazi streams", route: policy.ApprovedRoute{PrimaryDomain: "bazi"}, buffer: false},
+		{name: "bazi buffered", route: policy.ApprovedRoute{PrimaryDomain: "bazi"}, buffer: true},
 		{name: "qimen buffered", route: policy.ApprovedRoute{PrimaryDomain: "qimen"}, buffer: true},
 		{name: "ziwei buffered", route: policy.ApprovedRoute{PrimaryDomain: "ziwei"}, buffer: true},
 	}

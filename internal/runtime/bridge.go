@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"strings"
+
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 )
@@ -130,9 +132,31 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 	}
 
 	if bufferFinal {
-		// 循环结束后：pendingText 是最后一轮 Assistant 文本（最终回答）。
-		// 不在此处直接发 SSE，交由上层做 post-run guardrail 校验后再决定是否输出。
-		return pendingText, nil
+		analysisText, responseText, hasTags := parseXMLSections(pendingText)
+		if hasTags && analysisText != "" {
+			_ = emitEventWithTrace(ctx, sink, Event{Type: "thinking", Data: map[string]any{
+				"text":  analysisText,
+				"agent": "supervisor",
+			}}, map[string]any{
+				"buffer_final": true,
+				"from_marker":  true,
+			})
+		}
+		return responseText, nil
+	}
+
+	analysisText, responseText, hasTags := parseXMLSections(finalText)
+	if hasTags {
+		if analysisText != "" {
+			_ = emitEventWithTrace(ctx, sink, Event{Type: "thinking", Data: map[string]any{
+				"text":  analysisText,
+				"agent": "supervisor",
+			}}, map[string]any{
+				"buffer_final": false,
+				"from_marker":  true,
+			})
+		}
+		finalText = responseText
 	}
 	return finalText, nil
 }
@@ -167,4 +191,22 @@ func emitChartFromToolResult(ctx context.Context, sink EventSink, toolName, resu
 		"component_type": chartType,
 		"tool_name":      toolName,
 	})
+}
+// parseXMLSections 解析 LLM 输出中的 <analysis> 和 <response> XML 标记段。
+//
+// 返回 (analysisText, responseText, hasTags)。hasTags 为 false 时表示输入不含标记，
+// 此时整个 input 视为 responseText（降级行为）。
+func parseXMLSections(input string) (analysis, response string, hasTags bool) {
+	analysisStart := strings.Index(input, "<analysis>")
+	analysisEnd := strings.Index(input, "</analysis>")
+	responseStart := strings.Index(input, "<response>")
+	responseEnd := strings.Index(input, "</response>")
+
+	if analysisStart == -1 || analysisEnd == -1 || responseStart == -1 || responseEnd == -1 {
+		return "", strings.TrimSpace(input), false
+	}
+
+	analysis = strings.TrimSpace(input[analysisStart+len("<analysis>") : analysisEnd])
+	response = strings.TrimSpace(input[responseStart+len("<response>") : responseEnd])
+	return analysis, response, true
 }

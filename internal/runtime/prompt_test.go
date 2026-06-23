@@ -75,3 +75,19 @@ func TestBuildZiweiKnowledgeQuery_WithChart(t *testing.T) {
 		t.Errorf("query should contain main star 紫微, got: %s", query)
 	}
 }
+
+func TestBuildAgentInstruction_ContainsXMLTagInstructions(t *testing.T) {
+	st := state.NewSession("s_test")
+	st.Profile = map[string]any{
+		"year": float64(2000), "month": float64(1), "day": float64(1),
+		"hour": float64(12), "gender": "男",
+	}
+	b := NewBuilder("default")
+	result := b.BuildAgentInstruction(st, "bazi")
+	if !strings.Contains(result, "<analysis>") || !strings.Contains(result, "<response>") {
+		t.Fatal("BuildAgentInstruction should mention <analysis> and <response> tags")
+	}
+	if !strings.Contains(result, "严禁逐项") {
+		t.Fatal("BuildAgentInstruction should contain anti-duplication instruction")
+	}
+}
