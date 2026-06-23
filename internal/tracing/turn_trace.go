@@ -103,6 +103,13 @@ func (t *TurnTrace) BuildDigest() TraceDigest {
 // stepLabel 根据 span 名称返回用户可读的中文标签。
 func stepLabel(name string) string {
 	m := map[string]string{
+		"output":               "结构化输出",
+		"adk_supervisor_agent": "主控调度",
+		"bazi_specialist":      "八字专家",
+		"qimen_specialist":     "奇门专家",
+		"ziwei_specialist":     "紫微专家",
+		"ziwei_liunian":        "紫微流年",
+		"knowledge_catalog":    "知识目录",
 		"classify_and_extract": "意图识别",
 		"ask_missing_profile":  "信息确认",
 		"bazi_calc":            "八字排盘",
