@@ -310,8 +310,8 @@ func TestPreflight_GuidedFallbackAcceptanceReturnsForcedRoute(t *testing.T) {
 	st.Guidance = &state.GuidanceState{DirectiveKind: "guided_fallback"}
 	route := routeWithHints("bazi", "collect_profile", "none", "none")
 	result := preflight(st, route, "好，那你综合看看")
-	if !result.ShortCircuit {
-		t.Fatal("guided_fallback acceptance should short circuit")
+	if result.ShortCircuit {
+		t.Fatal("guided_fallback acceptance should NOT short circuit")
 	}
 	if result.ForcedRoute == nil {
 		t.Fatal("ForcedRoute is nil, want qimen primary route")

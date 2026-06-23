@@ -52,7 +52,7 @@ func preflight(st *state.SessionState, route policy.ApprovedRoute, message strin
 		// guided_fallback 被接受 → 强制路由到 qimen primary profileless 链
 		if next == nil && st.Guidance != nil && st.Guidance.DirectiveKind == "guided_fallback" {
 			return preflightResult{
-				ShortCircuit: true,
+				ShortCircuit: false,
 				TurnType:     "fortune_followup",
 				Text:         "好的，我来用奇门遁甲帮您综合看一下当前局势。",
 				GuidanceNext: nil,

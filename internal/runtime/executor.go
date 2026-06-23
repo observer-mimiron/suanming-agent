@@ -88,8 +88,13 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 		return result.TurnType, result.Text, nil
 	}
 
-	// ForcedRoute: guided_fallback accepted → use forced route for this turn
+	// ForcedRoute: guided_fallback accepted → emit transition text, use forced route
 	if result.ForcedRoute != nil {
+		if result.Text != "" {
+			_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": result.Text}}, map[string]any{
+				"turn_type": result.TurnType,
+			})
+		}
 		route = *result.ForcedRoute
 	}
 
