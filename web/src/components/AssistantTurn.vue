@@ -15,6 +15,15 @@
       </ResultBlock>
     </section>
 
+    <!-- Thinking -->
+    <section v-if="thinkingEvents.length" class="turn-zone">
+      <n-collapse>
+        <n-collapse-item :title="'🧠 思考过程 (' + thinkingEvents.length + ' 步)'">
+          <ThinkingSegment v-for="(evt, i) in thinkingEvents" :key="'think-' + i" :text="evt.preview" :agent="evt.agent || ''" />
+        </n-collapse-item>
+      </n-collapse>
+    </section>
+
     <!-- Main answer -->
     <section v-if="vm.answerBlocks.length" class="turn-zone turn-answer">
       <div class="answer-content markdown-body" v-html="renderedAnswer" />
@@ -38,7 +47,7 @@
 
     <!-- Debug -->
     <section v-if="vm.debugTrace || vm.debugEvents.length" class="turn-zone">
-      <DebugTracePanel :digest="vm.debugTrace" :events="vm.debugEvents" />
+      <DebugTracePanel :digest="vm.debugTrace" :events="[]" />
     </section>
 
     <!-- Errors -->
@@ -74,10 +83,14 @@ import ZiweiChartCard from './ZiweiChartCard.vue'
 import TracePanel from './TracePanel.vue'
 import DebugTracePanel from './DebugTracePanel.vue'
 import KnowledgeSourceCard from './KnowledgeSourceCard.vue'
+import ThinkingSegment from './ThinkingSegment.vue'
+import { NCollapse, NCollapseItem } from 'naive-ui'
 
 const props = defineProps<{ message: ChatMessage; isLoading?: boolean }>()
 const md = new MarkdownIt({ html: false, breaks: true, linkify: true })
 const vm = computed(() => buildAssistantTurnViewModel(props.message))
+const thinkingEvents = computed(() => vm.value.debugEvents.filter(e => e.type === 'thinking'))
+// ponytail: nonThinkingDebugEvents removed — execution tree replaces raw debug events
 const renderedAnswer = computed(() => md.render(vm.value.answerBlocks.join('\n\n')))
 const copied = ref(false)
 

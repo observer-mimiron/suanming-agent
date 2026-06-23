@@ -54,3 +54,20 @@ export interface DebugEvent {
   agent?: string;
   result?: string;
 }
+
+export interface ExecutionNode {
+  label: string
+  kind: string
+  status: string
+  ms: number
+  meta?: Record<string, any>
+  children?: ExecutionNode[]
+}
+
+export interface ExecutionTree {
+  trace_id: string
+  turn_type: string
+  total_ms: number
+  status: string
+  root: ExecutionNode
+}

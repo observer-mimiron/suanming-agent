@@ -46,13 +46,15 @@ export function buildAssistantTurnViewModel(message: ChatMessage): AssistantTurn
     if (seg.type === 'text') {
       answerBlocks.push(seg.content)
     } else if (seg.type === 'thinking') {
-      debugEvents.push({ type: 'thinking', label: `思考 · ${seg.agent}`, preview: seg.text, agent: seg.agent })
+      debugEvents.push({ type: 'thinking', label: `思考 · ${seg.agent}`, preview: seg.text.slice(0, 200), agent: seg.agent })
     } else if (seg.type === 'tool_call') {
+      const result = seg.result || ''
+      const resultDisplay = result.length > 300 ? result.slice(0, 300) + '...(' + result.length + '字符已截断)' : result
       debugEvents.push({
         type: 'tool_call',
         label: `工具 · ${seg.tool}`,
-        preview: seg.params ? JSON.stringify(seg.params) : '',
-        result: seg.result,
+        preview: seg.params ? JSON.stringify(seg.params).slice(0, 200) : '',
+        result: resultDisplay,
       })
     } else if (seg.type === 'error') {
       errors.push(seg.message)
@@ -76,6 +78,12 @@ export function buildAssistantTurnViewModel(message: ChatMessage): AssistantTurn
           break
         case 'debug-trace':
           debugTrace = seg.payload as DebugTraceDigest
+          break
+        case 'execution-tree':
+          // execution-tree payload has { root: ExecutionNode, trace_id, ... },
+          // root is merged into debugTrace for DebugTracePanel unified rendering
+          debugTrace = seg.payload as DebugTraceDigest
+          // payload.root is received by DebugTraceDigest's new root field
           break
         case 'knowledge-sources': {
           // Backend sends passages as a direct array, not wrapped in { passages: [...] }
