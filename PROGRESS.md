@@ -228,3 +228,10 @@ cd web && npm run build        # 生产构建
 - 新增 `UserProfile` / `BaziProfile` 复用现有 `SessionState.Profile` / `BaziResult` 的序列化
 - 新增 `ConsultTopic` / `AdviceRecord` 时，`Turn` 结构可直接作为 `QuestionRecord` 的数据源
 不改变现有架构和数据流。
+
+## 关键决策记录
+
+- 2026-06-23：lexical markers 收口为 `internal/intent` 共享包，`HasTimingFocus` 和 `ContainsTimingKeyword` 语义分离
+- 2026-06-23：`guidance_gate` 对 `guidance.Sniff` 的 `TimingFocus` 耦合切换为 `intent.HasTimingFocus`
+- 2026-06-23：`guided_fallback` acceptance 不再 preflight 内产出最终文本，改为 executor emit transition text 后走 execution path
+- 2026-06-23：`offer_consult` 下接受 + topic 一步直达 `collect_slot`，不再重复追问主题

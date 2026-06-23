@@ -164,3 +164,10 @@ LLM 不可用时退到 `safeFallback` 的保守默认路由，不依赖额外 Py
 | [09-retrieval-query-planning.md](docs/architecture/supervisor/09-retrieval-query-planning.md) | Agentic RAG 方案（证据规划 + 条件反思） |
 | [10-agentic-rag-basics.md](docs/architecture/supervisor/10-agentic-rag-basics.md) | Agentic RAG 术语速览 |
 | [runtime-adk-agent.md](docs/implementation/runtime-adk-agent.md) | ADK Agent 运行时实施文档 |
+
+## Guided Entry Boundary (2026-06-23 Cleanup)
+
+- **lexical markers** 只有一份 truth source：`internal/intent`，供 supervisor 和 runtime 共同使用
+- **`preflight`** 只做短路/执行分流：`ShortCircuit=true` 时才产出文本；`ForcedRoute != nil` 时 `ShortCircuit=false`，由 executor 先 emit transition text 后进入执行链
+- **`executor`** 仍是 GuidanceState 的唯一 mutation owner
+- **`HasTimingFocus` 与 `ContainsTimingKeyword`** 语义分离：前者 scope+intent 双条件供 guidance_gate 用，后者关键词宽松匹配供 supervisor 用
