@@ -38,8 +38,8 @@ func TestEmitTracePanels_SendsProcessAndDebugComponents(t *testing.T) {
 	orc := &Orchestrator{}
 	orc.emitTracePanels(ctx, sink, "agent_reading")
 
-	if len(sink.events) != 2 {
-		t.Fatalf("events = %d, want 2", len(sink.events))
+	if len(sink.events) != 3 {
+		t.Fatalf("events = %d, want 3", len(sink.events))
 	}
 	if sink.events[0].Type != "component" {
 		t.Fatalf("event 0 type = %q, want component", sink.events[0].Type)
@@ -57,5 +57,12 @@ func TestEmitTracePanels_SendsProcessAndDebugComponents(t *testing.T) {
 	}
 	if data1["type"] != "debug-trace" {
 		t.Fatalf("event 1 component type = %v, want debug-trace", data1["type"])
+	}
+	data2, ok := sink.events[2].Data.(map[string]any)
+	if !ok {
+		t.Fatalf("event 2 data type = %T, want map[string]any", sink.events[2].Data)
+	}
+	if data2["type"] != "execution-tree" {
+		t.Fatalf("event 2 component type = %v, want execution-tree", data2["type"])
 	}
 }

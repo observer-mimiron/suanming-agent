@@ -123,6 +123,13 @@ func (o *Orchestrator) emitTracePanels(ctx context.Context, sink EventSink, turn
 		"type":    "debug-trace",
 		"payload": debug,
 	}})
+
+	// 统一执行链路树（与 debug-trace 共存，前端渐进升级）
+	execTree := t.BuildExecutionTree()
+	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
+		"type":    "execution-tree",
+		"payload": execTree,
+	}})
 }
 
 // recordTurnAndMaintainContext 记录对话轮次，裁剪窗口，溢出时更新滚动摘要。
