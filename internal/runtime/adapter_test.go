@@ -8,12 +8,13 @@ import (
 
 	"github.com/wikiglobal/suanming-agent/internal/tools"
 	baziCalc "github.com/wikiglobal/suanming-agent/internal/tools/bazi"
+	qimenTools "github.com/wikiglobal/suanming-agent/internal/tools/qimen"
 )
 
 func TestBuildAdaptersFor_SkipsUnregisteredTools(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(&baziCalc.CalcTool{})
-	reg.Register(&tools.YongShenTool{})
+	reg.Register(&baziCalc.YongShenTool{})
 
 	names := []string{"bazi_calc", "ziwei_calc", "yongshen"}
 	adapters, err := BuildAdaptersFor(reg, names)
@@ -29,8 +30,8 @@ func TestBuildAdaptersFor_SkipsUnregisteredTools(t *testing.T) {
 func TestBuildAdaptersFor_BaziDomainList(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(&baziCalc.CalcTool{})
-	reg.Register(&tools.YongShenTool{})
-	reg.Register(&tools.DayunAnalyzer{})
+	reg.Register(&baziCalc.YongShenTool{})
+	reg.Register(&baziCalc.DayunAnalyzer{})
 	reg.Register(tools.NewKnowledgeSearchTool(nil))
 
 	baziNames := []string{"bazi_calc", "yongshen", "dayun_analyzer", "knowledge_search"}
@@ -45,7 +46,7 @@ func TestBuildAdaptersFor_BaziDomainList(t *testing.T) {
 
 func TestBuildAdaptersFor_QimenDomainList(t *testing.T) {
 	reg := tools.NewRegistry()
-	reg.Register(&tools.QimenTool{})
+	reg.Register(&qimenTools.Tool{})
 	reg.Register(tools.NewKnowledgeSearchTool(nil))
 
 	qimenNames := []string{"qimen_dunjia", "knowledge_search"}

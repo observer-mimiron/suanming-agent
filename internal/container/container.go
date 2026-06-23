@@ -20,6 +20,7 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/tools"
 	baziCalc "github.com/wikiglobal/suanming-agent/internal/tools/bazi"
 	ziweiTools "github.com/wikiglobal/suanming-agent/internal/tools/ziwei"
+	qimenTools "github.com/wikiglobal/suanming-agent/internal/tools/qimen"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
@@ -61,9 +62,9 @@ func BuildContainer() *Container {
 	// 工具注册表
 	reg := tools.NewRegistry()
 	reg.Register(&baziCalc.CalcTool{})
-	reg.Register(&tools.YongShenTool{})
-	reg.Register(&tools.DayunAnalyzer{})
-	reg.Register(&tools.QimenTool{})
+	reg.Register(&baziCalc.YongShenTool{})
+	reg.Register(&baziCalc.DayunAnalyzer{})
+	reg.Register(&qimenTools.Tool{})
 	reg.Register(&ziweiTools.ZiWeiCalcTool{})
 	reg.Register(&ziweiTools.ZiWeiLiuNianTool{})
 	reg.Register(tools.NewKnowledgeSearchTool(mcpClient))

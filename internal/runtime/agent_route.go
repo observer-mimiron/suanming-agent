@@ -180,6 +180,11 @@ func allowedSpecialists(route policy.ApprovedRoute, configs []specialists.Config
 	allowed := make(map[string]bool)
 	allowed[primaryDomain] = true
 
+	// 铁律：ziwei 作为 primary 时，bazi 必须可见
+	if primaryDomain == "ziwei" {
+		allowed["bazi"] = true
+	}
+
 	// Qimen visible only when QimenMode is primary or supplement
 	if route.PolicyHints.QimenMode == "primary" || route.PolicyHints.QimenMode == "supplement" {
 		allowed["qimen"] = true
@@ -188,6 +193,11 @@ func allowedSpecialists(route policy.ApprovedRoute, configs []specialists.Config
 	// Other secondary domains explicit in the route
 	for _, d := range route.SecondaryDomains {
 		allowed[d] = true
+	}
+
+	// 婚姻/感情 queries → 自动包含 ziwei（作为辅域分析夫妻宫）
+	if isMarriageQuery(route) && !allowed["ziwei"] {
+		allowed["ziwei"] = true
 	}
 
 	var result []specialists.Config
@@ -210,6 +220,20 @@ func allowedSpecialists(route policy.ApprovedRoute, configs []specialists.Config
 		}
 	}
 	return result
+}
+
+// isMarriageQuery 检测用户是否在询问婚姻/感情相关主题。
+// 如果触发，系统会自动将 ziwei 加入可见领域（作为辅域分析夫妻宫）。
+func isMarriageQuery(route policy.ApprovedRoute) bool {
+	subjects := []string{"婚姻", "感情", "夫妻", "配偶", "结婚", "恋爱", "合婚", "合不合适"}
+	target := route.Slots.TargetSubject
+	questionText := route.Slots.QuestionText
+	for _, s := range subjects {
+		if strings.Contains(target, s) || strings.Contains(questionText, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // defaultRetryConfig 返回共享的 ModelRetryConfig，所有 Agent 统一使用。

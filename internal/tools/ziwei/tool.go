@@ -18,6 +18,8 @@ type ZiWeiCalcTool struct{}
 func (t *ZiWeiCalcTool) Name() string        { return "ziwei_calc" }
 func (t *ZiWeiCalcTool) Description() string { return "紫微斗数排盘，输入出生年月日时+性别，返回命盘十二宫星曜布局" }
 
+func (t *ZiWeiCalcTool) Label() string { return "紫微排盘" }
+
 func (t *ZiWeiCalcTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	year, ok := params["year"].(float64)
 	if !ok || year < 1900 || year > 2100 {

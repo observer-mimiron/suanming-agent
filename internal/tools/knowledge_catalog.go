@@ -25,6 +25,8 @@ func (t *KnowledgeCatalogTool) Description() string {
 		"在首次检索前调用此工具了解有哪些资料可用。"
 }
 
+func (t *KnowledgeCatalogTool) Label() string { return "知识目录" }
+
 func (t *KnowledgeCatalogTool) Execute(_ context.Context, _ map[string]any) (any, error) {
 	nodes, edges, err := t.client.GetGraph()
 	if err != nil {

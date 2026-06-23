@@ -170,6 +170,17 @@ func NewEinoTraceCallbackHandler() einocallbacks.Handler {
 		Handler()
 }
 
+
+// AppendCurrentSpanAttribute 向当前活跃的 Eino 回调 Span 追加字符串属性。
+// 如果 span 不存在，静默忽略。
+func AppendCurrentSpanAttribute(ctx context.Context, key string, value any) {
+	span := einoSpanFromContext(ctx)
+	if span == nil {
+		return
+	}
+	span.SetAttribute(key, value)
+}
+
 func finishEinoCallbackSpan(ctx context.Context, err error, usage *einomodel.TokenUsage) {
 	span := einoSpanFromContext(ctx)
 	if span == nil {

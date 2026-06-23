@@ -1,7 +1,7 @@
 .PHONY: build dev dev-backend dev-frontend \
         knowledge-start knowledge-stop knowledge-status knowledge-restart \
         backend-start backend-stop backend-restart \
-        restart status
+        frontend-start frontend-stop frontend-status frontend-restart restart status
 
 SERVER_BIN := /tmp/suanming-server
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -57,5 +57,31 @@ knowledge-restart: knowledge-stop knowledge-start
 knowledge-import:
 	@bash scripts/import-smart.py
 
+# ===== 前端 =====
 dev-frontend:
-	cd web && npm run dev
+	@$(MAKE) frontend-stop >/dev/null 2>&1 || true
+	@cd web && npm run dev &
+	@sleep 3
+	@$(MAKE) frontend-status
+
+frontend-stop:
+	@lsof -ti :5173 | xargs kill 2>/dev/null; echo "前端已停止"
+
+frontend-status:
+	@lsof -ti :5173 | xargs -I{} echo "前端 ✅ PID:" {} 2>/dev/null || echo "前端 ❌ 未运行"
+
+frontend-restart: frontend-stop dev-frontend
+frontend-build:
+	@cd web && npm run build
+
+frontend-preview:
+	@$(MAKE) frontend-stop-preview >/dev/null 2>&1 || true
+	@cd web && npm run preview &
+	@sleep 2
+	@lsof -ti :4173 | xargs -I{} echo "前端预览 ✅ PID:" {} 2>/dev/null || echo "前端预览 ❌ 未启动"
+
+frontend-stop-preview:
+	@lsof -ti :4173 | xargs kill 2>/dev/null; echo "前端预览已停止"
+
+frontend-status-preview:
+	@lsof -ti :4173 | xargs -I{} echo "前端预览 ✅ PID:" {} 2>/dev/null || echo "前端预览 ❌ 未运行"

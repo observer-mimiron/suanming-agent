@@ -27,6 +27,7 @@ type stubTool struct {
 
 func (t stubTool) Name() string        { return t.name }
 func (t stubTool) Description() string { return t.name }
+func (t stubTool) Label() string { return t.name }
 func (t stubTool) Execute(_ context.Context, _ map[string]any) (any, error) {
 	return t.result, nil
 }

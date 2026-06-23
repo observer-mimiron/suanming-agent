@@ -8,16 +8,19 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
+
+	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
 // agentEventBridge consumes the ADK AsyncIterator and bridges events to EventSink.
 // bufferFinal=true 时缓存最终回答，供上层做 post-run contract gate 校验；
 // 否则按 chunk 直接推送 text，恢复普通主链的流式体验。
 // resultSaver 在工具返回结果时调用，用于将结构化命盘数据写回会话状态。
-func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterator[*adk.AgentEvent], resultSaver func(toolName, resultJSON string), bufferFinal bool) (string, error) {
+func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterator[*adk.AgentEvent], resultSaver func(toolName, resultJSON string), labelFor func(toolName string) string, bufferFinal bool) (string, error) {
 	var pendingText string // 当前累积的 Assistant 文本，待分类
 	var finalText string   // 用户可见的最终文本
-	var searchAttempts int // knowledge_search 调用计数，本轮内递增
+	var searchAttempts int // knowledge_search
+	var thinkingBuf string // 累积 thinking 文本以写入当前 LLM span 调用计数，本轮内递增
 	for {
 		event, ok := iter.Next()
 		if !ok {
@@ -53,6 +56,8 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 			}
 			if isAssistantPlanningMessage(msg) {
 				if msg.Content != "" {
+					thinkingBuf += msg.Content + "\n"
+					tracing.AppendCurrentSpanAttribute(ctx, "thinking", thinkingBuf)
 					_ = emitEventWithTrace(ctx, sink, Event{Type: "thinking", Data: map[string]any{
 						"text":  msg.Content,
 						"agent": "supervisor",
@@ -106,6 +111,7 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 
 			// 只有缓冲模式才把工具前的 assistant 文本归类为 thinking（内部独白）。
 			if bufferFinal && pendingText != "" {
+				tracing.AppendCurrentSpanAttribute(ctx, "thinking", pendingText)
 				_ = emitEventWithTrace(ctx, sink, Event{Type: "thinking", Data: map[string]any{
 					"text":  pendingText,
 					"agent": "supervisor",
@@ -115,8 +121,11 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 				pendingText = ""
 			}
 
+			tracing.AppendCurrentSpanAttribute(ctx, "thinking", thinkingBuf)
+			thinkingBuf = ""
 			_ = emitEventWithTrace(ctx, sink, Event{Type: "tool_call", Data: map[string]any{
 				"tool":   toolName,
+				"label":  labelFor(toolName),
 				"result": msg.Content,
 			}}, map[string]any{
 				"tool_name": toolName,

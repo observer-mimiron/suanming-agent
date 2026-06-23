@@ -8,10 +8,11 @@ import (
 	"sync"
 )
 
-// Tool 命理工具接口，每个工具需提供名称、描述和执行方法。
+// Tool 命理工具接口，每个工具需提供名称、描述、展示标签和执行方法。
 type Tool interface {
 	Name() string
 	Description() string
+	Label() string
 	Execute(ctx context.Context, params map[string]any) (any, error)
 }
 
@@ -52,4 +53,14 @@ func (r *Registry) List() []Tool {
 		list = append(list, t)
 	}
 	return list
+}
+
+// DisplayName 返回工具的展示标签。若工具已注册则返回其 Label()，
+// 否则降级为内部标识名。
+func (r *Registry) DisplayName(name string) string {
+	t, ok := r.Get(name)
+	if !ok {
+		return name
+	}
+	return t.Label()
 }

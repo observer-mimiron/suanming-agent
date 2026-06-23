@@ -109,6 +109,8 @@ func (t *ZiWeiLiuNianTool) Description() string {
 	return "紫微斗数流年分析，输入出生年月日时+性别+目标年份+虚岁年龄，返回流年干支、四化、小限宫位"
 }
 
+func (t *ZiWeiLiuNianTool) Label() string { return "流年分析" }
+
 func (t *ZiWeiLiuNianTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	year, _ := params["year"].(float64)
 	month, _ := params["month"].(float64)

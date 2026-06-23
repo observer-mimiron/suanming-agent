@@ -18,6 +18,8 @@ func (t *CalcTool) Description() string {
 	return "计算八字排盘，输入出生年月日时+性别，可选longitude(经度)做真太阳时校正"
 }
 
+func (t *CalcTool) Label() string { return "八字排盘" }
+
 func (t *CalcTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	year, ok := params["year"].(float64)
 	if !ok || year < 1900 || year > 2100 {

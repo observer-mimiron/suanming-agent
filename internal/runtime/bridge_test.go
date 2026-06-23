@@ -55,7 +55,7 @@ func TestAgentEventBridge_AssistantToolCallTextBecomesThinking(t *testing.T) {
 	}()
 
 	sink := &captureSink{}
-	finalText, err := agentEventBridge(context.Background(), sink, iter, nil, false)
+	finalText, err := agentEventBridge(context.Background(), sink, iter, nil, func(name string) string { return name }, false)
 	if err != nil {
 		t.Fatalf("agentEventBridge returned error: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestAgentEventBridge_BufferFinalWithXMLTags_NoToolCalls(t *testing.T) {
 	}()
 
 	sink := &captureSink{}
-	finalText, err := agentEventBridge(context.Background(), sink, iter, nil, true)
+	finalText, err := agentEventBridge(context.Background(), sink, iter, nil, func(name string) string { return name }, true)
 	if err != nil {
 		t.Fatalf("agentEventBridge returned error: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestAgentEventBridge_BufferFinalFalse_WithXMLTags(t *testing.T) {
 	}()
 
 	sink := &captureSink{}
-	finalText, err := agentEventBridge(context.Background(), sink, iter, nil, false)
+	finalText, err := agentEventBridge(context.Background(), sink, iter, nil, func(name string) string { return name }, false)
 	if err != nil {
 		t.Fatalf("agentEventBridge returned error: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestAgentEventBridge_NoXMLTags_Fallback(t *testing.T) {
 	}()
 
 	sink := &captureSink{}
-	finalText, err := agentEventBridge(context.Background(), sink, iter, nil, true)
+	finalText, err := agentEventBridge(context.Background(), sink, iter, nil, func(name string) string { return name }, true)
 	if err != nil {
 		t.Fatalf("agentEventBridge returned error: %v", err)
 	}

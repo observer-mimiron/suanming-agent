@@ -33,6 +33,8 @@ func (t *KnowledgeSearchTool) Description() string {
 		"评估质量：content 是否聚焦、是否可引用、source 来自哪部典籍。"
 }
 
+func (t *KnowledgeSearchTool) Label() string { return "知识检索" }
+
 func (t *KnowledgeSearchTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	query, ok := params["query"].(string)
 	if !ok || query == "" {

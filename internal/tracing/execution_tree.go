@@ -175,6 +175,10 @@ func mergeMeta(dst map[string]any, src map[string]any, kind SpanKind) {
 	if v, ok := src["breakdown"]; ok {
 		dst["breakdown"] = v
 	}
+	// ponytail: 转发 thinking 文本到父阶段节点
+	if v, ok := src["thinking"]; ok {
+		dst["thinking"] = v
+	}
 }
 
 func cleanNilMeta(n *ExecutionNode) {

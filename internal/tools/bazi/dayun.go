@@ -8,6 +8,8 @@ type DayunAnalyzer struct{}
 func (t *DayunAnalyzer) Name() string        { return "dayun_analyzer" }
 func (t *DayunAnalyzer) Description() string { return "分析每个大运的吉凶和十神类型" }
 
+func (t *DayunAnalyzer) Label() string { return "大运分析" }
+
 func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, error) {
 	dayun, _ := params["dayun"].([]map[string]any)
 

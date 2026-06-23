@@ -186,7 +186,7 @@ func (e *Executor) runAgentRoute(ctx context.Context, sink EventSink, st *state.
 	iter := runner.Run(ctx, msgs, adk.WithSessionValues(vals))
 	finalText, err := agentEventBridge(ctx, sink, iter, func(toolName, resultJSON string) {
 		e.saveToolResult(st, toolName, resultJSON)
-	}, shouldBufferFinalAnswer(route))
+	}, e.reg.DisplayName, shouldBufferFinalAnswer(route))
 	if err != nil {
 		return "agent_error", finalText, err
 	}

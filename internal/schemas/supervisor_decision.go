@@ -63,6 +63,9 @@ func (d *SupervisorDecision) Normalize() {
 			d.PolicyHints.QimenMode = "primary"
 		case d.PolicyHints.NeedsQimen:
 			d.PolicyHints.QimenMode = "supplement"
+		case d.TaskIntent == "timing_followup":
+			d.PolicyHints.NeedsQimen = true
+			d.PolicyHints.QimenMode = "supplement"
 		default:
 			d.PolicyHints.QimenMode = "none"
 		}

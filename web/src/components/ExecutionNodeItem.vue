@@ -14,6 +14,10 @@
       <span v-if="node.meta.hits" class="meta-tag">📚 {{ node.meta.hits }} 命中</span>
       <span v-if="node.meta.batch_count" class="meta-tag">📤 {{ node.meta.batch_count }} 条</span>
     </div>
+    <!-- Thinking bubble -->
+    <div v-if="node.meta?.thinking" class="exec-thinking" :style="{ paddingLeft: (depth + 1) * 16 + 'px' }">
+      <div class="thinking-bubble">{{ node.meta.thinking }}</div>
+    </div>
     <!-- Children -->
     <div v-if="expanded && hasChildren" class="exec-children">
       <ExecutionNodeItem
@@ -76,4 +80,6 @@ function fmtMs(ms: number): string {
 .exec-meta { display: flex; gap: 8px; padding: 2px 0 4px; flex-wrap: wrap; }
 .meta-tag { font-size: 10px; color: var(--text-muted); background: var(--bg-secondary); padding: 1px 6px; border-radius: 3px; }
 .exec-children { border-left: 1px solid var(--border); margin-left: 8px; }
+.exec-thinking { padding: 2px 0; }
+.thinking-bubble { font-size: 11px; color: var(--text-secondary); line-height: 1.5; padding: 6px 10px; border-radius: 6px; background: color-mix(in srgb, var(--bg-secondary) 60%, transparent); white-space: pre-wrap; word-break: break-word; }
 </style>

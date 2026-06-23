@@ -18,6 +18,8 @@ type Tool struct{}
 func (t *Tool) Name() string        { return "qimen_dunjia" }
 func (t *Tool) Description() string { return "奇门遁甲排盘，返回时家奇门九宫信息" }
 
+func (t *Tool) Label() string { return "奇门遁甲" }
+
 func (t *Tool) Execute(_ context.Context, params map[string]any) (any, error) {
 	year, _ := params["year"].(float64)
 	month, _ := params["month"].(float64)

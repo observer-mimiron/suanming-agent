@@ -27,7 +27,7 @@
     <!-- Chat state -->
     <template v-else>
       <div class="chat-body">
-        <n-scrollbar ref="scrollRef" class="messages">
+        <n-scrollbar ref="scrollRef" class="messages chat-scrollbar">
           <div class="messages-inner">
             <template v-for="msg in messages" :key="msg.id">
               <AssistantTurn
@@ -204,5 +204,15 @@ async function handleSend(t?: string) {
 .send-btn:disabled {
   opacity: 0.3;
   cursor: default;
+}
+
+.chat-scrollbar :deep(.n-scrollbar-rail) {
+  opacity: 1 !important;
+  width: 6px !important;
+}
+.chat-scrollbar :deep(.n-scrollbar-rail__scrollbar) {
+  width: 6px !important;
+  border-radius: 3px;
+  background: var(--border) !important;
 }
 </style>
