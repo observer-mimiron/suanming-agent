@@ -235,3 +235,4 @@ cd web && npm run build        # 生产构建
 - 2026-06-23：`guidance_gate` 对 `guidance.Sniff` 的 `TimingFocus` 耦合切换为 `intent.HasTimingFocus`
 - 2026-06-23：`guided_fallback` acceptance 不再 preflight 内产出最终文本，改为 executor emit transition text 后走 execution path
 - 2026-06-23：`offer_consult` 下接受 + topic 一步直达 `collect_slot`，不再重复追问主题
+- 2026-06-23：引入 <analysis>/<response> XML 标记协议实现 SSE thinking/text 事件分离；所有主域统一走 bufferFinal；prompt 禁止 LLM 在响应中复读排盘数据
