@@ -225,7 +225,7 @@ func (b *Builder) BuildKnowledgeQuery(ctx context.Context, st *state.SessionStat
 	}
 
 	if question != "" {
-		keywords := b.extractSearchKeywords(ctx, question, dayGan+"日主"+dayWx+"命")
+		keywords := question
 		if keywords != "" {
 			terms = append(terms, keywords)
 		}
@@ -306,11 +306,6 @@ func (b *Builder) buildZiweiKnowledgeQuery(question string, result map[string]an
 	return query
 }
 
-func (b *Builder) extractSearchKeywords(ctx context.Context, question string, chartContext string) string {
-	_ = ctx
-	_ = chartContext
-	return question
-}
 
 func (b *Builder) selectPrompt(st *state.SessionState, primaryDomain string) []byte {
 	if primaryDomain == "qimen" && !st.HasBaziResult() {

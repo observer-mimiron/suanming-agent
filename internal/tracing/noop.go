@@ -23,9 +23,3 @@ type noopTracer struct{}
 func (noopTracer) StartTrace(ctx context.Context, _ string) (context.Context, Trace) {
 	return ctx, noopTrace{}
 }
-
-// NewNoopTracer 返回一个所有方法均为空操作的 Tracer。
-// 始终返回非空句柄，调用方无需进行空值检查。
-func NewNoopTracer() Tracer {
-	return noopTracer{}
-}

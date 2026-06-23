@@ -22,11 +22,6 @@ type MemoryStore struct {
 	dir      string // if non-empty, persist sessions to this directory
 }
 
-// NewMemoryStore 创建一个不带持久化的纯内存会话存储。
-func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{sessions: make(map[string]*SessionState)}
-}
-
 // NewPersistentStore 创建一个将会话持久化为 JSON 文件的 MemoryStore。
 func NewPersistentStore(dir string) *MemoryStore {
 	os.MkdirAll(dir, 0755)

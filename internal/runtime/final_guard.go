@@ -1,23 +1,9 @@
 package runtime
 
-import (
-	"github.com/wikiglobal/suanming-agent/internal/policy"
-	"github.com/wikiglobal/suanming-agent/internal/state"
-)
+// ponytail: guardFinalAnswer removed — dead code, only guardFinalAnswerWithTrace used.
 
-// guardFinalAnswer 在最终回答输出前做结果验收，避免模型跳过关键排盘仍直接下结论。
-func guardFinalAnswer(route policy.ApprovedRoute, st *state.SessionState, finalText string) (turnType string, text string) {
-	if route.PrimaryDomain == "qimen" && !st.HasQimenResult() {
-		return "guardrail_blocked", "本轮问题已判定为奇门主链，但运行时没有拿到奇门盘结果，所以已拦截本轮结论输出。请重试；若再次出现，请检查 `qimen_dunjia` 是否真正被调用。"
-	}
-	if route.PrimaryDomain == "ziwei" && !st.HasZiWeiResult() {
-		return "guardrail_blocked", "本轮问题已判定为紫微主链，但运行时没有拿到紫微命盘结果，所以已拦截本轮结论输出。请重试；若再次出现，请检查 `ziwei_calc` 是否真正被调用。"
-	}
-	return "agent_reading", finalText
-}
-
-func shouldBufferFinalAnswer(route policy.ApprovedRoute) bool {
-	// 所有主域统一走 bufferFinal，确保 thinking/text 分离。
-	// 不再按 domain 区分；preflight 短路场景不经过 agent，不受影响。
+// shouldBufferFinalAnswer always returns true; all domains now use bufferFinal.
+// ponytail: removed unused route parameter.
+func shouldBufferFinalAnswer() bool {
 	return true
 }

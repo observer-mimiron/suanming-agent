@@ -14,175 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestTurnTrace_BuildDigest(t *testing.T) {
-	now := time.Now()
-	tr := &TurnTrace{
-		TraceID:   "trc_test",
-		SessionID: "sess_1",
-		TurnType:  "full_reading",
-		StartedAt: now,
-		Status:    "ok",
-		Spans: []TraceSpan{
-			{SpanID: "root", Name: "chat.turn", Kind: KindAgent, Status: "ok", StartedAt: now, DurationMs: 1000},
-			{SpanID: "s1", ParentSpanID: "root", Name: "classify_and_extract", Kind: KindChain, Status: "ok", DurationMs: 100},
-			{SpanID: "s2", ParentSpanID: "root", Name: "bazi_calc", Kind: KindTool, Status: "ok", DurationMs: 17},
-			{SpanID: "s3", ParentSpanID: "root", Name: "knowledge_search", Kind: KindRetriever, Status: "degraded", DurationMs: 50, Attributes: map[string]any{"hits": 0}},
-			{SpanID: "s4", ParentSpanID: "root", Name: "qimen_dunjia", Kind: KindTool, Status: "fallback", DurationMs: 200, Error: "timeout"},
-			{SpanID: "s5", ParentSpanID: "root", Name: "llm_generate", Kind: KindLLM, Status: "ok", DurationMs: 500, Attributes: map[string]any{"model": "deepseek-v4-pro", "output_tokens": nil}},
-		},
-	}
-
-	digest := tr.BuildDigest()
-
-	if digest.TraceID != "trc_test" {
-		t.Errorf("TraceID = %s, want trc_test", digest.TraceID)
-	}
-	if digest.TurnType != "full_reading" {
-		t.Errorf("TurnType = %s, want full_reading", digest.TurnType)
-	}
-	if digest.Status != "ok" {
-		t.Errorf("Status = %s, want ok", digest.Status)
-	}
-
-	// Should skip the AGENT span
-	if len(digest.Steps) != 5 {
-		t.Fatalf("steps = %d, want 5 (AGENT span skipped)", len(digest.Steps))
-	}
-
-	// LLM span should have model in meta
-	llmStep := digest.Steps[4]
-	if llmStep.Label != "命理解读" {
-		t.Errorf("LLM step label = %s, want 命理解读", llmStep.Label)
-	}
-	if llmStep.Meta["model"] != "deepseek-v4-pro" {
-		t.Errorf("LLM model = %v", llmStep.Meta["model"])
-	}
-	if llmStep.Meta["output_tokens"] != nil {
-		t.Errorf("LLM output_tokens should be nil, got %v", llmStep.Meta["output_tokens"])
-	}
-
-	// Knowledge search: Status field is "degraded" directly, not via attribute hack
-	ksStep := digest.Steps[2]
-	if ksStep.Status != "degraded" {
-		t.Errorf("knowledge_search status = %s, want degraded (from Status field, not attribute hack)", ksStep.Status)
-	}
-
-	// Qimen: Status field is "fallback" directly
-	qmStep := digest.Steps[3]
-	if qmStep.Status != "fallback" {
-		t.Errorf("qimen status = %s, want fallback (from Status field)", qmStep.Status)
-	}
-
-	// Step labels
-	if digest.Steps[0].Label != "意图识别" {
-		t.Errorf("step 0 label = %s", digest.Steps[0].Label)
-	}
-	if digest.Steps[1].Label != "八字排盘" {
-		t.Errorf("step 1 label = %s", digest.Steps[1].Label)
-	}
-}
-
-func TestTurnTrace_BuildDigest_ErrorTurn(t *testing.T) {
-	tr := &TurnTrace{
-		TraceID:   "trc_err",
-		SessionID: "sess_1",
-		TurnType:  "full_reading",
-		StartedAt: time.Now(),
-		Status:    "error",
-		Spans: []TraceSpan{
-			{SpanID: "root", Name: "chat.turn", Kind: KindAgent, Status: "error"},
-			{SpanID: "s1", ParentSpanID: "root", Name: "bazi_calc", Kind: KindTool, Status: "error", Error: "排盘失败"},
-		},
-	}
-
-	digest := tr.BuildDigest()
-	if digest.Status != "error" {
-		t.Errorf("digest.Status = %s, want error", digest.Status)
-	}
-	if len(digest.Steps) != 1 {
-		t.Fatalf("steps = %d, want 1", len(digest.Steps))
-	}
-	if digest.Steps[0].Status != "error" {
-		t.Errorf("bazi_calc step status = %s, want error", digest.Steps[0].Status)
-	}
-}
-
-func TestTurnTrace_BuildDigest_UsesEndedAtWhenPresent(t *testing.T) {
-	start := time.Now().Add(-10 * time.Second)
-	end := start.Add(1500 * time.Millisecond)
-	tr := &TurnTrace{
-		TraceID:   "trc_ended",
-		SessionID: "sess_1",
-		TurnType:  "full_reading",
-		StartedAt: start,
-		EndedAt:   end,
-		Status:    "ok",
-		Spans: []TraceSpan{
-			{SpanID: "root", Name: "chat.turn", Kind: KindAgent, Status: "ok", StartedAt: start, EndedAt: end, DurationMs: 1500},
-		},
-	}
-
-	digest := tr.BuildDigest()
-	if digest.TotalMs != 1500 {
-		t.Fatalf("digest.TotalMs = %d, want 1500 from EndedAt-StartedAt", digest.TotalMs)
-	}
-}
-
-func TestTurnTrace_BuildDigest_MapsSupervisorLabels(t *testing.T) {
-	now := time.Now()
-	tr := &TurnTrace{
-		TraceID:   "trc_supervisor",
-		SessionID: "sess_1",
-		TurnType:  "followup_reading",
-		StartedAt: now,
-		Status:    "ok",
-		Spans: []TraceSpan{
-			{SpanID: "root", Name: "chat.turn", Kind: KindAgent, Status: "ok", StartedAt: now, DurationMs: 1000},
-			{SpanID: "s1", ParentSpanID: "root", Name: "supervisor_decision", Kind: KindChain, Status: "ok", DurationMs: 10},
-			{SpanID: "s2", ParentSpanID: "root", Name: "policy_gate", Kind: KindChain, Status: "ok", DurationMs: 8},
-			{SpanID: "s3", ParentSpanID: "root", Name: "domain_dispatch", Kind: KindChain, Status: "ok", DurationMs: 6},
-		},
-	}
-
-	digest := tr.BuildDigest()
-	if len(digest.Steps) != 3 {
-		t.Fatalf("steps = %d, want 3", len(digest.Steps))
-	}
-	if digest.Steps[0].Label != "路由决策" {
-		t.Fatalf("step 0 label = %q, want %q", digest.Steps[0].Label, "路由决策")
-	}
-	if digest.Steps[1].Label != "策略校验" {
-		t.Fatalf("step 1 label = %q, want %q", digest.Steps[1].Label, "策略校验")
-	}
-	if digest.Steps[2].Label != "领域调度" {
-		t.Fatalf("step 2 label = %q, want %q", digest.Steps[2].Label, "领域调度")
-	}
-}
-
-func TestTurnTrace_BuildDigest_SkipsSSEEmitSteps(t *testing.T) {
-	now := time.Now()
-	tr := &TurnTrace{
-		TraceID:   "trc_sse_skip",
-		SessionID: "sess_1",
-		TurnType:  "agent_reading",
-		StartedAt: now,
-		Status:    "ok",
-		Spans: []TraceSpan{
-			{SpanID: "root", Name: "chat.turn", Kind: KindAgent, Status: "ok", StartedAt: now, DurationMs: 1000},
-			{SpanID: "s1", ParentSpanID: "root", Name: "knowledge_search", Kind: KindRetriever, Status: "ok", DurationMs: 20},
-			{SpanID: "s2", ParentSpanID: "root", Name: "sse_emit", Kind: KindChain, Status: "ok", DurationMs: 1, Attributes: map[string]any{"event_type": "text"}},
-		},
-	}
-
-	digest := tr.BuildDigest()
-	if len(digest.Steps) != 1 {
-		t.Fatalf("steps = %d, want 1 after skipping sse_emit", len(digest.Steps))
-	}
-	if digest.Steps[0].Label != "知识检索" {
-		t.Fatalf("step 0 label = %q, want %q", digest.Steps[0].Label, "知识检索")
-	}
-}
-
 func TestFileCollector_Save(t *testing.T) {
 	dir := t.TempDir()
 	fc := NewFileCollector(dir)
@@ -270,9 +101,6 @@ func TestRealTracer_ErrorTurnStatus(t *testing.T) {
 	}
 
 	// Digest should also show error
-	digest := tr.BuildDigest()
-	if digest.Status != "error" {
-		t.Errorf("digest.Status = %s, want error", digest.Status)
 	}
 }
 
@@ -312,8 +140,6 @@ func TestRealTracer_SetStatusOnSpan(t *testing.T) {
 	}
 
 	// Digest should match raw trace status
-	digest := tr.BuildDigest()
-	for _, s := range digest.Steps {
 		switch s.Label {
 		case "知识检索":
 			if s.Status != "degraded" {
@@ -349,8 +175,6 @@ func TestRealTracer_NoCollectorStillProvidesTrace(t *testing.T) {
 	}
 
 	// Digest must be buildable
-	digest := tr.BuildDigest()
-	if digest.TraceID == "" {
 		t.Error("digest has empty trace_id")
 	}
 }

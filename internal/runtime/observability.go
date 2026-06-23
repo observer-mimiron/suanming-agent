@@ -35,7 +35,7 @@ func emitEventWithTrace(ctx context.Context, sink EventSink, evt Event, attrs ma
 func guardFinalAnswerWithTrace(ctx context.Context, route policy.ApprovedRoute, st *state.SessionState, finalText string) (turnType string, text string) {
 	sp := tracing.SpanFromContext(ctx, "contract_gate", tracing.KindChain)
 	sp.SetAttribute("primary_domain", route.PrimaryDomain)
-	sp.SetAttribute("buffer_final", shouldBufferFinalAnswer(route))
+	sp.SetAttribute("buffer_final", shouldBufferFinalAnswer())
 	defer sp.End()
 
 	if route.PrimaryDomain == "qimen" {

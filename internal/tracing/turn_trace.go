@@ -55,50 +55,6 @@ func (t *TurnTrace) AddSpan(s TraceSpan) { t.Spans = append(t.Spans, s) }
 
 // BuildDigest 从 TurnTrace 生成 legacy TraceDigest。
 // 它保留原有步骤摘要契约用于兼容旧消费方，但不再是新的产品展示模型。
-func (t *TurnTrace) BuildDigest() TraceDigest {
-	steps := make([]TraceStepDigest, 0, len(t.Spans))
-
-	for _, s := range t.Spans {
-		// 跳过根 agent span 自身——它不是一个步骤
-		if s.Kind == KindAgent {
-			continue
-		}
-		// `sse_emit` 仍保留在原始 trace 里做排障，但不进入用户可见的处理过程，
-		// 否则流式 chunk 会把时间线膨胀成上千步。
-		if s.Name == "sse_emit" {
-			continue
-		}
-
-		meta := map[string]any{}
-		if s.Kind == KindLLM {
-			if v, ok := s.Attributes["model"]; ok {
-				meta["model"] = v
-			}
-			if v, ok := s.Attributes["output_tokens"]; ok {
-				meta["output_tokens"] = v
-			}
-		}
-		if s.Kind == KindRetriever {
-			if v, ok := s.Attributes["hits"]; ok {
-				meta["hits"] = v
-			}
-		}
-		steps = append(steps, TraceStepDigest{
-			Label:  stepLabel(s.Name),
-			Kind:   s.Kind,
-			Status: s.Status,
-			Ms:     s.DurationMs,
-			Meta:   meta,
-		})
-	}
-	return TraceDigest{
-		TraceID:  t.TraceID,
-		TurnType: t.TurnType,
-		TotalMs:  traceTotalMs(t),
-		Status:   normalizeStatus(t.Status),
-		Steps:    steps,
-	}
-}
 
 // stepLabel 根据 span 名称返回用户可读的中文标签。
 func stepLabel(name string) string {
@@ -139,19 +95,5 @@ func stepLabel(name string) string {
 
 // TraceDigest 是旧版 trace 摘要契约。
 // 新的产品过程展示应改用 ProcessDigest；调试展示应改用 DebugTraceDigest。
-type TraceDigest struct {
-	TraceID  string            `json:"trace_id"`
-	TurnType string            `json:"turn_type"`
-	TotalMs  int64             `json:"total_ms"`
-	Status   string            `json:"status"`
-	Steps    []TraceStepDigest `json:"steps"`
-}
 
 // TraceStepDigest 是 TraceDigest 中的一个用户可见步骤。
-type TraceStepDigest struct {
-	Label  string         `json:"label"`
-	Kind   SpanKind       `json:"kind"`
-	Status string         `json:"status"`
-	Ms     int64          `json:"ms"`
-	Meta   map[string]any `json:"meta,omitempty"`
-}

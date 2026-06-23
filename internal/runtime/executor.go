@@ -187,12 +187,12 @@ func (e *Executor) runAgentRoute(ctx context.Context, sink EventSink, st *state.
 	iter := runner.Run(ctx, msgs, adk.WithSessionValues(vals))
 	finalText, err := agentEventBridge(ctx, sink, iter, func(toolName, resultJSON string) {
 		e.saveToolResult(st, toolName, resultJSON)
-	}, e.reg.DisplayName, shouldBufferFinalAnswer(route))
+	}, e.reg.DisplayName, shouldBufferFinalAnswer())
 	if err != nil {
 		return "agent_error", finalText, err
 	}
 	turnType, guardedText := guardFinalAnswerWithTrace(ctx, route, st, finalText)
-	if shouldBufferFinalAnswer(route) && guardedText != "" {
+	if shouldBufferFinalAnswer() && guardedText != "" {
 		_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": guardedText}}, map[string]any{
 			"buffer_final": true,
 			"turn_type":    turnType,
