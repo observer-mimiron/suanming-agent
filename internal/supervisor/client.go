@@ -349,6 +349,9 @@ func buildSessionContext(st *state.SessionState) string {
 	} else {
 		parts = append(parts, "已有资料：无")
 	}
+	if st.Subject != "" {
+		parts = append(parts, fmt.Sprintf("当前命盘归属：%s", st.Subject))
+	}
 	parts = append(parts, fmt.Sprintf(
 		"命盘状态：bazi=%t qimen=%t ziwei=%t",
 		st.HasBaziResult(),

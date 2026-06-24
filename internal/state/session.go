@@ -72,6 +72,7 @@ type SessionState struct {
 	LastUserQuestion    string
 	NeedsQimen          bool // set by the approved route / specialist dispatch, consumed by followup execution
 	NeedsKnowledge      bool // legacy flag kept for compatibility with existing session snapshots
+	Subject             string // 当前命盘归属（"自己"/"孩子"/"父亲"等），切换时清除旧盘
 
 	// 上下文工程第一阶段：会话内最近多轮对话 + 滚动摘要
 	RecentTurns    []Turn `json:"recent_turns,omitempty"`

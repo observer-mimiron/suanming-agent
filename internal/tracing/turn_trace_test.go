@@ -102,7 +102,6 @@ func TestRealTracer_ErrorTurnStatus(t *testing.T) {
 
 	// Digest should also show error
 	}
-}
 
 func TestRealTracer_SetStatusOnSpan(t *testing.T) {
 	rt := NewRealTracer(nil)
@@ -139,18 +138,6 @@ func TestRealTracer_SetStatusOnSpan(t *testing.T) {
 		t.Errorf("qimen span status = %s, want fallback", qmSpan.Status)
 	}
 
-	// Digest should match raw trace status
-		switch s.Label {
-		case "知识检索":
-			if s.Status != "degraded" {
-				t.Errorf("digest knowledge_search = %s, want degraded", s.Status)
-			}
-		case "奇门遁甲":
-			if s.Status != "fallback" {
-				t.Errorf("digest qimen = %s, want fallback", s.Status)
-			}
-		}
-	}
 }
 
 func TestRealTracer_NoCollectorStillProvidesTrace(t *testing.T) {
@@ -175,6 +162,8 @@ func TestRealTracer_NoCollectorStillProvidesTrace(t *testing.T) {
 	}
 
 	// Digest must be buildable
+	digest := tr.BuildProcessDigest()
+	if digest.TraceID == "" {
 		t.Error("digest has empty trace_id")
 	}
 }

@@ -113,12 +113,11 @@ func BuildContainer() *Container {
 	qimenSp.Register(sr)
 	ziwei.Register(sr)
 
-	executor, err := appRuntime.NewExecutor(reg, sr, runtimeModel, cfg.PromptMode)
+	executor, err := appRuntime.NewExecutor(reg, sr, runtimeModel, flashClient)
 	if err != nil {
 		panic(err)
 	}
 	executor.SetLLMModel(cfg.LLMModel)
-	executor.SetFlashChat(flashClient)
 	executor.SetHistoryLimit(cfg.ConversationLimit)
 
 	// Orchestrator — 会话生命周期管理，注入已构建的执行器。

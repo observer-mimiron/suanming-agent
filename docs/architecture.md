@@ -16,7 +16,7 @@ Vue 3 (SSE) ──→ Gin (:8080)
 | 执行层 | :8080 | Go + Gin + Eino ADK | 会话管理、路由、策略门控、工具调度、SSE 推送 |
 | 知识库 | :3100 | Yopedia (独立实例) | 命理典籍 RAG 检索 |
 
-## 多 Agent 架构（当前：v1.5 + Eino Phase 1-5A）
+## 多 Agent 架构（当前：v1.5 + Eino Phase 1-6）
 
 系统采用 **Supervisor Agent + AgentAsTool + Specialist Agent** 架构：
 
@@ -28,13 +28,14 @@ flowchart TD
     PG --> AR["ApprovedRoute"]
     AR --> EX["Runtime Executor"]
     EX -->|确定性 preflight| SC["短路返回<br/>（澄清/缺资料）"]
-    EX -->|主路径| SA["Supervisor Agent<br/>+ AgentTool specialists"]
+    EX -->|主路径| PF["确定性 Prefill<br/>bazi_calc / yongshen / dayun<br/>qimen_dunjia / ziwei_calc"]
+    PF --> SA["Supervisor Agent<br/>+ AgentTool specialists"]
     SA --> BZ["bazi_specialist"]
     SA --> QM["qimen_specialist"]
     SA --> ZW["ziwei_specialist"]
-    BZ --> TK["Tools: bazi_calc / yongshen / dayun / knowledge_search"]
-    QM --> TK2["Tools: qimen_dunjia / knowledge_search"]
-    ZW --> TK3["Tools: ziwei_calc / knowledge_search"]
+    BZ --> TK["Tools: knowledge_catalog / knowledge_search"]
+    QM --> TK
+    ZW --> TK
     BZ --> BR["agentEventBridge"]
     QM --> BR
     ZW --> BR
@@ -80,7 +81,9 @@ L3 槽位与标记 → profile slots / question text / time scope / target subje
 
 ## 工具注册
 
-所有命理工具通过 `internal/tools/Registry` 统一注册，由 `runtime` 通过 `adapter.go` 适配为 Eino `BaseTool` 后挂载到 Specialist Agent。
+所有命理工具通过 `internal/tools/Registry` 统一注册，由 `runtime` 通过 `adapter.go` 适配为 Eino `BaseTool`。
+
+**排盘工具**（prefill 确定性执行，不挂载到 Specialist Agent）：
 
 | 工具 | 领域 | 说明 |
 |------|------|------|
@@ -88,8 +91,15 @@ L3 槽位与标记 → profile slots / question text / time scope / target subje
 | `yongshen` | 八字 | 日主强弱、用神忌神分析 |
 | `dayun_analyzer` | 八字 | 大运走势分析 |
 | `qimen_dunjia` | 奇门 | 奇门遁甲排盘 |
-| `ziwei_calc` | 紫微 | 紫微斗数命盘 + 流年 |
-| `knowledge_search` | 通用 | MCP 连接知识库，BM25 + 向量混合检索 + LLM rerank |
+| `ziwei_calc` | 紫微 | 紫微斗数命盘 |
+| `ziwei_liunian` | 紫微 | 紫微斗数流年分析 |
+
+**知识检索工具**（挂载到 Specialist Agent，LLM 可直接调用）：
+
+| 工具 | 说明 |
+|------|------|
+| `knowledge_catalog` | 获取知识库目录结构，用于规划检索策略 |
+| `knowledge_search` | MCP 连接知识库检索古籍原文，每轮限 3 次调用 |
 
 ## Eino 迁移状态
 
@@ -99,7 +109,8 @@ L3 槽位与标记 → profile slots / question text / time scope / target subje
 | Phase 2 | 完成 | `InvokableTool` 兼容层删除，registry 只保留 Get/List |
 | Phase 3 | 完成 | ADK 固定为 route engine，`classic|adk` 开关已删除 |
 | Phase 5A | 完成 | Eino callback tracing 覆盖 ChatModel 主回答 + supervisor |
-| Phase 5B | 进行中 | `knowledge_search` retriever span 已切 Eino callback；通用 tool callback 待推进 |
+| Phase 5B | 完成 | `knowledge_search` retriever span 已切 Eino callback |
+| Phase 6 | 完成 | Execution Tree — TurnTrace → unified execution tree with phase grouping |
 | Graph | 推迟 | 等 runtime 需要更深分支/并行/中断恢复时再做 |
 
 ## Trace 架构
@@ -125,14 +136,15 @@ LLM 不可用时退到 `safeFallback` 的保守默认路由，不依赖额外 Py
 
 ## 前端 SSE 协议
 
-5 种结构化事件，前端按类型渲染：
+6 种结构化事件，前端按类型渲染：
 
 | 事件类型 | 用途 |
 |---------|------|
-| `thinking` | 调试思考事件（前端收进 debug drawer） |
-| `tool_call` | 调试工具事件与结果（前端收进 debug drawer） |
-| `component` | 排盘卡牌（八字/奇门/紫微） |
+| `thinking` | 内部思考过程（supervisor 推理 + analysis 段） |
+| `tool_call` | 工具调用事件与结果 |
+| `component` | 结构化组件（排盘卡牌 / 过程面板 / 执行链路） |
 | `text` | 流式回答文本 |
+| `error` | 错误信息 |
 | `done` | 本轮结束 |
 
 ## 关键设计决策
@@ -141,7 +153,7 @@ LLM 不可用时退到 `safeFallback` 的保守默认路由，不依赖额外 Py
 2. 不保留独立 Python 推理主链；当前统一走 Go runtime + Eino ADK
 3. Go 负责路由审批、策略门控、工具执行和最终结果验收；Eino 承接受边界约束的 route engine 与 agent runtime
 4. RAG 通过 MCP 调本地知识库服务，不内嵌
-5. SSE 5 种结构化事件，前端按类型渲染
+5. SSE 6 种结构化事件，前端按类型渲染
 6. 后续统一入口采用 `LLM Supervisor + Go Runtime + bounded specialists`
 7. Phase 1 不做自由 swarm 或多 agent 协作
 8. `ApprovedRoute` 成为 runtime 主控输入，不再通过 legacy action bridge
@@ -171,3 +183,106 @@ LLM 不可用时退到 `safeFallback` 的保守默认路由，不依赖额外 Py
 - **`preflight`** 只做短路/执行分流：`ShortCircuit=true` 时才产出文本；`ForcedRoute != nil` 时 `ShortCircuit=false`，由 executor 先 emit transition text 后进入执行链
 - **`executor`** 仍是 GuidanceState 的唯一 mutation owner
 - **`HasTimingFocus` 与 `ContainsTimingKeyword`** 语义分离：前者 scope+intent 双条件供 guidance_gate 用，后者关键词宽松匹配供 supervisor 用
+
+## 架构现状总评与演进方向 (2026-06-24)
+
+### 当前架构状态
+
+系统经过多轮迭代已收敛为以下拓扑：
+
+```
+用户 → Orchestrator → RouteAdvisor (ADK RouteEngine, 三层降级)
+  → Policy Gate (Go 确定性修正)
+  → Preflight (短路检查)
+  → Prefill (Go 确定性排盘链)
+  → Supervisor Agent + AgentAsTool specialists (Eino ADK)
+  → agentEventBridge → SSE 推送
+```
+
+**控制边界清晰：** 排盘/用神/大运全部在 prefill 阶段由 Go 确定性执行，LLM Agent 只能调用 `knowledge_catalog` 和 `knowledge_search` 两个工具。Supervisor 为纯调度层，禁止做分析。
+
+**但核心编排环节——Supervisor 如何调度 Specialist——仍然依赖 LLM 的 tool calling 隐式行为。**
+
+### 已知问题
+
+#### 1. AgentAsTool 的隐式控制模型
+
+当前 supervisor 通过 AgentAsTool 机制调用 specialist。调用哪个、调用几次、何时停止，全部由 LLM 决定。约束这些行为的唯一手段是 supervisor instruction 中的自然语言规则：
+
+> "如果只有一个专家可见 → 直接调用它"
+> "不要重复、总结、缩写专家的分析内容"
+> "你只做执行调度"
+
+这些规则是脆弱的：模型升级、temperature 波动、上下文长度变化都可能导致行为偏移。这是**用 prompt 工程填补架构空洞**。
+
+#### 2. agentEventBridge 的边界补丁
+
+`internal/runtime/bridge.go` 的复杂度大部分来自 AgentAsTool 的隐式行为：
+
+- **`specialistDone` 标记** — 因为 Eino 可能将 specialist 响应内联到 supervisor 的流式输出中，需要标记来防止内容被重复加入
+- **`isSpecialistTool` 名称后缀匹配** — 通过 `_specialist` 后缀区分普通工具和 AgentTool，决定响应走 `text` 还是 `tool_call` 事件
+- **流式/非流式双路径** — 同一种 specialist 响应有两种消费路径，行为不一致
+
+这些本质上是 AgentAsTool 的隐式协议和前端期望的显式协议之间的适配层。换成显式编排后，bridge 可以大幅简化。
+
+#### 3. Post-run contract gate 的外部校验
+
+`guardFinalAnswerWithTrace` 在 Agent 运行完成后对输出做 contract 校验（如 qimen 必须有 QimenResult）。这种"事后检查"说明编排层不信任 Agent 的执行结果——如果编排本身就是确定性的（Graph 的每个节点 Go 侧可控），contract gate 就不需要了。
+
+#### 4. Supervisor instruction 的脆弱性
+
+`buildSupervisorInstruction` 的输出是一段注入大量 JSON 数据块的纯文本 prompt。当命盘数据很大时，instruction 膨胀，挤占上下文窗口。而 supervisor 实际只需要知道——主领域是谁、可见专家有哪些、调用规则——用几十行结构化配置就能覆盖，不需要把完整命盘 JSON 塞进 system prompt。
+
+### 演进方向
+
+#### 核心方向：AgentAsTool → Eino Graph 编排
+
+用 `compose.Graph` 替代 AgentAsTool，把当前的隐式调度变成显式 Go 侧控制流：
+
+```
+当前 (AgentAsTool):
+  Supervisor Agent (LLM 决定一切)
+    ├─ bazi_specialist (AgentTool, LLM 决定何时调用)
+    ├─ qimen_specialist (AgentTool)
+    └─ ziwei_specialist (AgentTool)
+
+目标 (Graph):
+  [Prefill] → [Domain Router] → [Specialist*] → [Bridge] → [Done]
+                   │                │
+              Go 代码决定      Go 代码决定
+              走哪个分支      单领域/并行 fan-out
+```
+
+Graph 带来的确定性收益：
+
+- **控制流由 Go 管理** — 单领域直通、多领域并行 fan-out、循环次数、重试策略全部是代码而非 prompt
+- **节点天然可观测** — 每个 Graph 节点是一个 trace span，不需要 bridge 手动补标记
+- **中断恢复** — 长链路（排盘 → 确认 → 解读 → 追问）可以用 checkpoint 暂停等用户输入
+- **bridge 简化** — 不需要 `specialistDone`、不需要 `_specialist` 后缀匹配，每个节点产出明确的 event
+
+#### 次要方向
+
+| 方向 | 说明 |
+|------|------|
+| **Instruction 瘦身** | Specialist instruction 中去掉"已就绪"数据块，改用结构化 `SessionValues` 注入，减少 prompt 膨胀 |
+| **知识检索升级** | 当前每轮独立检索 3 次，可以考虑跨轮缓存检索结果，减少 MCP 调用 |
+| **eval 体系** | 当前缺乏回归测试套件，路由变更和 prompt 调整没有自动化验证 |
+| **OTel 标准化** | `TurnTrace` → OTel GenAI semantic conventions 的映射已完成基建，可推进到 Langfuse 后端 |
+
+### 迁移策略
+
+建议分三步，每步独立可验证：
+
+**Step 1 — 单领域直通链路（风险最低）**
+
+将 bazi 单领域场景用 Graph 串起来：`Prefill → BaziSpecialist → Bridge → Done`。Supervisor 不再参与单领域调用。AgentAsTool 路径保留，双轨运行。
+
+**Step 2 — 多领域 fan-out**
+
+当 PrimaryDomain + SecondaryDomains 同时存在时，Graph 并行调用多个 specialist，Go 侧合并结果后推送。
+
+**Step 3 — 移除 AgentAsTool**
+
+所有场景走 Graph 后，删除 supervisor agent、删除 bridge 中的 AgentAsTool 适配代码、删除 contract gate。
+
+迁移过程中 Specialist 的业务逻辑（`BuildSpecialist` 产出的 Agent）无需重写，直接作为 Graph 节点复用。

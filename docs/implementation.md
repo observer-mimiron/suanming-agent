@@ -101,7 +101,8 @@ orchestrator (生命周期壳)
 | `internal/specialists/bazi/specialist.go` | 八字 specialist config |
 | `internal/specialists/qimen/specialist.go` | 奇门 specialist config |
 | `internal/specialists/ziwei/specialist.go` | 紫微 specialist config |
-| `internal/tools/knowledge/search.go` | 知识库检索 |
+| `internal/runtime/adapter.go` | 工具 Eino adapter（含 knowledge_search 限次逻辑） |
 | `internal/mcp/client.go` | MCP 知识库 HTTP client |
 | `internal/tracing/` | Trace 模型 + callback |
-| `prompts/interpret.md` / `direct.md` / `qimen.md` / `forensic.md` | LLM prompt 模板 |
+| `prompts/interpret.md` | LLM 解读 prompt 模板 |
+| `prompts/supervisor/` | 路由 prompt 模板 |

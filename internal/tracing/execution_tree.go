@@ -168,6 +168,19 @@ func mergeMeta(dst map[string]any, src map[string]any, kind SpanKind) {
 		if v, ok := src["hits"]; ok {
 			dst["hits"] = v
 		}
+		if v, ok := src["query"]; ok {
+			dst["query"] = v
+		}
+		if v, ok := src["degrade_reason"]; ok {
+			dst["degrade_reason"] = v
+		}
+	case KindTool:
+		if v, ok := src["args"]; ok {
+			dst["args"] = v
+		}
+		if v, ok := src["response"]; ok {
+			dst["response"] = v
+		}
 	}
 	if v, ok := src["batch_count"]; ok {
 		dst["batch_count"] = v
@@ -175,7 +188,10 @@ func mergeMeta(dst map[string]any, src map[string]any, kind SpanKind) {
 	if v, ok := src["breakdown"]; ok {
 		dst["breakdown"] = v
 	}
-	// ponytail: 转发 thinking 文本到父阶段节点
+	if v, ok := src["degrade_reason"]; ok && dst["degrade_reason"] == nil {
+		dst["degrade_reason"] = v
+	}
+	// 转发 thinking 文本到父阶段节点
 	if v, ok := src["thinking"]; ok {
 		dst["thinking"] = v
 	}

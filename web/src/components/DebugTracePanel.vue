@@ -36,8 +36,16 @@ const props = defineProps<{
 }>()
 
 const showTree = ref(false)
-const hasDebug = computed(() => !!(props.digest?.root || props.digest?.steps?.length))
-const root = computed<ExecutionNode | null>(() => props.digest?.root ?? null)
+const hasDebug = computed(() => {
+  const result = !!(props.digest?.root || props.digest?.steps?.length)
+  if (result) console.log('[DebugTracePanel] hasDebug:', result, '| root:', !!(props.digest as any)?.root, '| steps:', (props.digest as any)?.steps?.length)
+  return result
+})
+const root = computed<ExecutionNode | null>(() => {
+  const r = props.digest?.root ?? null
+  if (r) console.log('[DebugTracePanel] root computed:', r.label, '| children:', r.children?.length)
+  return r
+})
 
 function fmtMs(ms: number): string {
   if (ms >= 1000) return (ms / 1000).toFixed(1) + 's'

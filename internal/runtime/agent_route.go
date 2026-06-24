@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"fmt"
 	"strings"
 	"time"
@@ -25,14 +27,15 @@ type specialistsConfig = specialists.Config
 // AgentBuilder 负责从 specialist 配置构建 ADK ChatModelAgent 和 AgentTool。
 // 持有共享的 ToolCallingChatModel 和工具 Registry。
 type AgentBuilder struct {
-	model    einomodel.ToolCallingChatModel
-	reg      *tools.Registry
-	llmModel string
+	model     einomodel.ToolCallingChatModel
+	reg       *tools.Registry
+	llmModel  string
+	flashChat llm.Chat
 }
 
 // NewAgentBuilder 创建 AgentBuilder。
-func NewAgentBuilder(model einomodel.ToolCallingChatModel, reg *tools.Registry) *AgentBuilder {
-	return &AgentBuilder{model: model, reg: reg}
+func NewAgentBuilder(model einomodel.ToolCallingChatModel, reg *tools.Registry, flashChat llm.Chat) *AgentBuilder {
+	return &AgentBuilder{model: model, reg: reg, flashChat: flashChat}
 }
 
 // SetLLMModel 设置用于追踪 span 的模型名称。
@@ -53,7 +56,7 @@ func noFStringGenModelInput(ctx context.Context, instruction string, input *adk.
 // BuildSpecialist 从 Config 构建一个领域专家 ChatModelAgent。
 // 如果会话状态中已有出生资料或命盘结果，会被注入到 instruction 中。
 func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Config, st *state.SessionState) (adk.Agent, error) {
-	adapters, err := BuildAdaptersFor(b.reg, cfg.ToolNames)
+	adapters, err := BuildAdaptersFor(b.reg, cfg.ToolNames, b.flashChat)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +65,7 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 	if st != nil && (len(st.Profile) > 0 || st.HasBaziResult() || st.QimenResult != nil || st.HasZiWeiResult()) {
 		instruction += "\n\n## 会话已有上下文\n\n以下资料已在当前会话中提供，**直接使用，无需再次索要或调用工具获取**：\n"
 		if len(st.Profile) > 0 {
-			pb := NewBuilder("") // 只用 buildProfileSection
+			pb := NewBuilder() // 只用 buildProfileSection
 			instruction += "\n### 出生资料\n" + pb.buildProfileSection(st) + "\n"
 		}
 		if st.HasBaziResult() {
@@ -95,6 +98,49 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 }
 
 // buildBaziDataBlock 从会话状态中的 BaziResult 构建简明命盘数据摘要，注入 specialist instruction。
+// buildYongshenBlock 从 yongshen 结果中提取关键字段，格局判定显式标注为确定性结论。
+func buildYongshenBlock(sb *strings.Builder, ys map[string]interface{}) {
+	sb.WriteString("**用神分析**：")
+	if geju, ok := ys["geju"].(string); ok && geju != "" {
+		sb.WriteString(fmt.Sprintf("格局=%s", geju))
+		if status, ok := ys["geju_status"].(string); ok && status != "" {
+			sb.WriteString(fmt.Sprintf("（%s）", status))
+		}
+		if detail, ok := ys["geju_detail"].(string); ok && detail != "" {
+			sb.WriteString(fmt.Sprintf("，%s", detail))
+		}
+		if basis, ok := ys["geju_basis"].(string); ok && basis != "" {
+			sb.WriteString(fmt.Sprintf("。取格依据：%s", basis))
+		}
+		if qz, ok := ys["geju_qing_zhuo"].(string); ok && qz != "" {
+			sb.WriteString(fmt.Sprintf("。清浊：%s", qz))
+		}
+		if comb, ok := ys["geju_combination"].(string); ok && comb != "" && comb != "无明显组合关系" {
+			sb.WriteString(fmt.Sprintf("。组合关系：%s", comb))
+		}
+		sb.WriteString("。**格局名为系统确定性计算结果。组合关系中的[主/次/辅/忌]为建议优先级（基于位置距离、半合局、身强身弱），你应综合全部事实做最终主次判断。**\n")
+	}
+	// 其余用神字段
+	ysCopy := map[string]interface{}{}
+	for k, v := range ys {
+		if k != "geju" && k != "geju_status" && k != "geju_detail" && k != "geju_basis" && k != "geju_qing_zhuo" && k != "geju_combination" {
+			ysCopy[k] = v
+		}
+	}
+	if j, err := json.Marshal(ysCopy); err == nil {
+		sb.WriteString(fmt.Sprintf("**用神数据**：%s\n", string(j)))
+	}
+}
+
+// buildYongshenBlockAny 是 buildYongshenBlock 的 map[string]any 版本。
+func buildYongshenBlockAny(sb *strings.Builder, ys map[string]any) {
+	m := make(map[string]interface{}, len(ys))
+	for k, v := range ys {
+		m[k] = v
+	}
+	buildYongshenBlock(sb, m)
+}
+
 func (b *AgentBuilder) buildBaziDataBlock(st *state.SessionState) string {
 	br := st.BaziResult
 	if br == nil {
@@ -137,17 +183,9 @@ func (b *AgentBuilder) buildBaziDataBlock(st *state.SessionState) string {
 
 	// 用神
 	if ys, ok := br["yongshen"].(map[string]interface{}); ok {
-		sb.WriteString("**用神分析**：")
-		if j, err := json.Marshal(ys); err == nil {
-			sb.WriteString(string(j))
-		}
-		sb.WriteString("\n")
+		buildYongshenBlock(&sb, ys)
 	} else if ys, ok := br["yongshen"].(map[string]any); ok {
-		sb.WriteString("**用神分析**：")
-		if j, err := json.Marshal(ys); err == nil {
-			sb.WriteString(string(j))
-		}
-		sb.WriteString("\n")
+		buildYongshenBlockAny(&sb, ys)
 	}
 
 	// 大运
@@ -371,6 +409,11 @@ func (b *AgentBuilder) buildSupervisorInstruction(route policy.ApprovedRoute, al
 1. 如果只有一个专家可见 → 直接调用它
 2. 如果多个专家可见 → 先调主领域专家，再根据用户是否明确问了辅领域决定是否调第二个
 3. 如果用户问题涉及多个领域但只有一个专家可见 → 只调可见的，不要抱怨缺少工具
+
+## 最终回复规则
+- 领域专家返回结果后，你的最终回复只需 1 句过渡引导（如"以上分析供您参考，如需追问可以继续。"）
+- 不要重复、总结、缩写专家的分析内容
+- 不要生成元描述（如"内容涵盖命盘总览、强弱调候..."）
 
 ## 禁止
 - 不要回答命理分析问题（这由领域专家负责），你只做执行调度

@@ -27,7 +27,6 @@ type Config struct {
 	OTelHeaders       string
 	OTelServiceName   string
 	OTelInsecure      bool
-	PromptMode        string // "soft"（默认）或 "direct" — 直接模式用于基准测试
 	ConversationLimit int    // 传入 agent 的最近对话消息条数上限，默认 10
 }
 
@@ -36,10 +35,6 @@ type Config struct {
 func Load() *Config {
 	_ = godotenv.Load()
 
-	mode := os.Getenv("PROMPT_MODE")
-	if mode == "" {
-		mode = "soft"
-	}
 	return &Config{
 		LLMApiKey:         os.Getenv("LLM_API_KEY"),
 		LLMBaseURL:        getEnv("LLM_BASE_URL", "https://api.deepseek.com/anthropic"),
@@ -57,7 +52,6 @@ func Load() *Config {
 		OTelServiceName:   getEnv("OTEL_SERVICE_NAME", "suanming-agent"),
 		OTelInsecure:      getEnvBool("OTEL_EXPORTER_OTLP_INSECURE", false),
 		ConversationLimit: getEnvInt("CONVERSATION_LIMIT", 10),
-		PromptMode:        mode,
 	}
 }
 

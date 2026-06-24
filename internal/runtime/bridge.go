@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"log"
 	"context"
 	"encoding/json"
 
@@ -12,15 +13,26 @@ import (
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
 
+// isSpecialistTool 判断工具是否为领域专家 AgentAsTool。
+// specialist 的回复是最终分析内容，应作为主文本输出，不走 tool_call 事件。
+func isSpecialistTool(name string) bool {
+	return strings.HasSuffix(name, "_specialist")
+}
+
 // agentEventBridge consumes the ADK AsyncIterator and bridges events to EventSink.
 // bufferFinal=true 时缓存最终回答，供上层做 post-run contract gate 校验；
 // 否则按 chunk 直接推送 text，恢复普通主链的流式体验。
 // resultSaver 在工具返回结果时调用，用于将结构化命盘数据写回会话状态。
 func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterator[*adk.AgentEvent], resultSaver func(toolName, resultJSON string), labelFor func(toolName string) string, bufferFinal bool) (string, error) {
-	var pendingText string // 当前累积的 Assistant 文本，待分类
-	var finalText string   // 用户可见的最终文本
-	var searchAttempts int // knowledge_search
-	var thinkingBuf string // 累积 thinking 文本以写入当前 LLM span 调用计数，本轮内递增
+	var pendingText string    // 当前累积的 Assistant 文本，待分类
+	var finalText string      // 用户可见的最终文本
+	var searchAttempts int    // knowledge_search
+	var thinkingBuf string    // 累积 thinking 文本以写入当前 LLM span 调用计数，本轮内递增
+	var issuedToolName string  // 最近一次 supervisor 发出的工具调用名，用于检测 AgentAsTool 内联
+	var toolCallIssued bool
+	var specialistRunning string // specialist 运行中的工具名，独立于 toolCallIssued，不受 specialist 内部工具调用影响
+	var specialistDone bool              // 至少一个 specialist 已返回，supervisor 后续总结文本需丢弃
+	processedSpecialists := map[string]bool{} // 已处理的 specialist 名称，防止同一 specialist 内容重复加入
 	for {
 		event, ok := iter.Next()
 		if !ok {
@@ -46,6 +58,7 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 			if toolName == "" {
 				toolName = mv.Message.ToolName
 			}
+			log.Printf("[bridge] event: role=%s tool=%s streaming=%v", role, toolName, mv.IsStreaming)
 		}
 
 		switch {
@@ -55,6 +68,15 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 				continue
 			}
 			if isAssistantPlanningMessage(msg) {
+				// 记录 supervisor 发出的工具调用，用于检测 AgentAsTool 内联场景
+				if len(msg.ToolCalls) > 0 {
+					toolCallIssued = true
+					issuedToolName = msg.ToolCalls[0].Function.Name
+					if isSpecialistTool(issuedToolName) {
+						specialistRunning = issuedToolName
+					}
+					log.Printf("[bridge] supervisor issued tool: %s", issuedToolName)
+				}
 				if msg.Content != "" {
 					thinkingBuf += msg.Content + "\n"
 					tracing.AppendCurrentSpanAttribute(ctx, "thinking", thinkingBuf)
@@ -69,34 +91,100 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 				continue
 			}
 			if msg.Content == "" {
+				// AgentAsTool 内联：supervisor 发出工具调用后，Eino 可能将 specialist 响应
+				// 内联到 Assistant 流中（非 planning message），此时需补发 tool_call 事件
+				if toolCallIssued {
+					toolCallIssued = false
+					log.Printf("[bridge] inlined AgentAsTool response (empty content) for %s", issuedToolName)
+				}
 				continue
 			}
-			if bufferFinal {
-				pendingText += msg.Content
-			} else {
-				finalText += msg.Content
-				_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": msg.Content}}, map[string]any{
-					"buffer_final": false,
-				})
-			}
-
-		case role == schema.Assistant && mv.IsStreaming:
-			for {
-				chunk, err := mv.MessageStream.Recv()
-				if err != nil {
-					break
+			// AgentAsTool 内联：非 planning 的 assistant 消息，检测是否包含 specialist 响应
+			if toolCallIssued && !isAssistantPlanningMessage(msg) {
+				toolCallIssued = false
+		if isSpecialistTool(issuedToolName) {
+			// specialist 内联回复：按名称去重，加入 pendingText 作为主文本
+			if !processedSpecialists[issuedToolName] {
+				processedSpecialists[issuedToolName] = true
+				specialistDone = true
+				log.Printf("[bridge] specialist inline response for %s, adding to pendingText", issuedToolName)
+				if bufferFinal {
+					pendingText += msg.Content
 				}
-				if chunk != nil && chunk.Content != "" {
-					if bufferFinal {
-						pendingText += chunk.Content
-					} else {
-						finalText += chunk.Content
-						_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": chunk.Content}}, map[string]any{
-							"buffer_final": false,
-						})
+				emitChartFromToolResult(ctx, sink, issuedToolName, msg.Content)
+				if resultSaver != nil {
+					resultSaver(issuedToolName, msg.Content)
+				}
+			} else {
+				log.Printf("[bridge] specialist %s inline response already processed, skipping", issuedToolName)
+			}
+			continue
+		} else {
+					log.Printf("[bridge] inlined AgentAsTool response for %s, emitting tool_call", issuedToolName)
+					_ = emitEventWithTrace(ctx, sink, Event{Type: "tool_call", Data: map[string]any{
+						"tool":   issuedToolName,
+						"label":  labelFor(issuedToolName),
+						"result": msg.Content,
+					}}, map[string]any{
+						"tool_name": issuedToolName,
+					})
+					emitChartFromToolResult(ctx, sink, issuedToolName, msg.Content)
+					if resultSaver != nil {
+						resultSaver(issuedToolName, msg.Content)
 					}
 				}
 			}
+		if specialistDone {
+			// specialist 已输出最终内容，supervisor 后续文本作为 thinking 丢弃，不追加到 pendingText
+			log.Printf("[bridge] dropping supervisor post-specialist text (%d chars), specialist content already final", len(msg.Content))
+		} else if specialistRunning != "" {
+			// specialist 正在运行，其内联 Assistant 文本将由 Tool message 路径统一处理，
+			// 此处不加入 pendingText 以避免重复
+			log.Printf("[bridge] dropping specialist running text (%d chars) for %s, waiting for tool result", len(msg.Content), specialistRunning)
+		} else if bufferFinal {
+			pendingText += msg.Content
+		} else {
+			finalText += msg.Content
+			_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": msg.Content}}, map[string]any{
+				"buffer_final": false,
+			})
+			}
+
+	case role == schema.Assistant && mv.IsStreaming:
+		// specialistRunning 非空时也视为 specialist 流式（内部工具调用可能已重置 toolCallIssued）。
+		// specialist 内容由 Tool message 路径统一处理，流式 chunk 仅做去重标记。
+		isSpecialistStream := (toolCallIssued && isSpecialistTool(issuedToolName)) || (specialistRunning != "" && !specialistDone)
+		for {
+			chunk, err := mv.MessageStream.Recv()
+			if err != nil {
+				break
+			}
+			if chunk != nil && chunk.Content != "" {
+				if specialistDone || isSpecialistStream {
+					// specialist 已输出或正在运行，流式文本不加入 pendingText（Tool message 会带正式内容）
+					continue
+				}
+				if bufferFinal {
+					pendingText += chunk.Content
+				} else {
+					finalText += chunk.Content
+					_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": chunk.Content}}, map[string]any{
+						"buffer_final": false,
+					})
+				}
+			}
+		}
+		// specialist 流式结束后标记 specialistDone，防止 Tool message 和 supervisor 文本重复加入
+		if isSpecialistStream {
+			name := issuedToolName
+			if specialistRunning != "" {
+				name = specialistRunning
+			}
+			processedSpecialists[name] = true
+			specialistDone = true
+			toolCallIssued = false
+			log.Printf("[bridge] specialist %s streamed response captured, marking done", name)
+		}
 
 		case role == schema.Tool:
 			msg, err := mv.GetMessage()
@@ -108,6 +196,42 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 			if toolName == "knowledge_search" {
 				searchAttempts++
 			}
+			toolCallIssued = false // 正常的 Tool 事件重置标记
+
+		// specialist 的回复是最终分析内容，按名称去重后加入 pendingText，不走 tool_call。
+		// 多个 specialist 并行时各自的内容都保留，supervisor 后续总结由 specialistDone 拦截。
+		if isSpecialistTool(toolName) {
+			if !processedSpecialists[toolName] {
+				processedSpecialists[toolName] = true
+				specialistDone = true
+				specialistRunning = ""
+
+				// 当 EnableStreaming=true 时，AgentAsTool 的 gen.Send 会把 specialist 的
+				// 最终回复作为 streaming assistant event 转发给父级 iterator。这些 chunk
+				// 在 specialistRunning 未设置的情况下被当作普通 supervisor 文本加入了
+				// pendingText。Tool message 是 specialist 回复的权威副本。
+				// forwarded streaming content 本质是 specialist 的思考过程，作为 thinking
+				// 事件发给前端展示，不进入最终文本。
+				if bufferFinal && pendingText != "" {
+					log.Printf("[bridge] specialist tool %s: emitting forwarded streaming as thinking (%d chars), pendingText %d -> %d", toolName, len(pendingText), len(pendingText), len(msg.Content))
+					_ = emitEventWithTrace(ctx, sink, Event{Type: "thinking", Data: map[string]any{
+						"text":  pendingText,
+						"agent": toolName,
+					}}, map[string]any{"source": "forwarded_streaming"})
+					pendingText = msg.Content
+				} else if bufferFinal {
+					pendingText = msg.Content
+				}
+			} else {
+				specialistRunning = ""
+				log.Printf("[bridge] specialist tool %s response already processed, skipping", toolName)
+			}
+			if resultSaver != nil {
+				resultSaver(toolName, msg.Content)
+			}
+			emitChartFromToolResult(ctx, sink, toolName, msg.Content)
+			continue
+		}
 
 			// 只有缓冲模式才把工具前的 assistant 文本归类为 thinking（内部独白）。
 			if bufferFinal && pendingText != "" {

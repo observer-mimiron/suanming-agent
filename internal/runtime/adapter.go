@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+
+	"github.com/wikiglobal/suanming-agent/internal/llm"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
@@ -262,7 +265,7 @@ func newZiweiLiuNianAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 }
 
 // newKnowledgeSearchAdapter 创建知识库检索工具的 Eino BaseTool 适配器。
-func newKnowledgeSearchAdapter(reg *tools.Registry) (tool.BaseTool, error) {
+func newKnowledgeSearchAdapter(reg *tools.Registry, flashChat llm.Chat) (tool.BaseTool, error) {
 	var callCount int // 闭包计数器，随 adapter 生命周期（per-turn）归零
 
 	return utils.InferTool("knowledge_search", "在命理古籍知识库中检索原文。每轮限3次调用，请在前3次内覆盖所有关键词。query 使用核心术语，优先用典籍名+章节名限定范围。", func(ctx context.Context, input knowledgeSearchInput) (string, error) {
@@ -282,21 +285,19 @@ func newKnowledgeSearchAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 		if err != nil || result == nil {
 			return `{"passages":[]}`, nil
 		}
-		// 截断古籍段落内容，压缩上下文体积，加速后续推理
-		const maxPassageLen = 400
+		// 压缩古籍段落：优先用 flash 模型提炼要点，fallback 到 400 字截断
 		if rm, ok := result.(map[string]any); ok {
-			// 每调用只保留前 3 段最相关的古籍，避免全文灌入模型导致上下文爆炸
 			if passages, ok := rm["passages"].([]interface{}); ok && len(passages) > 3 {
 				rm["passages"] = passages[:3]
 			}
-			if passages, ok := rm["passages"].([]interface{}); ok {
-				for _, p := range passages {
-					if pm, ok := p.(map[string]interface{}); ok {
-						if c, ok := pm["content"].(string); ok && len(c) > maxPassageLen {
-							pm["content"] = c[:maxPassageLen] + "..."
-						}
+			if flashChat != nil {
+				if compressed := compressPassagesWithFlash(ctx, flashChat, rm); compressed != nil {
+					for k, v := range compressed {
+						rm[k] = v
 					}
 				}
+			} else {
+				truncatePassages(rm, 400)
 			}
 		}
 		b, e := json.Marshal(result)
@@ -332,7 +333,7 @@ func newKnowledgeCatalogAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 //
 // 未在 registry 中注册的工具会被静默跳过。
 // 返回的适配器可直接注入到 Eino Agent 工具集合。
-func BuildAdaptersFor(reg *tools.Registry, names []string) ([]tool.BaseTool, error) {
+func BuildAdaptersFor(reg *tools.Registry, names []string, flashChat llm.Chat) ([]tool.BaseTool, error) {
 	builders := map[string]func() (tool.BaseTool, error){
 		"bazi_calc":       func() (tool.BaseTool, error) { return newBaziCalcAdapter(reg) },
 		"yongshen":        func() (tool.BaseTool, error) { return newYongshenAdapter(reg) },
@@ -340,7 +341,7 @@ func BuildAdaptersFor(reg *tools.Registry, names []string) ([]tool.BaseTool, err
 		"qimen_dunjia":    func() (tool.BaseTool, error) { return newQimenAdapter(reg) },
 		"ziwei_calc":      func() (tool.BaseTool, error) { return newZiweiAdapter(reg) },
 		"ziwei_liunian":   func() (tool.BaseTool, error) { return newZiweiLiuNianAdapter(reg) },
-		"knowledge_search": func() (tool.BaseTool, error) { return newKnowledgeSearchAdapter(reg) },
+		"knowledge_search": func() (tool.BaseTool, error) { return newKnowledgeSearchAdapter(reg, flashChat) },
 		"knowledge_catalog": func() (tool.BaseTool, error) { return newKnowledgeCatalogAdapter(reg) },
 	}
 	adapters := make([]tool.BaseTool, 0, len(names))
@@ -359,4 +360,49 @@ func BuildAdaptersFor(reg *tools.Registry, names []string) ([]tool.BaseTool, err
 		adapters = append(adapters, t)
 	}
 	return adapters, nil
+}
+
+// compressPassagesWithFlash 用 flash 模型将古籍原文段落压缩为要点摘要，保留出处。
+func compressPassagesWithFlash(ctx context.Context, flashChat llm.Chat, rm map[string]any) map[string]any {
+	passages, ok := rm["passages"].([]interface{})
+	if !ok || len(passages) == 0 {
+		return nil
+	}
+	var sb strings.Builder
+	for _, p := range passages {
+		if pm, ok := p.(map[string]interface{}); ok {
+			if src, ok := pm["source"].(string); ok {
+				sb.WriteString("【" + src + "】")
+			}
+			if c, ok := pm["content"].(string); ok {
+				sb.WriteString(c)
+			}
+		}
+		sb.WriteString("\n---\n")
+	}
+	body := sb.String()
+	if len(body) > 6000 {
+		body = body[:6000]
+	}
+	prompt := "将以下古籍原文提炼为关键命理要点，保留典籍出处（用【书名】标注），每条不超过80字。只输出要点，不要解释。"
+	summary, _, err := flashChat.Generate(ctx, prompt, []llm.Message{{Role: "user", Content: body}})
+	if err != nil || summary == "" {
+		return nil // fallback to truncation
+	}
+	return map[string]any{"summary": summary, "passages": passages}
+}
+
+// truncatePassages 将 passages 中的 content 截断到 maxLen 字符。
+func truncatePassages(rm map[string]any, maxLen int) {
+	passages, ok := rm["passages"].([]interface{})
+	if !ok {
+		return
+	}
+	for _, p := range passages {
+		if pm, ok := p.(map[string]interface{}); ok {
+			if c, ok := pm["content"].(string); ok && len(c) > maxLen {
+				pm["content"] = c[:maxLen] + "..."
+			}
+		}
+	}
 }

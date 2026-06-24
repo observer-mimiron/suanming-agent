@@ -44,7 +44,8 @@ export interface DebugTraceDigest {
   turn_type?: string;
   status: 'ok' | 'degraded' | 'fallback' | 'error';
   total_ms: number;
-  steps: DebugTraceStep[];
+  steps?: DebugTraceStep[];  // legacy flat format; optional when root is present
+  root?: ExecutionNode;      // unified execution tree (from execution-tree component event)
 }
 
 export interface DebugEvent {

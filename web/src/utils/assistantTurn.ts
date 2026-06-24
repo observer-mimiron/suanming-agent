@@ -79,11 +79,11 @@ export function buildAssistantTurnViewModel(message: ChatMessage): AssistantTurn
         case 'debug-trace':
           debugTrace = seg.payload as DebugTraceDigest
           break
-        case 'execution-tree':
-          // execution-tree payload has { root: ExecutionNode, trace_id, ... },
-          // root is merged into debugTrace for DebugTracePanel unified rendering
+        case "execution-tree":
           debugTrace = seg.payload as DebugTraceDigest
-          // payload.root is received by DebugTraceDigest's new root field
+          console.log('[assistantTurn] execution-tree received | root:', !!(seg.payload as any).root, 
+            '| children:', (seg.payload as any).root?.children?.length,
+            '| debugTrace.root:', !!(debugTrace as any).root)
           break
         case 'knowledge-sources': {
           // Backend sends passages as a direct array, not wrapped in { passages: [...] }

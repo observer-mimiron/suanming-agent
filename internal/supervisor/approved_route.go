@@ -39,6 +39,21 @@ func (c *Client) Approve(ctx context.Context, msg string, st *state.SessionState
 func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *state.SessionState, route policy.ApprovedRoute) policy.ApprovedRoute {
 	applyExplicitMethodPreference(msg, &route)
 
+	// subject 切换检测：TargetSubject 非空且与当前盘归属不同 → 清旧盘，强制重新采集
+	if newSubject := route.Slots.TargetSubject; newSubject != "" && st.Subject != "" && newSubject != st.Subject {
+		log.Printf("[supervisor] subject change: %q → %q, clearing old chart data", st.Subject, newSubject)
+		st.BaziResult = nil
+		st.ZiWeiResult = nil
+		st.QimenResult = nil
+		st.Profile = make(map[string]any)
+		st.Subject = newSubject
+		route.TaskIntent = "collect_profile"
+		route.NeedsClarification = false
+		route.ClarificationQuestion = ""
+		route.PolicyHints.CanReuseCachedResult = false
+		route.PolicyHints.CanReuseSessionProfile = false
+	}
+
 	if route.TaskIntent == "collect_profile" && len(st.Profile) > 0 {
 		route.TaskIntent = "amend_profile"
 		route.PolicyHints.CanReuseSessionProfile = true
@@ -50,6 +65,14 @@ func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *sta
 	if route.TaskIntent == "collect_profile" && st.HasBaziResult() && intent.ContainsBirthInfo(msg) {
 		// keep collect_profile if user really gave new birth-time info
 	} else if route.TaskIntent == "collect_profile" && st.HasBaziResult() {
+		route.TaskIntent = "fortune_followup"
+		route.PolicyHints.CanReuseCachedResult = true
+		route.PolicyHints.CanReuseSessionProfile = true
+	}
+
+	// 已有命盘且用户未提供新出生信息时，interpret_chart → fortune_followup
+	// 避免已有命盘时 specialist 重新跑完整首次解读
+	if route.TaskIntent == "interpret_chart" && st.HasBaziResult() && !intent.ContainsBirthInfo(msg) {
 		route.TaskIntent = "fortune_followup"
 		route.PolicyHints.CanReuseCachedResult = true
 		route.PolicyHints.CanReuseSessionProfile = true

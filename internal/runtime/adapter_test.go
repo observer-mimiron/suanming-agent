@@ -17,7 +17,7 @@ func TestBuildAdaptersFor_SkipsUnregisteredTools(t *testing.T) {
 	reg.Register(&baziCalc.YongShenTool{})
 
 	names := []string{"bazi_calc", "ziwei_calc", "yongshen"}
-	adapters, err := BuildAdaptersFor(reg, names)
+	adapters, err := BuildAdaptersFor(reg, names, nil)
 	if err != nil {
 		t.Fatalf("BuildAdaptersFor: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestBuildAdaptersFor_BaziDomainList(t *testing.T) {
 	reg.Register(tools.NewKnowledgeSearchTool(nil))
 
 	baziNames := []string{"bazi_calc", "yongshen", "dayun_analyzer", "knowledge_search"}
-	adapters, err := BuildAdaptersFor(reg, baziNames)
+	adapters, err := BuildAdaptersFor(reg, baziNames, nil)
 	if err != nil {
 		t.Fatalf("BuildAdaptersFor bazi: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestBuildAdaptersFor_QimenDomainList(t *testing.T) {
 	reg.Register(tools.NewKnowledgeSearchTool(nil))
 
 	qimenNames := []string{"qimen_dunjia", "knowledge_search"}
-	adapters, err := BuildAdaptersFor(reg, qimenNames)
+	adapters, err := BuildAdaptersFor(reg, qimenNames, nil)
 	if err != nil {
 		t.Fatalf("BuildAdaptersFor qimen: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestBuildAdaptersFor_EmptyList(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(&baziCalc.CalcTool{})
 
-	adapters, err := BuildAdaptersFor(reg, nil)
+	adapters, err := BuildAdaptersFor(reg, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAdaptersFor empty: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestKnowledgeSearchAdapter_BudgetEnforced(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(tools.NewKnowledgeSearchToolFromEnv())
 
-	adapter, err := newKnowledgeSearchAdapter(reg)
+	adapter, err := newKnowledgeSearchAdapter(reg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

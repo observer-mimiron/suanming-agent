@@ -5,7 +5,6 @@ package qimen
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/6tail/lunar-go/calendar"
 	"github.com/deminzhang/qimen-go/qimen"
@@ -89,14 +88,3 @@ func (t *Tool) Execute(_ context.Context, params map[string]any) (any, error) {
 	}, nil
 }
 
-// ResolveTime 将标准时间转换为奇门工具使用的参数字典（年、月、日、时、分）。
-// 用于当客户端传入 time.Time 类型而非原始数值时的参数适配。
-func ResolveTime(tm time.Time) map[string]any {
-	return map[string]any{
-		"year":   float64(tm.Year()),
-		"month":  float64(tm.Month()),
-		"day":    float64(tm.Day()),
-		"hour":   float64(tm.Hour()),
-		"minute": float64(tm.Minute()),
-	}
-}

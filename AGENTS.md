@@ -35,13 +35,17 @@ Vue 3 → SSE → Gin (:8080)
 
 **架构单一事实来源：** `docs/architecture.md`（入口）和 `docs/architecture/supervisor/`（专题）。任何架构决策变更必须先更新该文档。
 
-## 双服务启动
+## 三服务启动
 
-可使用 `make dev` 一键启动（推荐），或分别启动：
+可使用 `make dev` 一键启动全部三个服务（推荐），或分别启动：
+make knowledge-start      # 仅知识库
 make dev-backend          # 仅后端
 make dev-frontend         # 仅前端
 
 ```bash
+# 知识库 (Next.js :3100)
+cd knowledge && npx next dev -p 3100
+
 # 执行层 (Go :8080)
 LLM_API_KEY=sk-xxx go run ./cmd/server/
 
@@ -49,8 +53,8 @@ LLM_API_KEY=sk-xxx go run ./cmd/server/
 cd web && npm run dev
 ```
 
-**端口：** 后端默认 :8080，可通过 `LISTEN_ADDR` 环境变量修改（如 `LISTEN_ADDR=:8081`）。
-环境变量：`LLM_API_KEY`（必填）、`LLM_BASE_URL`、`LLM_MODEL`、`RAG_MCP_URL`。
+**端口：** 知识库 :3100，后端默认 :8080（可通过 `LISTEN_ADDR` 环境变量修改），前端 :5173。
+环境变量：`LLM_API_KEY`（必填）、`LLM_BASE_URL`、`LLM_MODEL`、`KNOWLEDGE_MCP_URL`。
 
 ## 知识库
 
@@ -129,7 +133,7 @@ npm run build                   # 构建
 2. 路由层用 Go ADK RouteEngine（三层防御：ADK structured → textDecide → safeFallback），不做 Python 推理层
 3. 执行层用 ADK ChatModelAgent + AgentAsTool + Specialist Agent，Eino 承载路由和 Agent 运行时
 4. RAG 通过 MCP 调本地知识库服务，不内嵌
-5. SSE 5 种结构化事件（thinking/tool_call/component/text/done），前端按类型渲染
+5. SSE 6 种结构化事件（thinking/tool_call/component/text/error/done），前端按类型渲染
 6. 后续统一入口采用 `LLM Supervisor + Go Runtime + bounded specialists`
 
 ## Agent 模块边界
@@ -269,3 +273,4 @@ type SessionState struct {
 | `docs/checklist-agent-engineering.md` | Agent 工程能力自检（43 项） |
 | `docs/acceptance-criteria.md` | 验收标准 |
 | `docs/implementation.md` | 实施总览和模块依赖 |
+| `docs/data-flow.md` | 数据链路：用户消息 → AI 回答的完整调用链 |

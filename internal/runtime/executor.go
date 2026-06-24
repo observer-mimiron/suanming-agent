@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"strconv"
-	"strings"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -25,35 +24,29 @@ import (
 // Executor 负责执行已批准的路由，通过 Supervisor Agent + AgentAsTool 调度领域专家。
 type Executor struct {
 	reg                *tools.Registry
+	flashChat          llm.Chat
 	specialistRegistry *specialists.Registry
 	builder            *AgentBuilder
 	llmModel           string
-	promptBuilder      *Builder
 	historyLimit       int
-	flashChat          llm.Chat
 }
 
 // NewExecutor 创建运行时执行器。
-func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.ToolCallingChatModel, promptMode string) (*Executor, error) {
+func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.ToolCallingChatModel, flashChat llm.Chat) (*Executor, error) {
 
 	return &Executor{
 		reg:                reg,
 		specialistRegistry: sr,
-		builder:            NewAgentBuilder(model, reg),
-		promptBuilder:      NewBuilder(promptMode),
+		builder:            NewAgentBuilder(model, reg, flashChat),
 	}, nil
 }
 
 // SetLLMModel 设置用于 LLM span 元数据的模型名称。
 func (e *Executor) SetLLMModel(model string) { e.llmModel = model; e.builder.SetLLMModel(model) }
 
-// PromptBuilder 返回当前运行时使用的 prompt builder。
-func (e *Executor) PromptBuilder() *Builder { return e.promptBuilder }
 
 // SetHistoryLimit 设置传入 agent 的最近对话消息条数上限。
 func (e *Executor) SetHistoryLimit(n int) { e.historyLimit = n }
-
-func (e *Executor) SetFlashChat(chat llm.Chat) { e.flashChat = chat }
 
 // Execute 执行已批准的路由。
 //
@@ -265,10 +258,16 @@ func (e *Executor) prefillZiWei(ctx context.Context, sink EventSink, st *state.S
 	if st.ZiWeiResult != nil {
 		// 预排当前流年 (ziwei_liunian)
 		if _, ok := st.ZiWeiResult["liunian"]; !ok {
+			// ZiWeiLiuNianTool 需要 year/month/day/hour（出生信息）+ target_year + age。
+			// params 已含出生信息，复用并补充流年年份和虚岁年龄。
 			liunianParams := map[string]any{
-				"year":   float64(time.Now().Year()),
-				"gender": params["gender"],
-				"bazi":   st.ZiWeiResult,
+				"year":        params["year"],
+				"month":       params["month"],
+				"day":         params["day"],
+				"hour":        params["hour"],
+				"gender":      params["gender"],
+				"target_year": float64(time.Now().Year()),
+				"age":         float64(time.Now().Year() - int(params["year"].(float64)) + 1),
 			}
 			if result := e.callTool(ctx, "ziwei_liunian", liunianParams); result != nil {
 				st.ZiWeiResult["liunian"] = result
@@ -321,41 +320,7 @@ func (e *Executor) prefillBazi(ctx context.Context, sink EventSink, st *state.Se
 		}
 	}
 
-	// knowledge_search + flash 压缩
-	if e.flashChat != nil && st.BaziResult != nil {
-		if existing, ok := st.BaziResult["knowledge_summary"].(string); ok && existing != "" {
-			vals["knowledge_summary"] = existing
-		} else {
-			queries := buildKnowledgeQueries(st.BaziResult)
-			var allPassages []string
-			for i, q := range queries {
-				if i >= 3 {
-					break
-				}
-				if result := e.callTool(ctx, "knowledge_search", map[string]any{"query": q, "top_k": float64(3)}); result != nil {
-					if passages, ok := result["passages"].([]interface{}); ok {
-						for _, p := range passages {
-							if pm, ok := p.(map[string]interface{}); ok {
-								if c, ok := pm["content"].(string); ok {
-									allPassages = append(allPassages, c)
-								}
-							}
-						}
-					}
-				}
-			}
-			if len(allPassages) > 0 {
-				if summary := e.summarizeKnowledge(ctx, allPassages); summary != "" {
-					vals["knowledge_summary"] = summary
-					st.BaziResult["knowledge_summary"] = summary
-				}
-			}
-		}
-	}
-	// 标注 knowledge_summary 是盘面背景，不是针对当前问题的检索结果
-	if vals["knowledge_summary"] != nil {
-		vals["knowledge_summary_note"] = "以上 knowledge_summary 是根据八字盘面预检索的通用背景知识（非针对当前问题）。如果当前用户问题需要特定古籍引用、具体典籍解释或不同主题的内容，你必须调用 knowledge_search 做针对性检索。"
-	}
+
 
 	return true
 }
@@ -383,22 +348,7 @@ func (e *Executor) callTool(ctx context.Context, name string, params map[string]
 	return m
 }
 
-func (e *Executor) summarizeKnowledge(ctx context.Context, passages []string) string {
-	if e.flashChat == nil || len(passages) == 0 {
-		return ""
-	}
-	prompt := "将以下古籍原文提炼为关键命理要点，保留典籍出处，每条不超过80字。只输出要点，不要解释。"
-	body := strings.Join(passages, "\n---\n")
-	if len(body) > 6000 {
-		body = body[:6000]
-	}
-	summary, _, err := e.flashChat.Generate(ctx, prompt, []llm.Message{{Role: "user", Content: body}})
-	if err != nil {
-		log.Printf("summarizeKnowledge: flash failed: %v", err)
-		return ""
-	}
-	return summary
-}
+
 
 func buildToolParams(profile map[string]any) map[string]any {
 	year := toFloat(profile["year"])
@@ -432,25 +382,6 @@ func toFloat(v any) float64 {
 	return 0
 }
 
-func buildKnowledgeQueries(baziResult map[string]any) []string {
-	dayGan, _ := baziResult["dayGan"].(string)
-	var monthZhi string
-	if pillars, ok := baziResult["pillars"].([]interface{}); ok && len(pillars) >= 2 {
-		if p, ok := pillars[1].(map[string]interface{}); ok {
-			monthZhi, _ = p["branch"].(string)
-		}
-	}
-	queries := []string{dayGan + " 日主 调候"}
-	if monthZhi != "" {
-		queries = append(queries, dayGan+" "+monthZhi+"月")
-	}
-	if dayGan != "" {
-		if dayZhi, ok := baziResult["dayZhi"].(string); ok {
-			queries = append(queries, dayGan+dayZhi+"日柱")
-		}
-	}
-	return queries
-}
 
 // saveToolResult 将工具执行结果写回会话状态，供后续轮次复用。
 func (e *Executor) saveToolResult(st *state.SessionState, toolName, resultJSON string) {
@@ -479,6 +410,12 @@ func (e *Executor) saveToolResult(st *state.SessionState, toolName, resultJSON s
 
 // updateRoutingSnapshot 将已批准的路由写回会话状态，供后续执行链复用。
 func updateRoutingSnapshot(st *state.SessionState, route policy.ApprovedRoute) {
+	// 同步 subject：TargetSubject 非空时更新，为空但有盘时默认"自己"
+	if route.Slots.TargetSubject != "" {
+		st.Subject = route.Slots.TargetSubject
+	} else if st.Subject == "" && (st.HasBaziResult() || st.IsProfileComplete()) {
+		st.Subject = "自己"
+	}
 	st.Routing = state.RoutingSnapshot{
 		ConversationIntent:    route.ConversationIntent,
 		PrimaryDomain:         route.PrimaryDomain,

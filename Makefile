@@ -1,7 +1,8 @@
 .PHONY: build dev dev-backend dev-frontend \
         knowledge-start knowledge-stop knowledge-status knowledge-restart \
         backend-start backend-stop backend-restart \
-        frontend-start frontend-stop frontend-status frontend-restart restart status
+        frontend-start frontend-stop frontend-status frontend-restart restart status \
+        clean clean-logs clean-sessions
 
 SERVER_BIN := /tmp/suanming-server
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -17,7 +18,10 @@ dev:
 
 status:
 	@echo "=== suanming-server ==="
-	@curl -s http://localhost:18080/api/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "❌ 未运行"
+	@echo "-- go run (:8080) --"
+	@curl -s http://localhost:8080/api/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "❌ :8080 未运行"
+	@echo "-- binary (:18080) --"
+	@curl -s http://localhost:18080/api/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "❌ :18080 未运行"
 	@echo "=== knowledge MCP ==="
 	@$(MAKE) knowledge-status
 
@@ -26,7 +30,7 @@ restart: backend-stop knowledge-stop backend-start knowledge-start
 
 # ===== 后端 =====
 dev-backend:
-	@LLM_API_KEY=$$(grep LLM_API_KEY .env | cut -d '=' -f2) go run ./cmd/server/
+	@set -a; source $(CURDIR)/.env; set +a; go run ./cmd/server/
 
 backend-start: build
 	@$(MAKE) backend-stop >/dev/null 2>&1 || true
@@ -35,19 +39,19 @@ backend-start: build
 	@curl -s http://localhost:18080/api/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('后端 ✅', d.get('commit',''))"
 
 backend-stop:
-	@lsof -ti :18080 | xargs kill 2>/dev/null; echo "后端已停止"
+	@lsof -ti :18080 | xargs kill -9 2>/dev/null; echo "后端已停止"
 
 backend-restart: backend-stop backend-start
 
 # ===== 知识库 =====
 knowledge-start:
 	@$(MAKE) knowledge-stop >/dev/null 2>&1 || true
-	@cd knowledge && set -a; source .env.local; set +a; NODE_OPTIONS="--max-old-space-size=4096" npx next dev -p 3100 &
+	@cd knowledge && set -a; source .env.local; set +a; NODE_OPTIONS="--max-old-space-size=4096" npx next dev -p 3100 --turbo &
 	@sleep 6
 	@$(MAKE) knowledge-status
 
 knowledge-stop:
-	@lsof -ti :3100 | xargs kill 2>/dev/null; echo "知识库已停止"
+	@lsof -ti :3100 | xargs kill -9 2>/dev/null; echo "知识库已停止"
 
 knowledge-status:
 	@curl -s http://localhost:3100/api/status 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('知识库 ✅' if d.get('configured') else '❌ 异常')" 2>/dev/null || echo "❌ 未运行"
@@ -65,7 +69,7 @@ dev-frontend:
 	@$(MAKE) frontend-status
 
 frontend-stop:
-	@lsof -ti :5173 | xargs kill 2>/dev/null; echo "前端已停止"
+	@lsof -ti :5173 | xargs kill -9 2>/dev/null; echo "前端已停止"
 
 frontend-status:
 	@lsof -ti :5173 | xargs -I{} echo "前端 ✅ PID:" {} 2>/dev/null || echo "前端 ❌ 未运行"
@@ -81,7 +85,20 @@ frontend-preview:
 	@lsof -ti :4173 | xargs -I{} echo "前端预览 ✅ PID:" {} 2>/dev/null || echo "前端预览 ❌ 未启动"
 
 frontend-stop-preview:
-	@lsof -ti :4173 | xargs kill 2>/dev/null; echo "前端预览已停止"
+	@lsof -ti :4173 | xargs kill -9 2>/dev/null; echo "前端预览已停止"
 
 frontend-status-preview:
 	@lsof -ti :4173 | xargs -I{} echo "前端预览 ✅ PID:" {} 2>/dev/null || echo "前端预览 ❌ 未运行"
+
+# ===== 清理 =====
+clean: clean-logs clean-sessions
+	@echo "=== 清理完成 ==="
+
+clean-logs:
+	@rm -rf logs/debug/*.jsonl
+	@echo "已清理 logs/debug/ 下的 session 日志"
+
+clean-sessions:
+	@rm -rf /tmp/suanming-sessions/*.json 2>/dev/null || true
+	@rm -rf /tmp/suanming-cache/* 2>/dev/null || true
+	@echo "已清理临时 session 和缓存文件"
