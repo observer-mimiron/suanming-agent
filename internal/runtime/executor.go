@@ -25,6 +25,7 @@ import (
 type Executor struct {
 	reg                *tools.Registry
 	flashChat          llm.Chat
+	summarizerModel    einomodel.ToolCallingChatModel
 	specialistRegistry *specialists.Registry
 	builder            *AgentBuilder
 	llmModel           string
@@ -32,12 +33,14 @@ type Executor struct {
 }
 
 // NewExecutor 创建运行时执行器。
-func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.ToolCallingChatModel, flashChat llm.Chat) (*Executor, error) {
+// summarizerModel 用于 specialist 的 summarization 中间件压缩长对话历史，传 nil 则不启用压缩。
+func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.ToolCallingChatModel, flashChat llm.Chat, summarizerModel einomodel.ToolCallingChatModel) (*Executor, error) {
 
 	return &Executor{
 		reg:                reg,
+		summarizerModel:    summarizerModel,
 		specialistRegistry: sr,
-		builder:            NewAgentBuilder(model, reg, flashChat),
+		builder:            NewAgentBuilder(model, reg, flashChat, summarizerModel),
 	}, nil
 }
 

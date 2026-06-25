@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/middlewares/reduction"
+	"github.com/cloudwego/eino/adk/middlewares/summarization"
 	einomodel "github.com/cloudwego/eino/components/model"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -27,15 +30,17 @@ type specialistsConfig = specialists.Config
 // AgentBuilder 负责从 specialist 配置构建 ADK ChatModelAgent 和 AgentTool。
 // 持有共享的 ToolCallingChatModel 和工具 Registry。
 type AgentBuilder struct {
-	model     einomodel.ToolCallingChatModel
-	reg       *tools.Registry
-	llmModel  string
-	flashChat llm.Chat
+	model          einomodel.ToolCallingChatModel
+	reg            *tools.Registry
+	llmModel       string
+	flashChat      llm.Chat
+	summarizerModel einomodel.ToolCallingChatModel
 }
 
 // NewAgentBuilder 创建 AgentBuilder。
-func NewAgentBuilder(model einomodel.ToolCallingChatModel, reg *tools.Registry, flashChat llm.Chat) *AgentBuilder {
-	return &AgentBuilder{model: model, reg: reg, flashChat: flashChat}
+// summarizerModel 用于 summarization 中间件压缩长对话历史，通常应配置为成本较低的 flash 模型。
+func NewAgentBuilder(model einomodel.ToolCallingChatModel, reg *tools.Registry, flashChat llm.Chat, summarizerModel einomodel.ToolCallingChatModel) *AgentBuilder {
+	return &AgentBuilder{model: model, reg: reg, flashChat: flashChat, summarizerModel: summarizerModel}
 }
 
 // SetLLMModel 设置用于追踪 span 的模型名称。
@@ -92,9 +97,104 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 				Tools: adapters,
 			},
 		},
+		Handlers:         b.buildSpecialistHandlers(),
 		GenModelInput:    noFStringGenModelInput,
 		ModelRetryConfig: defaultRetryConfig(),
 	})
+}
+
+// buildSpecialistHandlers 返回 specialist agent 的中间件链。
+// 顺序遵循 ADK 规定：PatchToolCalls → Reduction → Summarization。
+func (b *AgentBuilder) buildSpecialistHandlers() []adk.ChatModelAgentMiddleware {
+	var handlers []adk.ChatModelAgentMiddleware
+	if mw, err := buildToolReductionMiddleware(); err == nil && mw != nil {
+		handlers = append(handlers, mw)
+	}
+	if mw, err := buildSummarizationMiddleware(b.summarizerModel); err == nil && mw != nil {
+		handlers = append(handlers, mw)
+	}
+	return handlers
+}
+
+// buildSummarizationMiddleware 构造压缩长对话历史的中间件。
+// 触发条件：对话消息数超过 20 条（约 10 轮 user/assistant 来回）。
+// 摘要模型复用 AgentBuilder 的 flash 模型，避免用主模型做压缩推高成本。
+// UserInstruction 约束摘要模型保留命理术语原文，防止"用神"/"十神"等术语被意译扭曲。
+func buildSummarizationMiddleware(m einomodel.ToolCallingChatModel) (adk.ChatModelAgentMiddleware, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return summarization.New(context.Background(), &summarization.Config{
+		Model: m,
+		Trigger: &summarization.TriggerCondition{
+			ContextMessages: 20,
+		},
+		UserInstruction: "你在为命理咨询对话生成摘要。要求：\n" +
+			"1. 保留所有命理术语原文（天干地支、十神、用神、日主、大运、流年、命宫、身宫、四化、格局、神煞、节气等），不得改写或意译。\n" +
+			"2. 保留用户提供的出生信息（年月日时、性别）和已排盘的关键数据（四柱、用神、大运、命宫主星等）。\n" +
+			"3. 保留 specialist 的核心结论与判断依据。\n" +
+			"4. 删除寒暄、过渡语、重复的盘面数据。\n" +
+			"5. 摘要忠于原意，不添加推断或未提及的内容。",
+	})
+}
+
+// knowledgeSearchMaxRunes 限制 knowledge_search 工具结果进入 LLM 上下文的最大长度（按 rune 计）。
+// 古籍原文可达数千字，超长会挤占上下文并推高成本；超出部分直接丢弃，agent 只看到前段。
+const knowledgeSearchMaxRunes = 2000
+
+// buildToolReductionMiddleware 构造工具结果截断中间件。
+// 仅对 knowledge_search 启用截断（per-tool TruncHandler），其他工具结果不受影响。
+// 顶层 SkipTruncation + SkipClear 绕过 Backend 依赖；截断 handler 返回 NeedOffload=false，
+// 不落盘、不注入 read_file 工具，超出部分直接丢弃。
+func buildToolReductionMiddleware() (adk.ChatModelAgentMiddleware, error) {
+	return reduction.New(context.Background(), &reduction.Config{
+		SkipTruncation: true,
+		SkipClear:      true,
+		ToolConfig: map[string]*reduction.ToolReductionConfig{
+			"knowledge_search": {
+				SkipTruncation: false,
+				TruncHandler:   knowledgeSearchTruncHandler,
+			},
+		},
+	})
+}
+
+// knowledgeSearchTruncHandler 截断 knowledge_search 工具结果。
+// 按 rune 计总长，超出 knowledgeSearchMaxRunes 时按出现顺序截断各文本 part，
+// 末尾追加截断提示。非文本 part（图片/文件等）原样保留。不落盘。
+func knowledgeSearchTruncHandler(_ context.Context, detail *reduction.ToolDetail) (*reduction.TruncResult, error) {
+	if detail == nil || detail.ToolResult == nil {
+		return &reduction.TruncResult{NeedTrunc: false}, nil
+	}
+	totalRunes := 0
+	for _, part := range detail.ToolResult.Parts {
+		if part.Type == schema.ToolPartTypeText {
+			totalRunes += utf8.RuneCountInString(part.Text)
+		}
+	}
+	if totalRunes <= knowledgeSearchMaxRunes {
+		return &reduction.TruncResult{NeedTrunc: false}, nil
+	}
+	newParts := make([]schema.ToolOutputPart, len(detail.ToolResult.Parts))
+	copy(newParts, detail.ToolResult.Parts)
+	budget := knowledgeSearchMaxRunes
+	for i := range newParts {
+		if newParts[i].Type != schema.ToolPartTypeText {
+			continue
+		}
+		r := []rune(newParts[i].Text)
+		if len(r) > budget {
+			newParts[i].Text = string(r[:budget]) + "\n…（古籍原文过长已截断，仅保留前段）"
+			budget = 0
+		} else {
+			budget -= len(r)
+		}
+	}
+	return &reduction.TruncResult{
+		NeedTrunc:   true,
+		ToolResult:  &schema.ToolResult{Parts: newParts},
+		NeedOffload: false,
+	}, nil
 }
 
 // buildBaziDataBlock 从会话状态中的 BaziResult 构建简明命盘数据摘要，注入 specialist instruction。

@@ -107,13 +107,24 @@ func BuildContainer() *Container {
 	if err != nil {
 		panic(err)
 	}
+	// 摘要模型 — 复用 flash 配置，用于 specialist summarization 中间件压缩长对话历史。
+	summarizerModel, err := llm.NewToolCallingModel(context.Background(), llm.FactoryConfig{
+		APIKey:          cfg.LLMApiKey,
+		BaseURL:         cfg.LLMBaseURL,
+		Model:           flashModel,
+		Temperature:     0.0,
+		DisableThinking: true,
+	})
+	if err != nil {
+		panic(err)
+	}
 	// 注册所有领域专家（composition root 负责，runtime 只消费 Registry 接口）。
 	sr := specialists.NewRegistry()
 	bazi.Register(sr)
 	qimenSp.Register(sr)
 	ziwei.Register(sr)
 
-	executor, err := appRuntime.NewExecutor(reg, sr, runtimeModel, flashClient)
+	executor, err := appRuntime.NewExecutor(reg, sr, runtimeModel, flashClient, summarizerModel)
 	if err != nil {
 		panic(err)
 	}

@@ -1,6 +1,6 @@
 ---
 name: decision-protocol
-description: Decision protocol for real-time structured technical decision-making. Use when making complex decisions with 2+ alternatives and non-obvious tradeoffs — choosing libraries, protocols, architecture patterns, or any decision triggered by the user (新增接口/改数据结构/跨多文件/多方案有明显 tradeoff). Provides decision matrix templates, Mermaid flowchart patterns, diff-block code comparison format, ADR template, and dimension selection guide for different decision types. NOT for ADR storage (use adr-kit for that) or pre-decision review (use council-skill for that) — this is the in-the-moment decision expression engine.
+description: Decision protocol for real-time structured technical decision-making. Use when making complex decisions with 2+ alternatives and non-obvious tradeoffs — choosing libraries, protocols, architecture patterns, or any decision triggered by the user (新增接口/改数据结构/跨多文件/多方案有明显 tradeoff). Provides decision matrix templates, Mermaid flowchart patterns, diff-block code comparison format, ADR template, and dimension selection guide for different decision types. NOT for ADR storage or pre-decision review — this is the in-the-moment decision expression engine.
 ---
 
 # Decision Protocol
