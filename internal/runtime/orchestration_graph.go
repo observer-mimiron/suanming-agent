@@ -33,13 +33,13 @@ func preflightNode(ctx context.Context, in string) (string, error) {
 
 // preflightBranch 根据 preflightResult 决定分支。
 // short_circuit: preflight 短路（澄清/缺资料）
-// main: 进入 prefill → agent → guard 主路径
+// prefill: 进入 prefill → agent → guard 主路径
 func preflightBranch(ctx context.Context, _ string) (string, error) {
 	s := getOrchestrationState(ctx)
 	if s.preflightResult.ShortCircuit {
 		return "short_circuit", nil
 	}
-	return "main", nil
+	return "prefill", nil
 }
 
 // emitShortCircuitNode 处理 preflight 短路：emit text 事件并返回。
@@ -154,52 +154,50 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 func buildOrchestrationGraph() (compose.Runnable[string, string], error) {
 	g := compose.NewGraph[string, string]()
 
-	// preflight 节点 + 分支
+	// 节点：先添加所有节点，再 AddBranch（branch 的 endNodes 必须已在图中）
 	if err := g.AddLambdaNode("preflight",
 		compose.InvokableLambda(preflightNode),
 		compose.WithNodeName("orchestration.preflight")); err != nil {
 		return nil, fmt.Errorf("add preflight node: %w", err)
 	}
-	if err := g.AddBranch("preflight", compose.NewGraphBranch(
-		preflightBranch,
-		map[string]bool{"short_circuit": true, "main": true},
-	)); err != nil {
-		return nil, fmt.Errorf("add preflight branch: %w", err)
-	}
-
-	// short_circuit 路径
 	if err := g.AddLambdaNode("short_circuit",
 		compose.InvokableLambda(emitShortCircuitNode),
 		compose.WithNodeName("orchestration.short_circuit")); err != nil {
 		return nil, fmt.Errorf("add short_circuit node: %w", err)
 	}
-	if err := g.AddEdge("short_circuit", compose.END); err != nil {
-		return nil, fmt.Errorf("edge short_circuit->END: %w", err)
-	}
-
-	// main 路径: prefill → agent → guard
 	if err := g.AddLambdaNode("prefill",
 		compose.InvokableLambda(prefillNode),
 		compose.WithNodeName("orchestration.prefill")); err != nil {
 		return nil, fmt.Errorf("add prefill node: %w", err)
 	}
-	if err := g.AddEdge("main", "prefill"); err != nil {
-		return nil, fmt.Errorf("edge main->prefill: %w", err)
-	}
-
 	if err := g.AddLambdaNode("agent",
 		compose.StreamableLambda(agentNode),
 		compose.WithNodeName("orchestration.agent")); err != nil {
 		return nil, fmt.Errorf("add agent node: %w", err)
 	}
-	if err := g.AddEdge("prefill", "agent"); err != nil {
-		return nil, fmt.Errorf("edge prefill->agent: %w", err)
-	}
-
 	if err := g.AddLambdaNode("final_guard",
 		compose.InvokableLambda(guardNode),
 		compose.WithNodeName("orchestration.guard")); err != nil {
 		return nil, fmt.Errorf("add guard node: %w", err)
+	}
+
+	// preflight 分支：short_circuit / prefill（endNodes 必须是实际节点名）
+	if err := g.AddBranch("preflight", compose.NewGraphBranch(
+		preflightBranch,
+		map[string]bool{"short_circuit": true, "prefill": true},
+	)); err != nil {
+		return nil, fmt.Errorf("add preflight branch: %w", err)
+	}
+
+	// 边
+	if err := g.AddEdge(compose.START, "preflight"); err != nil {
+		return nil, fmt.Errorf("edge START->preflight: %w", err)
+	}
+	if err := g.AddEdge("short_circuit", compose.END); err != nil {
+		return nil, fmt.Errorf("edge short_circuit->END: %w", err)
+	}
+	if err := g.AddEdge("prefill", "agent"); err != nil {
+		return nil, fmt.Errorf("edge prefill->agent: %w", err)
 	}
 	if err := g.AddEdge("agent", "final_guard"); err != nil {
 		return nil, fmt.Errorf("edge agent->guard: %w", err)
