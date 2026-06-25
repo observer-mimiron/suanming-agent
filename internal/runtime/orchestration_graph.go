@@ -2,6 +2,10 @@ package runtime
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/schema"
 
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
 )
@@ -74,4 +78,64 @@ func guardNode(ctx context.Context, finalText string) (string, error) {
 	}
 	s.guardedTurnType = turnType
 	return guardedText, nil
+}
+
+// agentNode 是 Graph 的 agent 节点：构建 Supervisor + AgentTool specialists，
+// 启动 ADK Runner，通过 agentEventBridge 桥接事件到 SSE。
+//
+// agentEventBridge 的业务规则（specialist 去重、chart 派发、XML 拆分、
+// AgentAsTool 内联检测）整体保留在此 Lambda 内，不下放到 Graph 边。
+// Graph 只提供骨架，不替代业务规则。
+func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], error) {
+	s := getOrchestrationState(ctx)
+
+	// ForcedRoute 覆盖（preflight 返回 ForcedRoute 时）
+	route := s.route
+	if s.preflightResult.ForcedRoute != nil {
+		route = *s.preflightResult.ForcedRoute
+	}
+
+	// emit transition text（ForcedRoute 场景）
+	if s.preflightResult.ForcedRoute != nil && s.preflightResult.Text != "" {
+		_ = emitEventWithTrace(ctx, s.sink, Event{
+			Type: "text",
+			Data: map[string]any{"content": s.preflightResult.Text},
+		}, map[string]any{"turn_type": s.preflightResult.TurnType})
+	}
+
+	// updateGuidanceState（非短路路径）
+	s.executor.updateGuidanceState(s.st, route, s.userMsg, s.preflightResult)
+
+	// 构建 Supervisor
+	allConfigs := s.executor.specialistRegistry.All()
+	allowed := allowedSpecialists(route, allConfigs)
+	supervisor, err := s.executor.builder.BuildSupervisor(ctx, route, s.st, allowed)
+	if err != nil {
+		return nil, fmt.Errorf("build supervisor agent: %w", err)
+	}
+
+	// tracing callback span
+	ctx = tracing.WithEinoCallbackSpan(ctx, tracing.EinoCallbackSpanConfig{
+		Name: "adk_supervisor_agent", Kind: tracing.KindChain,
+		Attributes: map[string]any{"model": s.executor.llmModel, "domain": route.PrimaryDomain},
+	})
+
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: supervisor, EnableStreaming: true})
+	msgs := s.executor.buildConversationMessages(s.st, s.userMsg)
+	iter := runner.Run(ctx, msgs, adk.WithSessionValues(s.vals))
+
+	// Pipe: agentEventBridge 写 finalText 到 sw，Graph 边读 sr
+	sr, sw := schema.Pipe[string](64)
+	go func() {
+		defer sw.Close()
+		finalText, err := agentEventBridge(ctx, s.sink, iter, func(toolName, resultJSON string) {
+			s.executor.saveToolResult(s.st, toolName, resultJSON)
+		}, s.executor.reg.DisplayName, shouldBufferFinalAnswer())
+		if err != nil {
+			sw.Send("", err)
+			return
+		}
+		sw.Send(finalText, nil)
+	}()
+	return sr, nil
 }
