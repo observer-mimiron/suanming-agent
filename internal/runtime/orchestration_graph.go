@@ -191,7 +191,10 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 // 状态通过 compose.WithGenLocalState 管理 orchestrationGraphState，
 // 节点 Lambda 用 compose.ProcessState 读写。中断-恢复时由 Eino Checkpoint 序列化。
 // St/UserMsg/Vals 走 ctx.Value（init），不进 Checkpoint。
-func buildOrchestrationGraph() (compose.Runnable[string, string], error) {
+//
+// cpStore 非空时启用 Checkpoint，并在 agent 节点前中断（用于 C1 真太阳时确认类交互）。
+// cpStore 为 nil 时是 Phase 1 模式，不启用 Checkpoint。
+func buildOrchestrationGraph(cpStore compose.CheckPointStore) (compose.Runnable[string, string], error) {
 	g := compose.NewGraph[string, string](compose.WithGenLocalState(genOrchestrationState))
 
 	// 节点：先添加所有节点，再 AddBranch（branch 的 endNodes 必须已在图中）
@@ -246,5 +249,16 @@ func buildOrchestrationGraph() (compose.Runnable[string, string], error) {
 		return nil, fmt.Errorf("edge guard->END: %w", err)
 	}
 
-	return g.Compile(context.Background(), compose.WithGraphName("orchestration"))
+	compileOpts := []compose.GraphCompileOption{
+		compose.WithGraphName("orchestration"),
+	}
+	if cpStore != nil {
+		compileOpts = append(compileOpts,
+			compose.WithCheckPointStore(cpStore),
+			// 在 agent 节点前中断——prefill 完成后、LLM 推理前
+			// 用户可在此确认"出生时间是否为真太阳时"等交互
+			compose.WithInterruptBeforeNodes([]string{"agent"}),
+		)
+	}
+	return g.Compile(context.Background(), compileOpts...)
 }

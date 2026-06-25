@@ -31,12 +31,13 @@ type Executor struct {
 	llmModel           string
 	historyLimit       int
 	orchestrationGraph compose.Runnable[string, string] // 预编译 Graph
+	cpStore            compose.CheckPointStore          // nil = Phase 1 模式不启用 Checkpoint
 }
 
 // NewExecutor 创建运行时执行器。
 // summarizerModel 用于 specialist 的 summarization 中间件压缩长对话历史，传 nil 则不启用压缩。
 func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.ToolCallingChatModel, flashChat llm.Chat, summarizerModel einomodel.ToolCallingChatModel) (*Executor, error) {
-	graph, err := buildOrchestrationGraph()
+	graph, err := buildOrchestrationGraph(nil)
 	if err != nil {
 		return nil, fmt.Errorf("compile orchestration graph: %w", err)
 	}
@@ -47,6 +48,18 @@ func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.
 		builder:            NewAgentBuilder(model, reg, flashChat, summarizerModel),
 		orchestrationGraph: graph,
 	}, nil
+}
+
+// SetCheckPointStore 注入 Checkpoint 存储并重新编译 Graph，启用中断-恢复能力。
+// 传 nil 回退到 Phase 1 模式（不启用 Checkpoint）。
+func (e *Executor) SetCheckPointStore(cpStore compose.CheckPointStore) error {
+	e.cpStore = cpStore
+	graph, err := buildOrchestrationGraph(cpStore)
+	if err != nil {
+		return fmt.Errorf("recompile orchestration graph with checkpoint: %w", err)
+	}
+	e.orchestrationGraph = graph
+	return nil
 }
 
 // SetLLMModel 设置用于 LLM span 元数据的模型名称。
@@ -102,12 +115,101 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 	})
 	ctx, result := withOrchestrationResult(ctx)
 
-	finalText, err := e.orchestrationGraph.Invoke(ctx, message)
+	// 生成 checkpoint ID（Phase 2 模式启用 Checkpoint 时用，上层调 Resume 时回传）
+	var invokeOpts []compose.Option
+	cpID := ""
+	if e.cpStore != nil {
+		cpID = fmt.Sprintf("%s-%d", st.SessionID, time.Now().UnixNano())
+		invokeOpts = append(invokeOpts, compose.WithCheckPointID(cpID))
+	}
+	finalText, err := e.orchestrationGraph.Invoke(ctx, message, invokeOpts...)
 	if err != nil {
+		// 检查是否为 InterruptError（Graph 在 agent 节点前中断）
+		if info, ok := compose.ExtractInterruptInfo(err); ok {
+			interruptID := ""
+			if len(info.InterruptContexts) > 0 {
+				interruptID = info.InterruptContexts[0].ID
+			}
+			return "awaiting_confirm", finalText, &InterruptError{
+				CheckPointID: cpID,
+				InterruptID:  interruptID,
+				Reason:       "solar_time_confirm",
+			}
+		}
 		return "agent_error", finalText, err
 	}
 
 	// turnType 由 guardNode / emitShortCircuitNode 写入 result 容器
+	return result.TurnType, finalText, nil
+}
+
+// InterruptError 表示 Graph 在 agent 节点前中断，等待用户确认后继续。
+type InterruptError struct {
+	CheckPointID string
+	InterruptID  string
+	Reason       string
+}
+
+func (e *InterruptError) Error() string {
+	return fmt.Sprintf("graph interrupted: cpID=%s interruptID=%s reason=%s",
+		e.CheckPointID, e.InterruptID, e.Reason)
+}
+
+// Resume 在 Checkpoint 中断后由用户回复触发，继续执行 Graph。
+// 典型场景: prefill 后追问"出生时间是否为真太阳时"，用户回复后调用此方法。
+//
+// 参数:
+//   - cpID: Execute 返回的 InterruptError.CheckPointID
+//   - interruptID: Execute 返回的 InterruptError.InterruptID
+//   - userMessage: 用户的回复文本（如"是的，真太阳时"）
+func (e *Executor) Resume(ctx context.Context, sink EventSink, st *state.SessionState, cpID, interruptID, userMessage string) (string, string, error) {
+	// 重建 vals（prefill 结果已在 session state，从 st 重建）
+	vals := map[string]any{"profile": st.Profile, "domain": st.Routing.PrimaryDomain}
+	if st.BaziResult != nil {
+		vals["bazi_result"] = st.BaziResult
+		if bj, err := json.Marshal(st.BaziResult); err == nil {
+			vals["bazi_json"] = string(bj)
+		}
+	}
+	if st.QimenResult != nil {
+		vals["qimen_result"] = st.QimenResult
+	}
+	if st.ZiWeiResult != nil {
+		vals["ziwei_result"] = st.ZiWeiResult
+	}
+
+	ctx = withOrchestrationInit(ctx, &orchestrationInit{
+		St:      st,
+		UserMsg: userMessage,
+		Vals:    vals,
+		// Route 不设——Resume 时 Graph state 从 Checkpoint 恢复，init.Route 被忽略
+	})
+	ctx = withOrchestrationRuntime(ctx, &orchestrationRuntime{
+		Sink:     sink,
+		Executor: e,
+	})
+	ctx, result := withOrchestrationResult(ctx)
+
+	// 用 ResumeWithData 包装 ctx，携带 interruptID + 用户回复数据
+	rCtx := compose.ResumeWithData(ctx, interruptID, userMessage)
+
+	finalText, err := e.orchestrationGraph.Invoke(rCtx, userMessage, compose.WithCheckPointID(cpID))
+	if err != nil {
+		// resume 后仍可能再次中断（多轮确认）
+		if info, ok := compose.ExtractInterruptInfo(err); ok {
+			newInterruptID := ""
+			if len(info.InterruptContexts) > 0 {
+				newInterruptID = info.InterruptContexts[0].ID
+			}
+			return "awaiting_confirm", finalText, &InterruptError{
+				CheckPointID: cpID,
+				InterruptID:  newInterruptID,
+				Reason:       "solar_time_confirm",
+			}
+		}
+		return "agent_error", finalText, err
+	}
+
 	return result.TurnType, finalText, nil
 }
 
