@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
@@ -138,4 +139,74 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 		sw.Send(finalText, nil)
 	}()
 	return sr, nil
+}
+
+// buildOrchestrationGraph 编译执行骨架 Graph Runnable。
+//
+// 拓扑:
+//   START → preflight ──branch──┬─ short_circuit → END
+//                                └─ prefill → agent → final_guard → END
+//
+// 状态通过 ctx.Value 注入 orchestrationState（见 orchestration_state.go），
+// 不使用 compose.WithGenLocalState——后者创建的 state 与外部注入的 state 是两个对象，
+// 会导致节点 Lambda 拿不到真实字段。ctx.Value 方式简单直接，Phase 1 够用。
+// Phase 2 Checkpoint 需要真正的 State Graph 时再重设计（见 Task 9）。
+func buildOrchestrationGraph() (compose.Runnable[string, string], error) {
+	g := compose.NewGraph[string, string]()
+
+	// preflight 节点 + 分支
+	if err := g.AddLambdaNode("preflight",
+		compose.InvokableLambda(preflightNode),
+		compose.WithNodeName("orchestration.preflight")); err != nil {
+		return nil, fmt.Errorf("add preflight node: %w", err)
+	}
+	if err := g.AddBranch("preflight", compose.NewGraphBranch(
+		preflightBranch,
+		map[string]bool{"short_circuit": true, "main": true},
+	)); err != nil {
+		return nil, fmt.Errorf("add preflight branch: %w", err)
+	}
+
+	// short_circuit 路径
+	if err := g.AddLambdaNode("short_circuit",
+		compose.InvokableLambda(emitShortCircuitNode),
+		compose.WithNodeName("orchestration.short_circuit")); err != nil {
+		return nil, fmt.Errorf("add short_circuit node: %w", err)
+	}
+	if err := g.AddEdge("short_circuit", compose.END); err != nil {
+		return nil, fmt.Errorf("edge short_circuit->END: %w", err)
+	}
+
+	// main 路径: prefill → agent → guard
+	if err := g.AddLambdaNode("prefill",
+		compose.InvokableLambda(prefillNode),
+		compose.WithNodeName("orchestration.prefill")); err != nil {
+		return nil, fmt.Errorf("add prefill node: %w", err)
+	}
+	if err := g.AddEdge("main", "prefill"); err != nil {
+		return nil, fmt.Errorf("edge main->prefill: %w", err)
+	}
+
+	if err := g.AddLambdaNode("agent",
+		compose.StreamableLambda(agentNode),
+		compose.WithNodeName("orchestration.agent")); err != nil {
+		return nil, fmt.Errorf("add agent node: %w", err)
+	}
+	if err := g.AddEdge("prefill", "agent"); err != nil {
+		return nil, fmt.Errorf("edge prefill->agent: %w", err)
+	}
+
+	if err := g.AddLambdaNode("final_guard",
+		compose.InvokableLambda(guardNode),
+		compose.WithNodeName("orchestration.guard")); err != nil {
+		return nil, fmt.Errorf("add guard node: %w", err)
+	}
+	if err := g.AddEdge("agent", "final_guard"); err != nil {
+		return nil, fmt.Errorf("edge agent->guard: %w", err)
+	}
+	if err := g.AddEdge("final_guard", compose.END); err != nil {
+		return nil, fmt.Errorf("edge guard->END: %w", err)
+	}
+
+	return g.Compile(context.Background(), compose.WithGraphName("orchestration"))
 }
