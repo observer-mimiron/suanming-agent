@@ -88,27 +88,27 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 		vals["ziwei_result"] = st.ZiWeiResult
 	}
 
-	// 注入 state 到 ctx——节点 Lambda 通过 getOrchestrationState(ctx) 读取。
-	// 不使用 compose.WithGenLocalState（后者创建的 state 与外部 state 是两个对象，
-	// 节点 Lambda 拿不到真实字段）。ctx.Value 简单直接，Phase 1 够用。
-	// Phase 2 Checkpoint 需要真正的 State Graph 时再重设计（见 Task 9）。
-	oState := &orchestrationState{
-		st:       st,
-		route:    route,
-		userMsg:  message,
-		vals:     vals,
-		sink:     sink,
-		executor: e,
-	}
-	ctx = withOrchestrationState(ctx, oState)
+	// 注入 init + runtime + result 到 ctx
+	// Graph state（PreflightResult/Route）由 WithGenLocalState 管理，节点 Lambda 用 ProcessState 读写
+	ctx = withOrchestrationInit(ctx, &orchestrationInit{
+		St:      st,
+		Route:   route,
+		UserMsg: message,
+		Vals:    vals,
+	})
+	ctx = withOrchestrationRuntime(ctx, &orchestrationRuntime{
+		Sink:     sink,
+		Executor: e,
+	})
+	ctx, result := withOrchestrationResult(ctx)
 
 	finalText, err := e.orchestrationGraph.Invoke(ctx, message)
 	if err != nil {
 		return "agent_error", finalText, err
 	}
 
-	// guardedTurnType 由 guardNode / emitShortCircuitNode 写入 state
-	return oState.guardedTurnType, finalText, nil
+	// turnType 由 guardNode / emitShortCircuitNode 写入 result 容器
+	return result.TurnType, finalText, nil
 }
 
 func (e *Executor) updateGuidanceState(st *state.SessionState, route policy.ApprovedRoute, message string, result preflightResult) {
