@@ -8,7 +8,7 @@ import (
 	"log"
 	"strconv"
 
-	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
 	einomodel "github.com/cloudwego/eino/components/model"
@@ -30,17 +30,22 @@ type Executor struct {
 	builder            *AgentBuilder
 	llmModel           string
 	historyLimit       int
+	orchestrationGraph compose.Runnable[string, string] // 预编译 Graph
 }
 
 // NewExecutor 创建运行时执行器。
 // summarizerModel 用于 specialist 的 summarization 中间件压缩长对话历史，传 nil 则不启用压缩。
 func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.ToolCallingChatModel, flashChat llm.Chat, summarizerModel einomodel.ToolCallingChatModel) (*Executor, error) {
-
+	graph, err := buildOrchestrationGraph()
+	if err != nil {
+		return nil, fmt.Errorf("compile orchestration graph: %w", err)
+	}
 	return &Executor{
 		reg:                reg,
 		summarizerModel:    summarizerModel,
 		specialistRegistry: sr,
 		builder:            NewAgentBuilder(model, reg, flashChat, summarizerModel),
+		orchestrationGraph: graph,
 	}, nil
 }
 
@@ -55,9 +60,10 @@ func (e *Executor) SetHistoryLimit(n int) { e.historyLimit = n }
 //
 // 流程：
 //  1. 更新路由快照
-//  2. 确定性 preflight 检查
-//  3. 短路返回（澄清、缺资料）
-//  4. 主路径：构建 route-bound Supervisor Agent + AgentTool specialists 并执行
+//  2. 注入 orchestrationState 到 ctx
+//  3. 调用预编译 Graph（preflight → branch → {short_circuit | prefill → agent → guard}）
+//
+// preflight / guard 的 tracing span 在对应节点 Lambda 内创建，Execute 不再直接持有。
 func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.SessionState, route policy.ApprovedRoute, message string) (turnType string, assistantText string, err error) {
 	updateRoutingSnapshot(st, route)
 
@@ -67,38 +73,42 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 	}
 	annotateApprovedRouteTrace(ctx, st, route)
 
-	// 确定性 preflight
-	preflightSpan := tracing.SpanFromContext(ctx, "preflight", tracing.KindChain)
-	preflightSpan.SetAttribute("primary_domain", route.PrimaryDomain)
-	preflightSpan.SetAttribute("task_intent", route.TaskIntent)
-	result := preflight(st, route, message)
-	preflightSpan.SetAttribute("short_circuit", result.ShortCircuit)
-	if result.TurnType != "" {
-		preflightSpan.SetAttribute("turn_type", result.TurnType)
-	}
-	preflightSpan.End()
-	if result.ShortCircuit {
-		e.updateGuidanceState(st, route, message, result)
-		_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": result.Text}}, map[string]any{
-			"turn_type": result.TurnType,
-		})
-		return result.TurnType, result.Text, nil
-	}
-
-	// ForcedRoute: guided_fallback accepted → emit transition text, use forced route
-	if result.ForcedRoute != nil {
-		if result.Text != "" {
-			_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": result.Text}}, map[string]any{
-				"turn_type": result.TurnType,
-			})
+	// 构造 per-request vals（原 runAgentRoute 的逻辑）
+	vals := map[string]any{"profile": st.Profile, "domain": route.PrimaryDomain}
+	if st.BaziResult != nil {
+		vals["bazi_result"] = st.BaziResult
+		if bj, err := json.Marshal(st.BaziResult); err == nil {
+			vals["bazi_json"] = string(bj)
 		}
-		route = *result.ForcedRoute
+	}
+	if st.QimenResult != nil {
+		vals["qimen_result"] = st.QimenResult
+	}
+	if st.ZiWeiResult != nil {
+		vals["ziwei_result"] = st.ZiWeiResult
 	}
 
-	e.updateGuidanceState(st, route, message, result)
+	// 注入 state 到 ctx——节点 Lambda 通过 getOrchestrationState(ctx) 读取。
+	// 不使用 compose.WithGenLocalState（后者创建的 state 与外部 state 是两个对象，
+	// 节点 Lambda 拿不到真实字段）。ctx.Value 简单直接，Phase 1 够用。
+	// Phase 2 Checkpoint 需要真正的 State Graph 时再重设计（见 Task 9）。
+	oState := &orchestrationState{
+		st:       st,
+		route:    route,
+		userMsg:  message,
+		vals:     vals,
+		sink:     sink,
+		executor: e,
+	}
+	ctx = withOrchestrationState(ctx, oState)
 
-	// 主路径: AgentAsTool 执行
-	return e.runAgentRoute(ctx, sink, st, route, message)
+	finalText, err := e.orchestrationGraph.Invoke(ctx, message)
+	if err != nil {
+		return "agent_error", finalText, err
+	}
+
+	// guardedTurnType 由 guardNode / emitShortCircuitNode 写入 state
+	return oState.guardedTurnType, finalText, nil
 }
 
 func (e *Executor) updateGuidanceState(st *state.SessionState, route policy.ApprovedRoute, message string, result preflightResult) {
@@ -144,57 +154,6 @@ func shouldPreserveGuidanceOnExecution(route policy.ApprovedRoute, st *state.Ses
 	default:
 		return false
 	}
-}
-
-// runAgentRoute 根据 ApprovedRoute 动态构建 Supervisor Agent + AgentTool specialists，
-// 启动 Runner 执行并通过 agentEventBridge 桥接事件到 SSE。
-func (e *Executor) runAgentRoute(ctx context.Context, sink EventSink, st *state.SessionState, route policy.ApprovedRoute, message string) (string, string, error) {
-	// SessionValues
-	vals := map[string]any{"profile": st.Profile, "domain": route.PrimaryDomain}
-	if st.BaziResult != nil {
-		vals["bazi_result"] = st.BaziResult
-		if bj, err := json.Marshal(st.BaziResult); err == nil {
-			vals["bazi_json"] = string(bj)
-		}
-	}
-	if st.QimenResult != nil {
-		vals["qimen_result"] = st.QimenResult
-	}
-	if st.ZiWeiResult != nil {
-		vals["ziwei_result"] = st.ZiWeiResult
-	}
-
-	e.prefill(ctx, sink, st, route, vals)
-
-	allConfigs := e.specialistRegistry.All()
-	allowed := allowedSpecialists(route, allConfigs)
-	supervisor, err := e.builder.BuildSupervisor(ctx, route, st, allowed)
-	if err != nil {
-		return "", "", fmt.Errorf("build supervisor agent: %w", err)
-	}
-
-	ctx = tracing.WithEinoCallbackSpan(ctx, tracing.EinoCallbackSpanConfig{
-		Name: "adk_supervisor_agent", Kind: tracing.KindChain,
-		Attributes: map[string]any{"model": e.llmModel, "domain": route.PrimaryDomain},
-	})
-
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: supervisor, EnableStreaming: true})
-	msgs := e.buildConversationMessages(st, message)
-	iter := runner.Run(ctx, msgs, adk.WithSessionValues(vals))
-	finalText, err := agentEventBridge(ctx, sink, iter, func(toolName, resultJSON string) {
-		e.saveToolResult(st, toolName, resultJSON)
-	}, e.reg.DisplayName, shouldBufferFinalAnswer())
-	if err != nil {
-		return "agent_error", finalText, err
-	}
-	turnType, guardedText := guardFinalAnswerWithTrace(ctx, route, st, finalText)
-	if shouldBufferFinalAnswer() && guardedText != "" {
-		_ = emitEventWithTrace(ctx, sink, Event{Type: "text", Data: map[string]any{"content": guardedText}}, map[string]any{
-			"buffer_final": true,
-			"turn_type":    turnType,
-		})
-	}
-	return turnType, guardedText, nil
 }
 
 // prefill 按领域预执行可安全复用的确定性排盘工具链。所有领域的排盘由 Go 确定性执行，结果注入 vals 和 session state，LLM 不再接触排盘工具。

@@ -43,7 +43,11 @@ func TestExecute_RecordsPreflightAndSSETraceOnShortCircuit(t *testing.T) {
 		ClarificationQuestion: "请确认问题范围。",
 	}
 	sink := &recordingSink{}
-	exec := &Executor{}
+	graph, err := buildOrchestrationGraph()
+	if err != nil {
+		t.Fatalf("buildOrchestrationGraph: %v", err)
+	}
+	exec := &Executor{orchestrationGraph: graph}
 
 	turnType, text, err := exec.Execute(ctx, sink, st, route, "帮我看看")
 	if err != nil {
