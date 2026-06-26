@@ -13,6 +13,7 @@ import (
 
 	einomodel "github.com/cloudwego/eino/components/model"
 
+	"github.com/wikiglobal/suanming-agent/internal/intent"
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
@@ -32,6 +33,7 @@ type Executor struct {
 	historyLimit       int
 	orchestrationGraph compose.Runnable[string, string] // 预编译 Graph
 	cpStore            compose.CheckPointStore          // nil = Phase 1 模式不启用 Checkpoint
+	router             intent.Router                    // semantic router，供 preflight/guidance_gate 用；nil 走 regex
 }
 
 // NewExecutor 创建运行时执行器。
@@ -68,6 +70,10 @@ func (e *Executor) SetLLMModel(model string) { e.llmModel = model; e.builder.Set
 
 // SetHistoryLimit 设置传入 agent 的最近对话消息条数上限。
 func (e *Executor) SetHistoryLimit(n int) { e.historyLimit = n }
+
+// SetRouter 注入 semantic router，供 preflight/guidance_gate 使用。
+// 传 nil 等于走旧 regex 兜底。
+func (e *Executor) SetRouter(r intent.Router) { e.router = r }
 
 // Execute 执行已批准的路由。
 //
@@ -112,6 +118,7 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 	ctx = withOrchestrationRuntime(ctx, &orchestrationRuntime{
 		Sink:     sink,
 		Executor: e,
+		Router:   e.router,
 	})
 	ctx, result := withOrchestrationResult(ctx)
 
@@ -187,6 +194,7 @@ func (e *Executor) Resume(ctx context.Context, sink EventSink, st *state.Session
 	ctx = withOrchestrationRuntime(ctx, &orchestrationRuntime{
 		Sink:     sink,
 		Executor: e,
+		Router:   e.router,
 	})
 	ctx, result := withOrchestrationResult(ctx)
 
@@ -276,6 +284,15 @@ func (e *Executor) prefill(ctx context.Context, sink EventSink, st *state.Sessio
 	case "ziwei":
 		executed = e.prefillZiWei(ctx, sink, st, vals)
 	}
+
+	// qimen 补域：主域非 qimen 但 qimen_mode=supplement 时，也预执行奇门排盘，
+	// 让 qimen specialist 能在「会话已有上下文」中拿到盘数据，避免 specialist
+	// 试调 qimen_dunjia（已不在其 ToolNames 中）而整链 error。
+	if route.PolicyHints.QimenMode == "supplement" && route.PrimaryDomain != "qimen" {
+		if e.prefillQimen(ctx, sink, st, vals) {
+			executed = true
+		}
+	}
 }
 
 // prefillQimen 确定性执行奇门遁甲排盘，结果注入 vals 和 session state。
@@ -287,8 +304,15 @@ func (e *Executor) prefillQimen(ctx context.Context, sink EventSink, st *state.S
 
 	params := buildToolParams(st.Profile)
 	if params == nil {
-		// 无出生资料时用当前时间排盘
-		params = map[string]any{}
+		// 无出生资料时用当前时间排盘（时家奇门以问课时刻起局）
+		now := time.Now()
+		params = map[string]any{
+			"year":   float64(now.Year()),
+			"month":  float64(int(now.Month())),
+			"day":    float64(now.Day()),
+			"hour":   float64(now.Hour()),
+			"minute": float64(now.Minute()),
+		}
 	}
 	if result := e.callTool(ctx, "qimen_dunjia", params); result != nil {
 		st.QimenResult = result

@@ -5,6 +5,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/wikiglobal/suanming-agent/internal/intent"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
@@ -41,6 +42,7 @@ type orchestrationInit struct {
 type orchestrationRuntime struct {
 	Sink     EventSink
 	Executor *Executor
+	Router   intent.Router // 从 Executor.router 传入，供 preflight 用
 }
 
 // orchestrationResult 是 Execute/Resume 拿返回值的容器，通过 ctx.Value 传递。
