@@ -37,7 +37,7 @@ func (c *Client) Approve(ctx context.Context, msg string, st *state.SessionState
 //
 // 这些修正是纯确定性的，不涉及 LLM 调用，保证关键路由决策的稳定性。
 func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *state.SessionState, route policy.ApprovedRoute) policy.ApprovedRoute {
-	applyExplicitMethodPreference(msg, &route)
+	c.applyExplicitMethodPreference(ctx, msg, &route)
 
 	// subject 切换检测：TargetSubject 非空且与当前盘归属不同 → 清旧盘，强制重新采集
 	if newSubject := route.Slots.TargetSubject; newSubject != "" && st.Subject != "" && newSubject != st.Subject {
@@ -94,7 +94,7 @@ func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *sta
 
 // applyExplicitMethodPreference 在用户明确指定术数方法时做硬性纠偏。
 // 这里只 obey 显式方法意图，不把一般语义问题扩展成 case 规则库。
-func applyExplicitMethodPreference(msg string, route *policy.ApprovedRoute) {
+func applyRegexMethodPreference(msg string, route *policy.ApprovedRoute) {
 	trimmed := strings.TrimSpace(msg)
 	if trimmed == "" || route == nil {
 		return
@@ -129,6 +129,76 @@ func applyExplicitMethodPreference(msg string, route *policy.ApprovedRoute) {
 	case intent.ContainsTimingKeyword(trimmed) && route.PolicyHints.QimenMode == "none":
 		route.PolicyHints.QimenMode = "supplement"
 		route.PolicyHints.NeedsQimen = true
+	}
+}
+
+// applyExplicitMethodPreference 在用户显式指定术数方法时做主领域纠偏。
+// 路由模式由 c.routerMode 控制：
+//   - off: 不调 router，走旧 regex MentionsXxxMethod（受 Confidence 守卫）
+//   - shadow: 调 router 只 log，决策仍走 regex（受 Confidence 守卫）
+//   - enforce: router positive 命中即覆盖 LLM（不看 Confidence）；
+//     router err 才退回 regex（受 Confidence 守卫）；negative/none 不覆盖不退回
+func (c *Client) applyExplicitMethodPreference(ctx context.Context, msg string, route *policy.ApprovedRoute) {
+	trimmed := strings.TrimSpace(msg)
+	if trimmed == "" || route == nil {
+		return
+	}
+
+	// router 路径（enforce/shadow 模式且 router 已注入）
+	if c.router != nil && (c.routerMode == "enforce" || c.routerMode == "shadow") {
+		result, err := c.router.Match(ctx, trimmed)
+
+		if c.routerMode == "shadow" {
+			// 旁路：只 log，决策走 regex（落入下面的 regex 分支）
+			log.Printf("[router.shadow] msg=%q result=%+v err=%v", trimmed, result, err)
+		} else if err == nil {
+			// enforce 模式且 Match 成功
+			switch result.Decision {
+			case intent.DecisionPositive:
+				// router 可信，positive 命中即覆盖，不看 Confidence
+				route.PrimaryDomain = result.Method
+				route.SecondaryDomains = removeDomain(route.SecondaryDomains, result.Method)
+				applyMethodPolicyHints(result.Method, route)
+				return
+			case intent.DecisionNegative, intent.DecisionNone:
+				// 不覆盖，**不退回 regex**——避免 negative 被 regex 击穿
+				return
+			}
+		}
+		// err != nil 落到下面的 regex 兜底分支
+	}
+
+	// regex 兜底分支（off 模式 / shadow 模式 / enforce+err）
+	// Confidence 守卫：高置信时禁用 regex，信任 LLM
+	if route.Confidence >= 0.7 {
+		return
+	}
+	applyRegexMethodPreference(trimmed, route)
+}
+
+// applyMethodPolicyHints 在 router positive 命中时设置对应方法的策略提示。
+// 逻辑与 applyRegexMethodPreference 一致，只是数据源从 regex 变成 router。
+func applyMethodPolicyHints(method string, route *policy.ApprovedRoute) {
+	switch method {
+	case "ziwei":
+		if !hasDomain(route.SecondaryDomains, "bazi") {
+			route.SecondaryDomains = append(route.SecondaryDomains, "bazi")
+		}
+		route.PolicyHints.QimenMode = "none"
+		route.PolicyHints.NeedsQimen = false
+		if route.PolicyHints.ProfileRequirement == "" {
+			route.PolicyHints.ProfileRequirement = "full"
+		}
+	case "qimen":
+		route.PolicyHints.QimenMode = "primary"
+		route.PolicyHints.NeedsQimen = true
+		if route.PolicyHints.ProfileRequirement == "" {
+			route.PolicyHints.ProfileRequirement = "none"
+		}
+	case "bazi":
+		if route.PolicyHints.QimenMode == "" {
+			route.PolicyHints.QimenMode = "none"
+		}
 	}
 }
 
