@@ -79,8 +79,8 @@
 | 策略 | 解决的痛点 | 实现方式 |
 |---|---|---|
 | **Negative 优先** | 假阳性（"我不看紫微"） | 每方法配 5-10 条正向 + 5-10 条负向 utterance。`Match` 时若任一负向得分 ≥ 最佳正向得分 → 不覆盖 |
-| **Confidence 守卫** | LLM 被错误覆盖 | `route.Confidence >= 0.7` 时跳过 router，完全信任 LLM（多数情况 0 次 embedding 调用） |
-| **Regex 兜底** | embedding 故障失能 | 启动期/运行期 embedder 失败 → 退回 `MentionsXxxMethod`，log 记录。supervisor 永不因 embedding 故障失能 |
+| **Confidence 守卫** | Dumb regex 覆盖 smart LLM | `route.Confidence >= 0.7` 时**禁用 regex 兜底**，信任 LLM；router 本身不看 Confidence（positive 命中即覆盖，因为 router 有负向 utterance 已足够可靠） |
+| **Regex 兜底** | embedding 故障失能 | router 不可用（启动失败/运行期 error/`router=nil`）时退回 `MentionsXxxMethod`，受 Confidence 守卫约束。supervisor 永不因 embedding 故障失能 |
 
 ### 4.3 数据流
 
@@ -104,15 +104,14 @@ Decide (LLM) → SupervisorDecision{Confidence, PrimaryDomain}
 policy.Apply → ApprovedRoute
   ↓
 normalizeApprovedRoute → applyExplicitMethodPreference:
-  ├─ c.router == nil              → 走旧 regex MentionsXxxMethod（兜底）
-  ├─ route.Confidence >= 0.7      → 跳过覆盖（信任 LLM）
-  └─ else → c.router.Match(ctx, msg):
-       ├─ embed msg (~50ms)
-       ├─ 每方法算 best_pos = max(cosine(msg, pos_vecs))
-       │            best_neg = max(cosine(msg, neg_vecs))
-       ├─ best_pos < 0.75          → 不覆盖
-       ├─ best_neg >= best_pos      → 不覆盖（Negative 优先）
-       └─ else                      → 覆盖 PrimaryDomain 到 best_pos 方法
+  ├─ c.router != nil → result, err = c.router.Match(ctx, msg):
+  │    ├─ err != nil                  → log + 走 regex 兜底分支（受 Confidence 守卫）
+  │    ├─ result.Decision == positive → 覆盖 PrimaryDomain（不看 Confidence，router 可信）
+  │    ├─ result.Decision == negative → 不覆盖，**不退回 regex**（避免 negative 被击穿）
+  │    └─ result.Decision == none     → 不覆盖，不退回 regex
+  └─ c.router == nil 或 err 触发兜底 → regex 兜底分支：
+       ├─ route.Confidence >= 0.7     → 禁用 regex，信任 LLM
+       └─ route.Confidence < 0.7      → 走 MentionsXxxMethod（旧硬覆盖行为）
 ```
 
 ### 4.4 错误降级链
@@ -121,7 +120,7 @@ normalizeApprovedRoute → applyExplicitMethodPreference:
 |---|---|---|
 | 启动期 embedder 初始化失败（API key 错、网络不通） | log error + `router=nil` | 应用正常启动，路由走旧 regex |
 | 启动期 utterance embedding 部分失败 | log warning，跳过失败方法，已成的仍用 router | router 部分生效 |
-| 运行期 `router.Match` 调 embedder 失败 | log warning，**本次**退回 regex | 不影响后续轮 |
+| 运行期 `router.Match` 调 embedder 失败 | log warning + 返回 error，调用方走 regex 兜底分支（受 Confidence 守卫） | 不影响后续轮 |
 
 降级粒度到「单次调用」——一次 embedding 超时不影响下轮。
 
@@ -144,22 +143,34 @@ normalizeApprovedRoute → applyExplicitMethodPreference:
 | [internal/config/config.go](../../internal/config/config.go:39) | 加 `EmbeddingProvider/EmbeddingApiKey/EmbeddingBaseUrl/EmbeddingModel` 字段 + env 读取 |
 | [internal/supervisor/client.go](../../internal/supervisor/client.go:70) | `Client` 加 `router *intent.SemanticRouter` 字段 + `WithSemanticRouter` option |
 | [internal/supervisor/approved_route.go](../../internal/supervisor/approved_route.go:97) | `applyExplicitMethodPreference` 改为 Client 方法；优先 router，nil/失败退回 regex；加 `Confidence < 0.7` 守卫 |
-| [internal/runtime/guidance_gate.go](../../internal/runtime/guidance_gate.go:51) | `anyHardNegative` 同样优先 router，失败退回 regex。**注入方式**：`ShouldEnterGuidance` 和 `anyHardNegative` 加 `router *intent.SemanticRouter` 参数（当前是自由函数），调用方（orchestration_graph）从 container 取 router 传入 |
-| [internal/container/container.go](../../internal/container/container.go:1) | 启动时构造 Embedder → SemanticRouter，注入 Client 和 runtime |
+| [internal/runtime/guidance_gate.go](../../internal/runtime/guidance_gate.go:51) | `anyHardNegative` 同样优先 router，失败退回 regex。`ShouldEnterGuidance` 和 `anyHardNegative` 加 `router *intent.SemanticRouter` 参数 |
+| [internal/runtime/executor.go](../../internal/runtime/executor.go:1) | `Executor` 加 `router *intent.SemanticRouter` 字段，构造时由 container 注入 |
+| [internal/runtime/orchestration_graph.go](../../internal/runtime/orchestration_graph.go:1) | `orchestrationRuntime` 加 `Router` 字段；`preflight` 从 `oc.RT.Router` 取传给 `ShouldEnterGuidance` |
+| [internal/container/container.go](../../internal/container/container.go:1) | 启动时构造 Embedder → SemanticRouter，注入 supervisor Client 和 Executor |
 
 ### 5.1 Router 注入路径
 
-router 是无状态、线程安全的（启动后 utterance 向量只读，embedder 本身线程安全），构造一次后全局共享。注入路径：
+router 是无状态、线程安全的（启动后 utterance 向量只读，embedder 本身线程安全），构造一次后全局共享。真实调用链：`preflightNode` ([orchestration_graph.go:41](../../internal/runtime/orchestration_graph.go:41)) → `preflight` ([preflight.go:28](../../internal/runtime/preflight.go:28)) → `ShouldEnterGuidance` ([preflight.go:30](../../internal/runtime/preflight.go:30))。router 通过 `orchestrationRuntime` 流转，**不引入 container 全局取值**：
 
 ```
 container.NewContainer(cfg)
   → embedding_factory.NewEmbedder(cfg) → embedder
   → intent.NewSemanticRouter(embedder, utterances.Utterances) → router
   → supervisor.NewClient(flash, supervisor.WithSemanticRouter(router))
-  → runtime 的 ShouldEnterGuidance 调用点：把 router 作为参数传入
+  → runtime.NewExecutor(..., router)  // Executor 持有 router 字段
+  → Executor 构造 graph 时把 router 放进 orchestrationRuntime
+  → preflightNode 通过 loadOrchestrationCtx 取 oc.RT.Router
+  → preflight(st, route, msg, router)  // 新增 router 参数
+  → ShouldEnterGuidance(router, message, route, st)
 ```
 
-`ShouldEnterGuidance` 当前签名 `func ShouldEnterGuidance(message string, route, st) bool` 改为 `func ShouldEnterGuidance(router *intent.SemanticRouter, message string, route, st) bool`。所有调用方（在 orchestration_graph.go）同步加参数。
+签名变更：
+
+- `preflight(st, route, message)` → `preflight(st, route, message, router *intent.SemanticRouter)`
+- `ShouldEnterGuidance(message, route, st)` → `ShouldEnterGuidance(router, message, route, st)`
+- `anyHardNegative(msg, route, signal)` → `anyHardNegative(router, msg, route, signal)`
+
+`router` 可以为 nil（启动期失败或未配置），各调用方按 nil 走 regex 兜底分支。
 
 ### 不动
 
@@ -169,40 +180,67 @@ container.NewContainer(cfg)
 
 ## 6. 关键算法：SemanticRouter.Match
 
+`Match` 返回 `(MatchResult, error)`——**error 与 decision 分离**，调用方才能区分「embedder 失败要退回 regex」和「语义判不覆盖不能退回 regex」：
+
 ```go
-func (r *SemanticRouter) Match(ctx context.Context, msg string) (method string, score float64, ok bool) {
+type Decision string
+
+const (
+    DecisionPositive Decision = "positive"  // 显式提及某方法，应覆盖
+    DecisionNegative Decision = "negative"  // 提及但属于否定/对比/疑问，不覆盖
+    DecisionNone     Decision = "none"      // 无足够信号，不覆盖
+)
+
+type MatchResult struct {
+    Decision Decision
+    Method   string  // positive 时为命中方法；negative 时为最佳负向匹配方法
+    Score    float64 // positive 时为最佳正向相似度；negative 时为最佳负向相似度
+}
+
+func (r *SemanticRouter) Match(ctx context.Context, msg string) (MatchResult, error) {
     if r == nil || r.embedder == nil || strings.TrimSpace(msg) == "" {
-        return "", 0, false
+        return MatchResult{Decision: DecisionNone}, nil  // 不覆盖，不退回 regex
     }
 
     vectors, err := r.embedder.EmbedStrings(ctx, []string{msg})
     if err != nil || len(vectors) == 0 {
-        return "", 0, false  // 调用方退回 regex
+        return MatchResult{}, err  // 调用方据此退回 regex 兜底
     }
     msgVec := vectors[0]
 
-    bestMethod := ""
-    bestScore := 0.0
+    bestMethod, bestPosScore := "", 0.0
+    bestNegMethod, bestNegScore := "", 0.0
 
     for name, route := range r.routes {
         posScore := maxCosine(msgVec, route.Positive)
         negScore := maxCosine(msgVec, route.Negative)
-
-        if posScore < r.threshold {
-            continue
+        if posScore > bestPosScore {
+            bestPosScore, bestMethod = posScore, name
         }
-        if negScore >= posScore {
-            continue  // Negative 优先
-        }
-        if posScore > bestScore {
-            bestScore = posScore
-            bestMethod = name
+        if negScore > bestNegScore {
+            bestNegScore, bestNegMethod = negScore, name
         }
     }
 
-    return bestMethod, bestScore, bestMethod != ""
+    switch {
+    case bestPosScore >= r.threshold && bestNegScore < bestPosScore:
+        return MatchResult{Decision: DecisionPositive, Method: bestMethod, Score: bestPosScore}, nil
+    case bestNegScore >= bestPosScore && bestNegScore >= r.threshold:
+        return MatchResult{Decision: DecisionNegative, Method: bestNegMethod, Score: bestNegScore}, nil
+    default:
+        return MatchResult{Decision: DecisionNone}, nil
+    }
 }
 ```
+
+调用方（`applyExplicitMethodPreference` / `anyHardNegative`）的判定规则：
+
+| Match 返回 | 行为 |
+|---|---|
+| `err != nil` | 走 regex 兜底分支（受 Confidence 守卫） |
+| `Decision == positive` | 覆盖 PrimaryDomain（不看 Confidence） |
+| `Decision == negative` | 不覆盖，**不退回 regex**（避免 negative 被击穿） |
+| `Decision == none` | 不覆盖，不退回 regex |
 
 **余弦相似度** 用本地 helper，无需外部依赖。
 
@@ -232,18 +270,32 @@ func (r *SemanticRouter) Match(ctx context.Context, msg string) (method string, 
 
 ### 7.3 集成测试
 
-`internal/supervisor/approved_route_test.go` 加用例：
+测试按模式开关分两批（见 Section 8 三态开关）：
 
-- LLM `Confidence=0.9` + router 命中 → 不覆盖（守卫生效）
-- LLM `Confidence=0.5` + router 命中 → 覆盖
-- `router=nil` → 退回 regex
-- router 调用失败 → 退回 regex
+**shadow 模式测试**（P1 阶段跑）：
 
-`internal/runtime/guidance_gate_test.go`（新增或扩充）加用例：
+- router 计算结果只写 log，不参与决策——验证「regex 决策 vs router 会怎么判」的分歧日志格式正确
+- `router=nil` → 退回 regex，无 panic
 
-- `anyHardNegative` 用 router 判定："我不看紫微" → 不退 guidance
-- `anyHardNegative` 用 router 判定："排个紫微盘" → 退 guidance
-- `router=nil` → 退回 regex `MentionsXxxMethod`
+**enforce 模式测试**（P3 阶段跑）：
+
+`internal/supervisor/approved_route_test.go`：
+
+- LLM `Confidence=0.9` + router `Decision=positive` → **覆盖**（router 不看 Confidence）
+- LLM `Confidence=0.5` + router `Decision=positive` → 覆盖
+- LLM `Confidence=0.9` + router `Decision=negative` → 不覆盖，不退回 regex
+- LLM `Confidence=0.5` + router `Decision=negative` → 不覆盖，不退回 regex
+- LLM `Confidence=0.9` + router `err` → 不覆盖（Confidence 守卫禁用 regex）
+- LLM `Confidence=0.5` + router `err` → 退回 regex 决定
+- `router=nil` + `Confidence=0.5` → 走 regex
+- `router=nil` + `Confidence=0.9` → 不走 regex，信任 LLM
+
+`internal/runtime/guidance_gate_test.go`：
+
+- `anyHardNegative` 用 router 判定："我不看紫微" → 不退 guidance（`Decision=negative`）
+- `anyHardNegative` 用 router 判定："排个紫微盘" → 退 guidance（`Decision=positive`）
+- `router=nil` + `Confidence<0.7` → 退回 regex `MentionsXxxMethod`
+- `router=nil` + `Confidence>=0.7` → 不退回 regex
 
 ### 7.4 现有测试不破
 
@@ -251,16 +303,28 @@ func (r *SemanticRouter) Match(ctx context.Context, msg string) (method string, 
 
 实现阶段调用项目的 **`agent-test-suites` skill** 跑路由回归测试集（AGENTS.md 列出的 skill 之一）。
 
-## 8. 上线分阶段
+## 8. 上线分阶段（三态开关）
 
-| 阶段 | 做什么 | 验证标准 |
-|---|---|---|
-| **P1 旁路** | router 跑出结果但**只 log**，决策仍走旧 regex | 收集一周「router 会怎么判 vs regex 实际怎么判」的分歧日志 |
-| **P2 校准** | 用 P1 日志 + 回归集调 threshold 和 utterance | 回归集准确率 ≥ 95% |
-| **P3 切换** | router 接入决策，regex 降为兜底；加 metric：router 命中率/退回率/override 率 | 线上跑 2 周无事故 |
-| **P4 清理**（未来） | 删 `MentionsXxxMethod` 和兜底分支 | — |
+路由模式通过配置开关 `ROUTER_MODE` 控制，支持三态：
 
-P1 旁路模式是关键——零风险上线，纯观测，先看分歧再决定是否切换。
+| 模式 | 行为 |
+|---|---|
+| `off` | router 不初始化，全程走旧 regex 路径（应用启动默认值，回滚用） |
+| `shadow` | router 跑出结果**只 log**，决策仍走旧 regex（旁路观测） |
+| `enforce` | router 接入决策，regex 降为 Confidence 守卫下的兜底 |
+
+上线阶段：
+
+| 阶段 | 模式 | 做什么 | 验证标准 |
+|---|---|---|---|
+| **P1** | `shadow` | router 旁路跑，只 log | 收集一周「router 会怎么判 vs regex 实际怎么判」的分歧日志；shadow 模式测试通过 |
+| **P2** | `shadow` | 用 P1 日志 + 回归集调 threshold 和 utterance | 回归集准确率 ≥ 95% |
+| **P3** | `enforce` | router 接入决策，regex 降为兜底；加 metric：router 命中率/退回率/override 率 | 线上跑 2 周无事故；enforce 模式测试通过 |
+| **P4**（未来） | `enforce` | 删 `MentionsXxxMethod` 和兜底分支 | — |
+
+回滚路径：`enforce` → `off`，立即可用，无需代码回滚。
+
+P1 shadow 是关键——零风险上线，纯观测，先看分歧再决定是否切换。
 
 ## 9. 风险与开放问题
 
@@ -273,7 +337,9 @@ P1 旁路模式是关键——零风险上线，纯观测，先看分歧再决�
 
 ### 开放问题
 
-无——四个 section 均已获用户确认。实现阶段如发现新问题，回写本 spec。
+- **`text-embedding-v4` 与 eino-ext dashscope ext 的兼容性**：ext README 只列了 v1/v2/v3，但 `Model` 是字符串参数，ext 不做白名单校验。需在 P1 旁路阶段用真实 DashScope 调用验证 v4 可用；如不可用，回退 `text-embedding-v3`（1024 维，ext 官方支持）。
+
+实现阶段如发现新问题，回写本 spec。
 
 ## 10. 参考资源
 
