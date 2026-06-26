@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/eino/components"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"github.com/wikiglobal/suanming-agent/internal/intent"
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -600,5 +601,37 @@ func TestParseDecision_QimenSecondaryDomain(t *testing.T) {
 	}
 	if len(got.SecondaryDomains) == 0 || got.SecondaryDomains[0] != "qimen" {
 		t.Fatalf("SecondaryDomains: got %v, want [qimen]", got.SecondaryDomains)
+	}
+}
+
+// routerStub implements intent.Router for testing option injection.
+type routerStub struct{}
+
+func (r routerStub) Match(_ context.Context, _ string) (intent.MatchResult, error) {
+	return intent.MatchResult{Decision: intent.DecisionNone}, nil
+}
+
+func TestNewClient_WithSemanticRouter(t *testing.T) {
+	flash := &llm.NoopClient{}
+	router := routerStub{}
+	c := NewClient(flash, WithSemanticRouter(router))
+	if c.router != router {
+		t.Fatal("WithSemanticRouter did not set router field")
+	}
+}
+
+func TestNewClient_WithoutSemanticRouter(t *testing.T) {
+	flash := &llm.NoopClient{}
+	c := NewClient(flash)
+	if c.router != nil {
+		t.Fatal("router should be nil by default")
+	}
+}
+
+func TestNewClient_WithRouterMode(t *testing.T) {
+	flash := &llm.NoopClient{}
+	c := NewClient(flash, WithRouterMode("shadow"))
+	if c.routerMode != "shadow" {
+		t.Fatalf("routerMode = %q, want shadow", c.routerMode)
 	}
 }

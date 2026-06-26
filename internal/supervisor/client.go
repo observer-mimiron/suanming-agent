@@ -63,6 +63,21 @@ func WithRouteEngine(engine RouteEngine) ClientOption {
 	}
 }
 
+// WithSemanticRouter 注入 semantic router，用于 applyExplicitMethodPreference。
+// 传 nil 等于不启用（走 regex 兜底）。
+func WithSemanticRouter(router intent.Router) ClientOption {
+	return func(c *Client) {
+		c.router = router
+	}
+}
+
+// WithRouterMode 设置 semantic router 的运行模式：off | shadow | enforce。
+func WithRouterMode(mode string) ClientOption {
+	return func(c *Client) {
+		c.routerMode = mode
+	}
+}
+
 // loadSupervisorPrompt 在运行时指向 buildSupervisorPrompt，测试中可替换为返回固定提示词的函数。
 var loadSupervisorPrompt = buildSupervisorPrompt
 
@@ -70,6 +85,8 @@ var loadSupervisorPrompt = buildSupervisorPrompt
 type Client struct {
 	flash       llm.Chat
 	routeEngine RouteEngine
+	router      intent.Router  // semantic router；nil 走 regex 兜底
+	routerMode  string         // off | shadow | enforce
 }
 
 // NewClient 创建一个由 flash 模型驱动的 supervisor 客户端，可传入选项配置路由引擎。
