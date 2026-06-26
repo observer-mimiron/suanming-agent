@@ -58,7 +58,6 @@ type ziweiInput struct {
 	Hour   int    `json:"hour" jsonschema_description:"出生时辰 (0-23)"`
 	Gender string `json:"gender" jsonschema_description:"性别 (男/女)"`
 	Leap   bool   `json:"leap,omitempty" jsonschema_description:"是否闰月"`
-
 }
 type ziweiLiuNianInput struct {
 	Year       int    `json:"year" jsonschema_description:"出生年份"`
@@ -316,9 +315,14 @@ type catalogInput struct {
 
 // newKnowledgeCatalogAdapter 创建知识库目录工具的 Eino BaseTool 适配器。
 func newKnowledgeCatalogAdapter(reg *tools.Registry) (tool.BaseTool, error) {
+	var callCount int // 闭包计数器，目录只需获取一次
 	return utils.InferTool("knowledge_catalog",
-		"获取知识库目录（古籍名称、章节数、前5个章节标题），用于规划检索",
+		"获取知识库目录（古籍名称、章节数、前5个章节标题），用于规划检索。限1次调用，超出自动阻断——请基于已有目录信息调 knowledge_search 检索。",
 		func(ctx context.Context, _ catalogInput) (string, error) {
+			callCount++
+			if callCount > 1 {
+				return "目录已在上一条 knowledge_catalog 工具结果中提供。你现在必须调用 knowledge_search 检索古籍原文，不要再调 knowledge_catalog。", nil
+			}
 			gt, ok := reg.Get("knowledge_catalog")
 			if !ok {
 				return `{"error":"catalog not registered"}`, nil
@@ -328,20 +332,19 @@ func newKnowledgeCatalogAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 		})
 }
 
-
 // BuildAdaptersFor 根据请求的工具名称列表创建 Eino BaseTool 适配器。
 //
 // 未在 registry 中注册的工具会被静默跳过。
 // 返回的适配器可直接注入到 Eino Agent 工具集合。
 func BuildAdaptersFor(reg *tools.Registry, names []string, flashChat llm.Chat) ([]tool.BaseTool, error) {
 	builders := map[string]func() (tool.BaseTool, error){
-		"bazi_calc":       func() (tool.BaseTool, error) { return newBaziCalcAdapter(reg) },
-		"yongshen":        func() (tool.BaseTool, error) { return newYongshenAdapter(reg) },
-		"dayun_analyzer":  func() (tool.BaseTool, error) { return newDayunAdapter(reg) },
-		"qimen_dunjia":    func() (tool.BaseTool, error) { return newQimenAdapter(reg) },
-		"ziwei_calc":      func() (tool.BaseTool, error) { return newZiweiAdapter(reg) },
-		"ziwei_liunian":   func() (tool.BaseTool, error) { return newZiweiLiuNianAdapter(reg) },
-		"knowledge_search": func() (tool.BaseTool, error) { return newKnowledgeSearchAdapter(reg, flashChat) },
+		"bazi_calc":         func() (tool.BaseTool, error) { return newBaziCalcAdapter(reg) },
+		"yongshen":          func() (tool.BaseTool, error) { return newYongshenAdapter(reg) },
+		"dayun_analyzer":    func() (tool.BaseTool, error) { return newDayunAdapter(reg) },
+		"qimen_dunjia":      func() (tool.BaseTool, error) { return newQimenAdapter(reg) },
+		"ziwei_calc":        func() (tool.BaseTool, error) { return newZiweiAdapter(reg) },
+		"ziwei_liunian":     func() (tool.BaseTool, error) { return newZiweiLiuNianAdapter(reg) },
+		"knowledge_search":  func() (tool.BaseTool, error) { return newKnowledgeSearchAdapter(reg, flashChat) },
 		"knowledge_catalog": func() (tool.BaseTool, error) { return newKnowledgeCatalogAdapter(reg) },
 	}
 	adapters := make([]tool.BaseTool, 0, len(names))

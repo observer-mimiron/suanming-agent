@@ -31,9 +31,9 @@ func (a *echoAgent) Run(_ context.Context, input *adk.AgentInput, _ ...adk.Agent
 
 // mockSink 记录所有 Emit 的事件，用于测试。
 type mockSink struct {
-	mu      sync.Mutex
-	events  []runtime.Event
-	closed  bool
+	mu     sync.Mutex
+	events []runtime.Event
+	closed bool
 }
 
 func (s *mockSink) Emit(_ context.Context, evt runtime.Event) error {

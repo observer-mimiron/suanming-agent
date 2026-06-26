@@ -940,7 +940,114 @@ git commit -m "feat(runtime): add Checkpoint interrupt-resume for solar time con
 
 ---
 
-## 4. 风险与回滚
+## 4. 当前实施状态与已知问题（2026-06-25 手动测试）
+
+### 4.1 已完成
+
+| 阶段 | 任务 | 状态 | commit |
+|------|------|------|--------|
+| Phase 1 | Task 1-7 拓扑重构 | ✅ 完成 | 48d0f1f → ceda97c |
+| Phase 1 | Task 8 验收门（自动化测试） | ✅ 通过 | 0c3fd62 |
+| Phase 2 | Task 9 fileCheckPointStore + 可序列化 state | ✅ 完成 | 9494ac5 |
+| Phase 2 | Task 10 Checkpoint 中断-恢复 | ✅ 基础设施完成 | fef4508 |
+| Phase 2 | 端到端中断-恢复测试 | ⚠️ t.Skip | 需 mock LLM |
+
+### 4.2 自动化测试
+
+- `TestOrchestrationGraphTopology` — Graph 编译 ✅
+- `TestFileCheckPointStore_SetGetDelete` — 存储基础 ✅
+- `TestFileCheckPointStore_PersistAcrossInstances` — 文件持久化 ✅
+- `TestOrchestrationGraphCompilesWithCheckPointStore` — 带 cpStore 编译 ✅
+- `TestCheckpoint_SolarTimeConfirm` — 端到端中断-恢复 ⚠️ t.Skip（需 mock LLM + specialist registry）
+- `TestExecute_RecordsPreflightAndSSETraceOnShortCircuit` — 短路路径 ✅
+
+### 4.3 手动测试遇到的问题
+
+测试输入：`1992年12月1日12点 男 北京`（三轮对话）
+
+#### 问题 1：bazi_specialist LLM 幻觉——无视 instruction 里注入的真实命盘
+
+**现象**：用户输入 1992 男北京，supervisor 正确提取 profile（1992-12-01 12:00 男 北京），prefillBazi 正确排盘（1992 辛金，壬申年辛亥月辛亥日），session state 的 `BaziResult.dayGan=辛` 正确。但 bazi_specialist 最终回复"您好，我们继续。上一轮我们分析了您1988年女命的命盘，确认了戊土身弱、财生杀生印的吉象循环，以及当前甲寅大运杀印相生的格局..."——**完全无视 instruction 里注入的 1992 辛金命盘，编造 1988 年戊土女命**。
+
+**证据**：
+- session state `data/sessions/dfc7ac9e-*.json`：`Profile={year:1992,...}`、`BaziResult.dayGan=辛` ✅
+- trace `logs/debug/172543-dfc7ac9e.jsonl`：supervisor_model 输出 `slots.profile={year:1992,...}` ✅
+- trace "八字专家" TOOL 节点：`args.request="1992年12月1日12点 男 北京"`，`response="您好，我们继续。上一轮我们分析了您1988年女命的命盘..."` ❌
+
+**根因**：bazi_specialist 的 instruction 通过 [BuildSpecialist](../../../internal/runtime/agent_route.go:63) + [buildBaziDataBlock](../../../internal/runtime/agent_route.go:244) 注入了 1992 辛金命盘数据，但 LLM（deepseek-v4-pro）无视了这些数据，编造了 1988 年戊土女命。instruction 里明确写了"命盘结果...是唯一权威来源。严禁根据出生资料自行推算四柱"（[prompts/interpret.md:26](../../../prompts/interpret.md:26)），但 LLM 不遵守。
+
+#### 问题 2：supervisor 路由幻觉——把八字问题路由到奇门
+
+**现象**：第二轮用户追问"我问的是1992年12月1日12点 男 北京 我们啥时候继续了？"，supervisor 路由结果变成 `primary_domain="qimen"`、`task_intent="fortune_followup"`、`qimen_mode="primary"`（第一轮是 `primary_domain="bazi"`）。prefillQimen 排了奇门盘，qimen_specialist 输出"奇门遁甲 × 八字 综合解读"。
+
+**根因**：supervisor 路由 LLM（deepseek-v4-flash）看到"继续"两个字，把 domain 从 bazi 切到 qimen。用户根本没问奇门。这是 supervisor 路由 LLM 的判断错误。
+
+#### 问题 3：bazi_specialist ReAct loop 陷入循环，exceeds max iterations
+
+**现象**：第三轮用户再追问，bazi_specialist 报错 `[NodeRunError] run node[ChatModel] pre processor fail: exceeds max iterations`。后端 stderr：
+```
+[handler] orchestrator.Run session=c870997a error: [NodeRunError] run node[ChatModel] pre processor fail: exceeds max iterations
+node path: [agent, node_1, ToolNode, node_1, ChatModel]
+```
+
+bazi_specialist 6 次都只调 `knowledge_catalog`（目录探索），**从不调 `knowledge_search`**（检索），每次 thinking 都说"让我先检索古籍依据"，但下一步又调 catalog。陷入循环，超过 `MaxIterations=6`（[agent_route.go:94](../../../internal/runtime/agent_route.go:94)）报错。
+
+**根因**：
+1. bazi_specialist 收到矛盾上下文：instruction 说 1992 辛金，conversation history（[buildConversationMessages](../../../internal/runtime/executor.go:497) 传 st.RecentTurns）里有前两轮的幻觉回复（1988 戊土、奇门交叉）。LLM 困惑，thinking 明确说"我注意到摘要中的排盘数据与系统提供的权威命盘结果存在差异...而非摘要中的戊土"。
+2. **知识库上限 3 次没有硬性限制**：[adapter.go:271](../../../internal/runtime/adapter.go:271) 的"每轮限3次调用"只是 tool description 里的提示词，LLM 可以无视。[buildSpecialistHandlers](../../../internal/runtime/agent_route.go:108) 只有 reduction（截断结果）和 summarization（压缩历史）两种中间件，**没有限制 tool 调用次数的中间件**。所以 bazi_specialist 调 6 次 catalog 也没被拦截。
+
+### 4.4 trace 数字异常说明
+
+用户质疑"14 次主控调度"和"6 次目录检索"——这不是幻觉，是实际架构问题：
+
+- **14 次主控调度**：[eino_callback.go:50](../../../internal/tracing/eino_callback.go:50) 的 `ChatModel.OnStart` 每次创建 span，名字取自 `cfg.Name`（"adk_supervisor_agent"）。bazi_specialist 作为 supervisor 的子 agent，**继承了 supervisor 的 ctx**（包含 einoCallbackConfigKey），所以 bazi_specialist 的 LLM 调用也被标记为"主控调度"。按 input_tokens 模式拆分：8 次小 input（supervisor）+ 6 次大 input（bazi_specialist，instruction 含命盘数据）= 14 次。supervisor MaxIterations=10 没超，bazi_specialist MaxIterations=6 刚好卡上限。
+- **6 次目录检索**：knowledge_catalog 没有"每轮限3次"的提示（只有 knowledge_search 有），而且提示词本身也没有硬性限制。
+
+### 4.5 与重构的关系
+
+git diff 确认重构（commit 510643b → ceda97c）**没有改**：
+- [buildConversationMessages](../../../internal/runtime/executor.go:497)（传 st.RecentTurns 给 specialist）
+- [BuildSpecialist](../../../internal/runtime/agent_route.go:63) / [buildBaziDataBlock](../../../internal/runtime/agent_route.go:244)（instruction 注入命盘数据）
+- [buildSpecialistHandlers](../../../internal/runtime/agent_route.go:108)（中间件链）
+- `MaxIterations` 配置（supervisor=10，specialist=6）
+- [adapter.go:271](../../../internal/runtime/adapter.go:271) 的 tool description
+- [eino_callback.go](../../../internal/tracing/eino_callback.go) 的 span 命名
+- supervisor 路由 LLM 的 prompt（在 internal/supervisor/）
+- [prompts/interpret.md](../../../prompts/interpret.md)
+
+重构只改了 `internal/runtime/` 的拓扑结构（executor.go 从嵌套 if 改成 Graph.Invoke）。agent 调用路径（vals/messages/BuildSupervisor/runner.Run/agentEventBridge）**完全一致**。
+
+**但是**用户反馈"重构前没这些问题"。可能的解释：
+1. 重构前没触发"两轮幻觉+第三轮矛盾上下文"的场景
+2. 重构后 agentEventBridge 从同步变成异步（在 goroutine 里跑，通过 schema.Pipe 传给 guardNode），ctx 经过 Graph 框架——可能影响 LLM 行为（未证实）
+3. 重构前可能有某种状态清理机制（未找到）
+
+**未验证**：没有回退到重构前 commit（510643b）跑同样三步对比。需要确认是不是重构引起的回归。
+
+### 4.6 待决问题（给接手者）
+
+1. **是不是重构引起的回归？** 需要回退到 510643b 跑同样三步（1992 男北京 → 追问 → 再追问）对比。如果重构前也复现幻觉+循环，那是既有 LLM 问题；如果不复现，需要查重构引入的差异（agentEventBridge 异步化、ctx 经过 Graph 框架）。
+
+2. **bazi_specialist 为什么无视 instruction 里的命盘数据？** instruction 里明确注入了 1992 辛金命盘（buildBaziDataBlock），但 LLM 编造 1988 戊土。可能原因：
+   - LLM 模型能力不足（deepseek-v4-pro）
+   - instruction 太长（172 行 interpret.md + 命盘数据块），LLM 没读到命盘部分
+   - conversation history 的权重高于 instruction
+
+3. **supervisor 路由为什么把 bazi 切成 qimen？** 需要看 supervisor 路由 LLM 的 prompt（在 internal/supervisor/），看"继续"为什么触发 domain 切换。
+
+4. **知识库调用次数没有硬性限制** —— 需要加一个中间件统计 knowledge_catalog/search 调用次数，超 3 次拒绝。
+
+5. **bazi_specialist 的 callback span 命名** —— 应该用 "bazi_specialist" 而不是继承 supervisor 的 "adk_supervisor_agent"，trace 更清晰。
+
+6. **Phase 2 残留风险**：
+   - 端到端测试 t.Skip（需 mock LLM）
+   - container.go 未接入 SetCheckPointStore（生产没启用 Checkpoint）
+   - 无条件中断逻辑（WithInterruptBeforeNodes 总是中断，应该只在特定场景）
+   - Resume 语义缺陷（用户回复如何映射到 interruptID）
+
+---
+
+## 5. 风险与回滚
 
 | 风险 | 概率 | 影响 | 缓解 |
 |------|------|------|------|
@@ -957,7 +1064,7 @@ git commit -m "feat(runtime): add Checkpoint interrupt-resume for solar time con
 
 ---
 
-## 5. 决策记录
+## 6. 决策记录
 
 | 决策 | 选择 | 理由 |
 |------|------|------|

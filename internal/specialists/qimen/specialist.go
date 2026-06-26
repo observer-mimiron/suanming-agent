@@ -8,6 +8,8 @@ var cfg = specialists.Config{
 	Description: "奇门遁甲专家。分析当前时空的吉凶方位、门星神组合。",
 	Instruction: `你是奇门遁甲专家。
 
+{{SESSION_CONTEXT}}
+
 ## 可调用工具
 - knowledge_catalog：获取知识库目录（古籍名称、章节数），用于规划检索
 - qimen_dunjia：排奇门遁甲盘（需要时间信息）

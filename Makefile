@@ -17,11 +17,8 @@ dev:
 	@bash start.sh
 
 status:
-	@echo "=== suanming-server ==="
-	@echo "-- go run (:8080) --"
+	@echo "=== suanming-server (:8080) ==="
 	@curl -s http://localhost:8080/api/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "❌ :8080 未运行"
-	@echo "-- binary (:18080) --"
-	@curl -s http://localhost:18080/api/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "❌ :18080 未运行"
 	@echo "=== knowledge MCP ==="
 	@$(MAKE) knowledge-status
 
@@ -34,12 +31,12 @@ dev-backend:
 
 backend-start: build
 	@$(MAKE) backend-stop >/dev/null 2>&1 || true
-	@set -a; source $(CURDIR)/.env; set +a; LISTEN_ADDR=:18080 $(SERVER_BIN) &
+	@set -a; source $(CURDIR)/.env; set +a; LISTEN_ADDR=:8080 $(SERVER_BIN) &
 	@sleep 3
-	@curl -s http://localhost:18080/api/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('后端 ✅', d.get('commit',''))"
+	@curl -s http://localhost:8080/api/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('后端 ✅', d.get('commit',''))"
 
 backend-stop:
-	@lsof -ti :18080 | xargs kill -9 2>/dev/null; echo "后端已停止"
+	@lsof -ti :8080 | xargs kill -9 2>/dev/null; echo "后端已停止"
 
 backend-restart: backend-stop backend-start
 
