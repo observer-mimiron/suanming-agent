@@ -162,3 +162,44 @@ func TestEinoChatModelCallback_RecordsInputMessagePreviewWhenEnabled(t *testing.
 	}
 	t.Fatal("expected bazi_specialist LLM span with input.messages.preview")
 }
+
+func TestEinoChatModelCallback_UsesRunInfoNameNotCtxCfgName(t *testing.T) {
+	// Q5: specialist 的 LLM 调用应使用 RunInfo.Name（如 bazi_specialist），
+	// 而不是继承 supervisor ctx 里 cfg.Name（如 adk_supervisor_agent）。
+	einocallbacks.InitCallbackHandlers(nil)
+	t.Cleanup(func() { einocallbacks.InitCallbackHandlers(nil) })
+	einocallbacks.AppendGlobalHandlers(NewEinoTraceCallbackHandler())
+
+	rt := NewRealTracer(nil)
+	ctx, trace := rt.StartTrace(context.Background(), "chat.turn")
+	defer trace.End()
+
+	// 模拟 supervisor ctx 里设置的 span config（name=supervisor）
+	ctx = WithEinoCallbackSpan(ctx, EinoCallbackSpanConfig{
+		Name: "adk_supervisor_agent",
+		Kind: KindLLM,
+	})
+	// 但 RunInfo.Name 是 specialist 自己的名字
+	ctx = einocallbacks.ReuseHandlers(ctx, &einocallbacks.RunInfo{
+		Name:      "bazi_specialist",
+		Type:      "ChatModel",
+		Component: components.ComponentOfChatModel,
+	})
+	ctx = einocallbacks.OnStart(ctx, &einomodel.CallbackInput{
+		Messages: []*schema.Message{schema.UserMessage("test")},
+	})
+	einocallbacks.OnEnd(ctx, &einomodel.CallbackOutput{})
+
+	tr := TraceFromContext(ctx)
+	for _, span := range tr.Spans {
+		if span.Kind != KindLLM {
+			continue
+		}
+		if span.Name != "bazi_specialist" {
+			t.Fatalf("span.Name = %q, want %q (RunInfo.Name should override cfg.Name)", span.Name, "bazi_specialist")
+		}
+		return
+	}
+	t.Fatal("no LLM span found")
+}
+
