@@ -28,6 +28,14 @@ type Config struct {
 	OTelServiceName   string
 	OTelInsecure      bool
 	ConversationLimit int    // 传入 agent 的最近对话消息条数上限，默认 10
+
+	// Embedding 配置——用于 semantic router（意图识别）。沿用 KB 同款 env 变量名。
+	EmbeddingApiKey  string
+	EmbeddingBaseUrl string
+	EmbeddingModel   string
+	// RouterMode 控制 semantic router 上线节奏：off | shadow | enforce。
+	// off=不初始化 router，走旧 regex；shadow=旁路只 log；enforce=接入决策。
+	RouterMode string
 }
 
 // Load 从环境变量读取并返回应用配置。
@@ -52,6 +60,11 @@ func Load() *Config {
 		OTelServiceName:   getEnv("OTEL_SERVICE_NAME", "suanming-agent"),
 		OTelInsecure:      getEnvBool("OTEL_EXPORTER_OTLP_INSECURE", false),
 		ConversationLimit: getEnvInt("CONVERSATION_LIMIT", 10),
+
+		EmbeddingApiKey:  os.Getenv("EMBEDDING_API_KEY"),
+		EmbeddingBaseUrl: getEnv("EMBEDDING_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+		EmbeddingModel:   getEnv("EMBEDDING_MODEL", "text-embedding-v4"),
+		RouterMode:       getEnv("ROUTER_MODE", "off"),
 	}
 }
 
