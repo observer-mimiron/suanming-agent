@@ -74,12 +74,12 @@ func NewEinoTraceCallbackHandler() einocallbacks.Handler {
 					span.SetAttribute("gen_ai.request.model", input.Config.Model)
 				}
 				span.SetAttribute("gen_ai.operation.name", cfg.Name)
-					if input != nil && len(input.Messages) > 0 {
-						summarizeLLMMessages(span, input.Messages)
-						if shouldRecordLLMInputPreview() {
-							span.SetAttribute("input.messages.preview", serializeLLMMessagePreview(input.Messages))
-						}
+				if input != nil && len(input.Messages) > 0 {
+					summarizeLLMMessages(span, input.Messages)
+					if shouldRecordLLMInputPreview() {
+						span.SetAttribute("input.messages.preview", serializeLLMMessagePreview(input.Messages))
 					}
+				}
 				return context.WithValue(ctx, einoCallbackSpanKey_, span)
 			},
 			OnEnd: func(ctx context.Context, _ *einocallbacks.RunInfo, output *einomodel.CallbackOutput) context.Context {
@@ -183,7 +183,6 @@ func NewEinoTraceCallbackHandler() einocallbacks.Handler {
 	}).
 		Handler()
 }
-
 
 // AppendCurrentSpanAttribute 向当前活跃的 Eino 回调 Span 追加字符串属性。
 // 如果 span 不存在，静默忽略。
