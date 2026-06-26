@@ -3,7 +3,6 @@
 package mcp
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -72,29 +71,13 @@ func (c *Client) GetGraph() ([]GraphNode, []GraphEdge, error) {
 }
 
 
-// Search 通用 MCP 搜索（向后兼容）
+// Search 调用知识库 REST API 搜索。保留方法名向后兼容调用方。
+//
+// 之前先试 POST /search 通用 MCP 协议，但 wiki 服务未实现该路由（每次 404
+// 返回 HTML，json.Decode 失败后降级到 SearchKnowledge），纯浪费一轮 HTTP。
+// 直接走 REST API。
 func (c *Client) Search(query string, topK int) ([]Passage, error) {
-	body := map[string]any{"query": query, "limit": topK}
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("rag marshal: %w", err)
-	}
-	resp, err := c.client.Post(c.baseURL+"/search", "application/json", bytes.NewReader(jsonBody))
-	if err != nil {
-		logMCP("Search POST /search", err)
-		return c.SearchKnowledge(query, topK) // 降级搜索
-	}
-	defer resp.Body.Close()
-	var result struct {
-		Passages []Passage `json:"passages"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return c.SearchKnowledge(query, topK) // 降级搜索
-	}
-	if len(result.Passages) == 0 {
-		return c.SearchKnowledge(query, topK) // 降级搜索
-	}
-	return result.Passages, nil
+	return c.SearchKnowledge(query, topK)
 }
 
 // SearchKnowledge 使用知识库 REST API 搜索 (/api/wiki/search?q=xxx)
