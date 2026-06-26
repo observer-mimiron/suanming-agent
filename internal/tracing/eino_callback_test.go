@@ -203,3 +203,43 @@ func TestEinoChatModelCallback_UsesRunInfoNameNotCtxCfgName(t *testing.T) {
 	t.Fatal("no LLM span found")
 }
 
+func TestEinoChatModelCallback_FallsBackToCfgNameWhenRunInfoIsComponentDefault(t *testing.T) {
+	// ADK Runner 内部 ChatModel 不是 graph 节点，RunInfo.Name 退化成 eino 默认组件名 "ChatModel"
+	//（= string(info.Component)）。此时 span name 应 fallback 到 cfg.Name（语义化名字），
+	// 而不是用无意义的 "ChatModel"。
+	einocallbacks.InitCallbackHandlers(nil)
+	t.Cleanup(func() { einocallbacks.InitCallbackHandlers(nil) })
+	einocallbacks.AppendGlobalHandlers(NewEinoTraceCallbackHandler())
+
+	rt := NewRealTracer(nil)
+	ctx, trace := rt.StartTrace(context.Background(), "chat.turn")
+	defer trace.End()
+
+	ctx = WithEinoCallbackSpan(ctx, EinoCallbackSpanConfig{
+		Name: "supervisor_model",
+		Kind: KindLLM,
+	})
+	// RunInfo.Name 是 eino 默认组件名 "ChatModel"（ADK Runner 内部场景）
+	ctx = einocallbacks.ReuseHandlers(ctx, &einocallbacks.RunInfo{
+		Name:      "ChatModel",
+		Type:      "ChatModel",
+		Component: components.ComponentOfChatModel,
+	})
+	ctx = einocallbacks.OnStart(ctx, &einomodel.CallbackInput{
+		Messages: []*schema.Message{schema.UserMessage("test")},
+	})
+	einocallbacks.OnEnd(ctx, &einomodel.CallbackOutput{})
+
+	tr := TraceFromContext(ctx)
+	for _, span := range tr.Spans {
+		if span.Kind != KindLLM {
+			continue
+		}
+		if span.Name != "supervisor_model" {
+			t.Fatalf("span.Name = %q, want %q (cfg.Name should win when RunInfo.Name is component default)", span.Name, "supervisor_model")
+		}
+		return
+	}
+	t.Fatal("no LLM span found")
+}
+

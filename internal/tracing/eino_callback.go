@@ -57,7 +57,7 @@ func NewEinoTraceCallbackHandler() einocallbacks.Handler {
 					return ctx
 				}
 				name := cfg.Name
-				if info != nil && info.Name != "" {
+				if info != nil && info.Name != "" && info.Name != string(info.Component) {
 					name = info.Name
 				}
 				span := SpanFromContext(ctx, name, cfg.Kind)
