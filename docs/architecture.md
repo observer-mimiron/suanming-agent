@@ -1,6 +1,6 @@
 # 架构总览
 
-> 本文是项目架构的**入口文档**。详细设计见 [docs/architecture/supervisor/](docs/architecture/supervisor/) 下的专题文档。
+> 本文是项目架构的**入口文档**。详细设计见 [docs/architecture/supervisor/](architecture/supervisor/) 下的专题文档。
 
 ## 服务拓扑
 
@@ -16,7 +16,7 @@ Vue 3 (SSE) ──→ Gin (:8080)
 | 执行层 | :8080 | Go + Gin + Eino ADK | 会话管理、路由、策略门控、工具调度、SSE 推送 |
 | 知识库 | :3100 | Yopedia (独立实例) | 命理典籍 RAG 检索 |
 
-## 多 Agent 架构（当前：v1.5 + Eino Phase 1-6）
+## 多 Agent 架构（当前：v1.5 收口 + Eino 迁移完成）
 
 系统采用 **Supervisor Agent + AgentAsTool + Specialist Agent** 架构：
 
@@ -48,12 +48,12 @@ flowchart TD
 - **模型负责理解**（语义路由、证据需求判断、回答生成）
 - **程序负责控制**（状态管理、策略校验、工具执行、结果验收、SSE 推送、trace）
 
-当前 Phase 1 收口新增了两个硬边界：
+系统实现了以下硬控制边界：
 
-- **显式术数 obey**：用户明确指定 `八字 / 紫微 / 奇门` 时，`normalizeApprovedRoute` 做 deterministic 主领域纠偏
+- **显式术数 obey**：用户明确指定 `八字 / 紫微 / 奇门` 时，`applyExplicitMethodPreference` 做主领域纠偏；2026-06-26 起检测改用 **semantic router**（Eino Embedder + DashScope `text-embedding-v4`，正向+负向 utterance，negative 优先），regex 降为 `Confidence < 0.7` 时的兜底；三态开关 `ROUTER_MODE=off|shadow|enforce`
 - **执行契约验收**：`primary_domain=qimen` 必须真拿到 `QimenResult`，`primary_domain=ziwei` 必须真拿到 `ZiWeiResult`
 
-详细边界见 [01-overview.md](docs/architecture/supervisor/01-overview.md)。
+详细边界见 [01-overview.md](architecture/supervisor/01-overview.md)。
 
 ## 路由模型
 
@@ -111,7 +111,7 @@ L3 槽位与标记 → profile slots / question text / time scope / target subje
 | Phase 5A | 完成 | Eino callback tracing 覆盖 ChatModel 主回答 + supervisor |
 | Phase 5B | 完成 | `knowledge_search` retriever span 已切 Eino callback |
 | Phase 6 | 完成 | Execution Tree — TurnTrace → unified execution tree with phase grouping |
-| Graph | 推迟 | 等 runtime 需要更深分支/并行/中断恢复时再做 |
+| Graph 编排 | 完成 | `orchestrationGraph`（preflight→prefill→agent→guard）已上线，含 Checkpoint 中断恢复 |
 
 ## Trace 架构
 
@@ -155,7 +155,7 @@ LLM 不可用时退到 `safeFallback` 的保守默认路由，不依赖额外 Py
 4. RAG 通过 MCP 调本地知识库服务，不内嵌
 5. SSE 6 种结构化事件，前端按类型渲染
 6. 后续统一入口采用 `LLM Supervisor + Go Runtime + bounded specialists`
-7. Phase 1 不做自由 swarm 或多 agent 协作
+7. 采用 Supervisor + AgentAsTool + Specialist 单层调度，不做自由 swarm 或多 agent 协作
 8. `ApprovedRoute` 成为 runtime 主控输入，不再通过 legacy action bridge
 9. 执行层迁移为 Supervisor Agent + AgentAsTool + Specialist Agent（2026-06-16）
 10. Phase 1 路由收口改为“术数能力画像 + 显式术数 obey + post-run contract gate”（2026-06-19）
@@ -165,17 +165,16 @@ LLM 不可用时退到 `safeFallback` 的保守默认路由，不依赖额外 Py
 
 | 文档 | 内容 |
 |------|------|
-| [01-overview.md](docs/architecture/supervisor/01-overview.md) | 架构总图、边界、迁移状态 |
-| [02-routing-model.md](docs/architecture/supervisor/02-routing-model.md) | 四层路由模型 |
-| [03-session-state.md](docs/architecture/supervisor/03-session-state.md) | 会话状态结构 |
-| [04-specialists-and-capabilities.md](docs/architecture/supervisor/04-specialists-and-capabilities.md) | 领域专家与能力层 |
-| [05-policy-gate.md](docs/architecture/supervisor/05-policy-gate.md) | 策略门 |
-| [06-trace-and-observability.md](docs/architecture/supervisor/06-trace-and-observability.md) | Trace 可观测性 |
-| [07-rollout-plan.md](docs/architecture/supervisor/07-rollout-plan.md) | 发布计划 |
-| [08-phase-1.5-route-driven.md](docs/architecture/supervisor/08-phase-1.5-route-driven.md) | Phase 1.5 路由驱动执行 |
-| [09-retrieval-query-planning.md](docs/architecture/supervisor/09-retrieval-query-planning.md) | Agentic RAG 方案（证据规划 + 条件反思） |
-| [10-agentic-rag-basics.md](docs/architecture/supervisor/10-agentic-rag-basics.md) | Agentic RAG 术语速览 |
-| [runtime-adk-agent.md](docs/implementation/runtime-adk-agent.md) | ADK Agent 运行时实施文档 |
+| [01-overview.md](architecture/supervisor/01-overview.md) | 架构总图、边界、迁移状态 |
+| [02-routing-model.md](architecture/supervisor/02-routing-model.md) | 四层路由模型 |
+| [03-session-state.md](architecture/supervisor/03-session-state.md) | 会话状态结构 |
+| [04-specialists-and-capabilities.md](architecture/supervisor/04-specialists-and-capabilities.md) | 领域专家与能力层 |
+| [05-policy-gate.md](architecture/supervisor/05-policy-gate.md) | 策略门 |
+| [06-trace-and-observability.md](architecture/supervisor/06-trace-and-observability.md) | Trace 可观测性 |
+| [07-rollout-plan.md](../archive/design/07-rollout-plan.md) | 发布计划（已归档） |
+| [08-phase-1.5-route-driven.md](../archive/design/08-phase-1.5-route-driven.md) | Phase 1.5 路由驱动执行（已归档） |
+| [09-retrieval-query-planning.md](architecture/supervisor/09-retrieval-query-planning.md) | Agentic RAG 方案（证据规划 + 条件反思） |
+| [10-agentic-rag-basics.md](architecture/supervisor/10-agentic-rag-basics.md) | Agentic RAG 术语速览 |
 
 ## Guided Entry Boundary (2026-06-23 Cleanup)
 
@@ -185,6 +184,8 @@ LLM 不可用时退到 `safeFallback` 的保守默认路由，不依赖额外 Py
 - **`HasTimingFocus` 与 `ContainsTimingKeyword`** 语义分离：前者 scope+intent 双条件供 guidance_gate 用，后者关键词宽松匹配供 supervisor 用
 
 ## 架构现状总评与演进方向 (2026-06-24)
+
+> **事后注 (2026-06-26):** 本文写于 6/24，当时 Graph 编排处于设计阶段。截至 6/26，`orchestrationGraph` 已上线，Step 1（单领域直通）和 Step 2（多领域 fan-out）已实现，Checkpoint 中断恢复已启用。AgentAsTool 仍保留但主要用于 Supervisor ↔ Specialist 调度层，底层执行骨架已是 Graph。
 
 ### 当前架构状态
 
