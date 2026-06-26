@@ -1,5 +1,6 @@
 # 06 Trace And Observability
 
+> **Status:** Implemented
 ## 目标
 
 让 **路由决策、策略纠偏、prefill 复用、specialist 执行、Eino callback 事件、SSE 输出** 都落到同一条可排查链路里，同时把**产品主视图**和**原始排障视图**明确分层，不再把 raw trace step 直接暴露给用户主界面。

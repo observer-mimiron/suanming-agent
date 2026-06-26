@@ -400,3 +400,5 @@ cd web && npx vue-tsc --noEmit          # 前端类型检查
 | 4 — Specialist Agent | ADK ChatModelAgent + AgentAsTool | ✅ Complete |
 | 5 — Callback Tracing | Eino callbacks cover main answer + supervisor model calls; knowledge_search retriever uses framework-first trace source | ✅ Complete |
 | 6 — Execution Tree | TurnTrace → unified execution tree with phase grouping | ✅ Complete |
+| Graph 编排 | orchestrationGraph 上线（preflight→prefill→agent→guard），含 Checkpoint 中断恢复 | ✅ Complete |
+| 可观测性 | OTel wiring 完成，Langfuse 后端待接入 | ✅ Complete |

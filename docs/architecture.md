@@ -158,7 +158,7 @@ LLM 不可用时退到 `safeFallback` 的保守默认路由，不依赖额外 Py
 7. 采用 Supervisor + AgentAsTool + Specialist 单层调度，不做自由 swarm 或多 agent 协作
 8. `ApprovedRoute` 成为 runtime 主控输入，不再通过 legacy action bridge
 9. 执行层迁移为 Supervisor Agent + AgentAsTool + Specialist Agent（2026-06-16）
-10. Phase 1 路由收口改为“术数能力画像 + 显式术数 obey + post-run contract gate”（2026-06-19）
+10. 路由收口改为“术数能力画像 + 显式术数 obey + post-run contract gate”（2026-06-19）
 11. 可观测性采用“`TurnTrace` raw envelope + `ProcessDigest/DebugTraceDigest` 前端双投影 + OTel 标准层 + Langfuse 优先后端”的分层方案（2026-06-20）
 
 ## 详细文档索引

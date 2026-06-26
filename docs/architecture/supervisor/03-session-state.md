@@ -1,5 +1,6 @@
 # 03 Session State
 
+> **Status:** Implemented
 ## Goal
 
 Upgrade the session model from a single-domain reading state into a unified consulting state that can support multiple specialists while preserving the existing Go-owned persistence model.

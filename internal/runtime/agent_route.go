@@ -84,7 +84,7 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 			sessionCtx += b.buildQimenDataBlock(st)
 		}
 		if st.HasZiWeiResult() {
-			sessionCtx += "\n### 紫微命盘结果（已就绪，严禁重新调用 ziwei_calc/ziwei_liunian 工具）\n"
+			sessionCtx += "\n### 紫微命盘结果（已就绪，严禁重新调用 ziwei_calc；ziwei_liunian 仅在用户明确询问非当前年份时调用）\n"
 			sessionCtx += b.buildZiWeiDataBlock(st)
 		}
 	}

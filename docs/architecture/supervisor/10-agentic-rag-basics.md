@@ -1,5 +1,6 @@
 # 10 Agentic RAG 基础知识速览
 
+> **Status:** Reference (background reading, not project design)
 **日期：** 2026-06-14  
 **用途：** 给方案评审前的统一背景知识。先把术语和范式讲清楚，再回头看具体方案，避免把不同概念混成一团。
 

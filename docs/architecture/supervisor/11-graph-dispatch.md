@@ -1,8 +1,8 @@
 # 11 Graph 编排方案（排盘 + 执行骨架）
 
-> **Status:** Design (pre-implementation)
+> **Status:** Implemented (2026-06-25)
 > **Date:** 2026-06-25（修订：加入执行骨架 Graph）
-> **关联:** [2026-06-24-eino-native-capabilities.md](../../superpowers/plans/2026-06-24-eino-native-capabilities.md) — Eino 原生能力增补方案
+> **关联:** [2026-06-24-eino-native-capabilities.md](../../archive/plans/2026-06-24-eino-native-capabilities.md) — Eino 原生能力增补方案
 
 ## 0. 方案边界：什么不 Graph 化
 
@@ -280,4 +280,4 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 ## Related
 
 - [01-overview.md](01-overview.md) — 架构总图
-- [2026-06-24-eino-native-capabilities.md](../../superpowers/plans/2026-06-24-eino-native-capabilities.md) — Eino 原生能力增补方案（B1/B2 已落地，A2 TurnLoop + C1 Checkpoint 待做）
+- [2026-06-24-eino-native-capabilities.md](../../archive/plans/2026-06-24-eino-native-capabilities.md) — Eino 原生能力增补方案（B1/B2 已落地，A2 TurnLoop + C1 Checkpoint 待做）

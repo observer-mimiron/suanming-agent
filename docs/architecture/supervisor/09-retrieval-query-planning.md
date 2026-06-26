@@ -1,7 +1,7 @@
 # 09 Agentic RAG 方案（含检索质量门控与条件反思）
 
+> **Status:** Partially implemented (catalog-based retrieval done; evidence planning + conditional reflection pending)
 **日期：** 2026-06-14  
-**状态：** 方案重写 / 待实施  
 **适用范围：** 八字、奇门、紫微等命理域统一检索与推理增强  
 **目标：** 在保留当前 `LLM Supervisor + Go Runtime + bounded specialists` 主线控制边界的前提下，引入更贴近主流权威实践的 `Agentic RAG` 增强链路，用来解决复杂命理问题中的证据缺口、检索纠偏和条件反思。
 

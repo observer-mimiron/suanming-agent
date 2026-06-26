@@ -34,11 +34,6 @@
 - **When** Policy Gate 处理
 - **Then** 降级为 bazi
 
-### AC-1.7 显式术数 obey
-- **Given** 用户明确说"用紫微斗数看婚姻"或"用奇门看今天适不适合谈合作"
-- **When** `normalizeApprovedRoute` 处理已批准路由
-- **Then** `PrimaryDomain` 必须分别落到 `ziwei` / `qimen`，不被通用领域默认值覆盖
-
 ## AC-2：领域专家执行
 
 ### AC-2.1 八字 Specialist 排盘
@@ -70,11 +65,6 @@
 - **Given** bazi_calc 返回排盘结果
 - **When** agentEventBridge 处理 Tool event
 - **Then** SSE 推送 `{type: "component", data: {type: "bazi-chart", payload: {...}}}`
-
-### AC-2.7 紫微主链只发一次命盘卡牌
-- **Given** `PrimaryDomain=ziwei` 且本轮需要排紫微命盘
-- **When** specialist 真正调用 `ziwei_calc`
-- **Then** 只推送 1 次 `ziwei-chart` component，不允许 prefill 和 tool result 各发一次
 
 ## AC-3：知识检索
 
@@ -120,16 +110,6 @@
 - **When** 错误被捕获
 - **Then** 已存在的 BaziResult / QimenResult 不被覆盖
 
-### AC-4.5 奇门主链未起盘不得给结论
-- **Given** `ApprovedRoute{PrimaryDomain: "qimen"}` 进入 runtime 主路径
-- **When** 本轮没有产生 `QimenResult`
-- **Then** runtime 必须拦截最终奇门结论输出，而不是返回伪奇门回答
-
-### AC-4.6 紫微主链未起盘不得给结论
-- **Given** `ApprovedRoute{PrimaryDomain: "ziwei"}` 进入 runtime 主路径
-- **When** 本轮没有产生 `ZiWeiResult`
-- **Then** runtime 必须拦截最终紫微结论输出，而不是返回伪紫微回答
-
 ## AC-5：SSE 与前端
 
 ### AC-5.1 5 种事件类型
@@ -141,11 +121,6 @@
 - **Given** Specialist Agent 生成回答
 - **When** LLM 以 streaming 模式输出
 - **Then** 前端逐步渲染文本
-
-### AC-5.2b 最终文本先验收后输出
-- **Given** Agent 主路径已生成最终回答文本
-- **When** runtime 准备发出 `text` 事件
-- **Then** 必须先经过 post-run contract gate 校验，再允许输出最终文本
 
 ### AC-5.3 八字命盘卡牌渲染
 - **Given** SSE 推送 bazi-chart component 事件

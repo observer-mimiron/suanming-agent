@@ -37,13 +37,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/wikiglobal/suanming-agent/internal/intent"
 	"github.com/wikiglobal/suanming-agent/internal/llm"
+	"github.com/wikiglobal/suanming-agent/internal/prompts"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 	"github.com/wikiglobal/suanming-agent/internal/tracing"
@@ -441,15 +441,12 @@ func safeFallback(st *state.SessionState) schemas.SupervisorDecision {
 	}
 }
 
-// buildSupervisorPrompt 从磁盘加载统一的 supervisor 路由提示词。
+// buildSupervisorPrompt 返回 embed 嵌入的统一 supervisor 路由提示词。
 //
-// 提示词文件位于 prompts/supervisor/unified_router.md，定义了 L0-L2 的三层路由
+// 提示词文件位于 internal/prompts/supervisor/unified_router.md，定义了 L0-L2 的三层路由
 // 分类体系（对话意图 → 命理领域 → 任务意图）及完整的输出格式规范。
-// 加载失败时直接返回 error——supervisor 的核心逻辑依赖此提示词，不可降级运行。
+// embed 在编译期把内容打进二进制，加载不会失败——本函数保留 (string, error) 签名是为了
+// 兼容 loadSupervisorPrompt var 的测试替换模式。
 func buildSupervisorPrompt() (string, error) {
-	b, err := os.ReadFile("prompts/supervisor/unified_router.md")
-	if err != nil {
-		return "", fmt.Errorf("read unified_router.md: %w", err)
-	}
-	return string(b), nil
+	return prompts.SupervisorUnifiedRouter, nil
 }

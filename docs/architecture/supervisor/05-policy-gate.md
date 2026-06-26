@@ -1,5 +1,6 @@
 # 05 Policy Gate
 
+> **Status:** Implemented
 ## Objective
 
 Program logic must remain the trusted control layer. The policy gate converts supervisor suggestions into approved runtime actions.

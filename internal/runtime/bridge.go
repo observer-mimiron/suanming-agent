@@ -275,7 +275,7 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 				"from_marker":  true,
 			})
 		}
-		return responseText, nil
+		return sanitizeFinalOutput(responseText), nil
 	}
 
 	analysisText, responseText, hasTags := parseXMLSections(finalText)
@@ -291,7 +291,7 @@ func agentEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncIterat
 		}
 		finalText = responseText
 	}
-	return finalText, nil
+	return sanitizeFinalOutput(finalText), nil
 }
 
 func isAssistantPlanningMessage(msg *schema.Message) bool {

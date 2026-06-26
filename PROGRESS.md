@@ -10,6 +10,8 @@
 **最后更新：** 2026-06-26
 **状态：** 核心链路稳定。LLM 后端全 Eino（原生 HTTP 路径已删除）；路由固定 ADK RouteEngine（三层降级骨架保留）；执行走 orchestrationGraph（preflight → prefill → agent → guard）；Supervisor + AgentAsTool + Specialist 架构稳定运行。文档已清理：过期 plans 移入 archive/，stale prompts 删除。
 
+orchestrationGraph（preflight→prefill→agent→guard）已上线运行，Checkpoint 中断恢复已启用。
+
 ### 近期关键收口
 
 **架构与路由**
@@ -28,7 +30,7 @@
 **可观测性**
 - "raw trace + 双投影 + OTel"：`TurnTrace`（本地事实）→ `ProcessDigest`（产品主卡）+ `DebugTraceDigest`（调试抽屉）
 - Eino callback tracing 覆盖 ChatModel + supervisor + knowledge_search retriever
-- OTLP 接线：`realTracer` 可并行镜像到 OTLP HTTP exporter（默认关闭，`OTEL_*` 环境变量启用）
+- OTLP 接线：`realTracer` 可并行镜像到 OTLP HTTP exporter（默认关闭，`OTEL_*` 环境变量启用）— 完成
 - span 覆盖：`preflight` / `prefill` / `contract_gate` / `sse_emit`
 
 

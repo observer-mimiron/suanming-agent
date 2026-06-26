@@ -1,5 +1,6 @@
 # 01 Overview
 
+> **Status:** Implemented
 ## Goal
 
 Build a unified-entry consulting system that can grow from a mingli-focused assistant into a multi-domain specialist platform without turning the Go orchestrator into an unmaintainable rules engine, while adopting Eino incrementally under a Go-owned control boundary.

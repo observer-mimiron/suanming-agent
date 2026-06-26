@@ -1,5 +1,6 @@
 # 04 Specialists And Capabilities
 
+> **Status:** Implemented
 ## Objective
 
 Make domain expertise explicit and bounded, instead of continuing to hide multiple roles inside one orchestrator flow.

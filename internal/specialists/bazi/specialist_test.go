@@ -22,13 +22,13 @@ func TestBaziToolNamesContainsCatalog(t *testing.T) {
 	}
 }
 
-// TestBaziInstructionContainsAgenticRAG 验证 prompts/interpret.md 包含 agentic RAG
-// 检索流程的关键步骤和工具声明。loadInstruction() 在运行时从项目根目录读取文件，
-// 测试从包目录运行，因此直接读文件验证内容。
+// TestBaziInstructionContainsAgenticRAG 验证 internal/prompts/interpret.md 包含 agentic RAG
+// 检索流程的关键步骤和工具声明。提示词通过 go:embed 嵌入二进制，
+// 测试直接读源文件验证内容（路径从包目录向上回溯 3 级到项目根，再进 internal/prompts）。
 func TestBaziInstructionContainsAgenticRAG(t *testing.T) {
-	data, err := os.ReadFile("../../../prompts/interpret.md")
+	data, err := os.ReadFile("../../../internal/prompts/interpret.md")
 	if err != nil {
-		t.Skipf("prompts/interpret.md not found: %v", err)
+		t.Skipf("internal/prompts/interpret.md not found: %v", err)
 	}
 	instruction := string(data)
 	keywords := []string{

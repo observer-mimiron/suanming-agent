@@ -99,7 +99,7 @@ npm run build                   # 构建
 
 ## 实施状态
 
-项目处于 **v1.5 收口 + Eino Phase 1-5B** 阶段。所有设计文档在 `docs/` 下，架构专题在 `docs/architecture/supervisor/` 下，实施状态见 `PROGRESS.md`。
+项目处于 **v1.5 收口 + Eino 迁移完成** 阶段，orchestrationGraph 已上线运行。所有设计文档在 `docs/` 下，架构专题在 `docs/architecture/supervisor/` 下，已归档设计在 `docs/archive/` 下，实施状态见 `PROGRESS.md`。
 
 实施按领域递增（八字 → 奇门 → 紫微），验收标准见 `docs/acceptance-criteria.md`。
 
