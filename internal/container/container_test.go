@@ -64,3 +64,17 @@ func assertContainerWiring(t *testing.T, c *Container) {
 		t.Fatal("expected specialist registry to be wired")
 	}
 }
+
+func TestBuildContainer_RouterModeOff(t *testing.T) {
+	t.Setenv("LLM_API_KEY", "test-key")
+	t.Setenv("ROUTER_MODE", "off")
+	t.Setenv("EMBEDDING_API_KEY", "")
+
+	c := BuildContainer()
+	if c == nil {
+		t.Fatal("container is nil")
+	}
+	if c.Config.RouterMode != "off" {
+		t.Fatalf("RouterMode = %q, want off", c.Config.RouterMode)
+	}
+}

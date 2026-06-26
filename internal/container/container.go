@@ -3,10 +3,12 @@ package container
 
 import (
 	"context"
+	"log"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wikiglobal/suanming-agent/internal/config"
 	"github.com/wikiglobal/suanming-agent/internal/handler"
+	"github.com/wikiglobal/suanming-agent/internal/intent"
 	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/mcp"
 	"github.com/wikiglobal/suanming-agent/internal/orchestrator"
@@ -131,13 +133,33 @@ func BuildContainer() *Container {
 	}
 	executor.SetLLMModel(cfg.LLMModel)
 	executor.SetHistoryLimit(cfg.ConversationLimit)
+	executor.SetRouter(nil)
+
+	// Semantic Router 构造（仅 enforce/shadow 模式）
+	// off 模式或 embedder 构造失败时 router=nil，走旧 regex 兜底
+	var router intent.Router
+	if cfg.RouterMode == "enforce" || cfg.RouterMode == "shadow" {
+		embedder, err := llm.NewEmbedder(context.Background(), cfg)
+		if err != nil {
+			log.Printf("[container] embedder init failed: %v — router disabled, falling back to regex", err)
+		} else if embedder != nil {
+			sr, err := intent.NewSemanticRouter(context.Background(), embedder, intent.Utterances, 0.75)
+			if err != nil {
+				log.Printf("[container] semantic router init failed: %v — falling back to regex", err)
+			} else {
+				router = sr
+				executor.SetRouter(router)
+				log.Printf("[container] semantic router initialized in %s mode", cfg.RouterMode)
+			}
+		}
+	}
 
 	// Orchestrator — 会话生命周期管理，注入已构建的执行器。
 	orch := orchestrator.New(executor, flashClient, store, locker, tracer)
 
 	// Supervisor 客户端固定使用 ADK route engine；外层 text fallback 仍由 Go supervisor 保留。
 	routeEngine := mustNewSupervisorRouteEngine(cfg, flashModel)
-	supervisorClient := supervisor.NewClient(flashClient, supervisor.WithRouteEngine(routeEngine))
+	supervisorClient := supervisor.NewClient(flashClient, supervisor.WithRouteEngine(routeEngine), supervisor.WithSemanticRouter(router), supervisor.WithRouterMode(cfg.RouterMode))
 	orch.SetSupervisor(supervisorClient)
 
 	// 处理器
