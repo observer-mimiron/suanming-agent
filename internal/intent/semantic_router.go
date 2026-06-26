@@ -2,7 +2,9 @@
 package intent
 
 import (
+	"context"
 	"math"
+	"strings"
 
 	"github.com/cloudwego/eino/components/embedding"
 )
@@ -24,6 +26,12 @@ type MatchResult struct {
 	Decision Decision
 	Method   string  // positive 时为命中方法；negative 时为最佳负向匹配方法
 	Score    float64 // positive 时为最佳正向相似度；negative 时为最佳负向相似度
+}
+
+// Router 是 semantic router 的接口，便于测试注入 stub。
+// *SemanticRouter 默认满足此接口。
+type Router interface {
+	Match(ctx context.Context, msg string) (MatchResult, error)
 }
 
 // cachedRoute 是已 embed 的 utterance 向量，启动时一次性计算存内存。
@@ -68,4 +76,45 @@ func cosine(a, b []float64) float64 {
 		return 0
 	}
 	return dot / (math.Sqrt(na) * math.Sqrt(nb))
+}
+
+// Match 对用户消息做语义路由判定。
+// 返回 (MatchResult, error)——error 与 Decision 分离，调用方据此区分：
+//   - err != nil：embedder 调用失败，调用方退回 regex 兜底（受 Confidence 守卫约束）
+//   - Decision == positive：用户显式提及某方法，应覆盖 LLM 的 PrimaryDomain
+//   - Decision == negative：提及但属于否定/对比/疑问，不覆盖，**不退回 regex**
+//   - Decision == none：无足够信号，不覆盖，不退回 regex
+func (r *SemanticRouter) Match(ctx context.Context, msg string) (MatchResult, error) {
+	if r == nil || r.embedder == nil || strings.TrimSpace(msg) == "" {
+		return MatchResult{Decision: DecisionNone}, nil
+	}
+
+	vectors, err := r.embedder.EmbedStrings(ctx, []string{msg})
+	if err != nil || len(vectors) == 0 {
+		return MatchResult{}, err
+	}
+	msgVec := vectors[0]
+
+	bestMethod, bestPosScore := "", 0.0
+	bestNegMethod, bestNegScore := "", 0.0
+
+	for name, route := range r.routes {
+		posScore := maxCosine(msgVec, route.Positive)
+		negScore := maxCosine(msgVec, route.Negative)
+		if posScore > bestPosScore {
+			bestPosScore, bestMethod = posScore, name
+		}
+		if negScore > bestNegScore {
+			bestNegScore, bestNegMethod = negScore, name
+		}
+	}
+
+	switch {
+	case bestPosScore >= r.threshold && bestNegScore < bestPosScore:
+		return MatchResult{Decision: DecisionPositive, Method: bestMethod, Score: bestPosScore}, nil
+	case bestNegScore >= bestPosScore && bestNegScore >= r.threshold:
+		return MatchResult{Decision: DecisionNegative, Method: bestNegMethod, Score: bestNegScore}, nil
+	default:
+		return MatchResult{Decision: DecisionNone}, nil
+	}
 }

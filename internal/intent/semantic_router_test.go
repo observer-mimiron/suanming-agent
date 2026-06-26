@@ -1,9 +1,36 @@
 package intent
 
 import (
+	"context"
+	"errors"
 	"math"
 	"testing"
+
+	"github.com/cloudwego/eino/components/embedding"
 )
+
+// mockEmbedder 是 embedding.Embedder 的测试替身。
+type mockEmbedder struct {
+	vectors  map[string][][]float64
+	errByMsg map[string]error
+}
+
+func (m *mockEmbedder) EmbedStrings(_ context.Context, texts []string, _ ...embedding.Option) ([][]float64, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+	if err, ok := m.errByMsg[texts[0]]; ok {
+		return nil, err
+	}
+	if v, ok := m.vectors[texts[0]]; ok {
+		return v, nil
+	}
+	return [][]float64{{0, 0}}, nil
+}
+
+func newMockEmbedder(vectors map[string][][]float64, errByMsg map[string]error) *mockEmbedder {
+	return &mockEmbedder{vectors: vectors, errByMsg: errByMsg}
+}
 
 func TestMaxCosine_ReturnsHighestSimilarity(t *testing.T) {
 	msg := []float64{1, 0}
@@ -22,5 +49,117 @@ func TestMaxCosine_EmptyCandidates(t *testing.T) {
 	got := maxCosine([]float64{1, 0}, nil)
 	if got != 0 {
 		t.Fatalf("maxCosine(nil) = %v, want 0", got)
+	}
+}
+
+func TestMatch_PositiveHit(t *testing.T) {
+	embedder := newMockEmbedder(map[string][][]float64{
+		"排个紫微盘": {{1, 0}},
+	}, nil)
+
+	r := &SemanticRouter{
+		embedder: embedder,
+		routes: map[string]cachedRoute{
+			"ziwei": {
+				Positive: [][]float64{{1, 0}},
+				Negative: [][]float64{{-1, 0}},
+			},
+		},
+		threshold: 0.75,
+	}
+
+	got, err := r.Match(context.Background(), "排个紫微盘")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got.Decision != DecisionPositive {
+		t.Fatalf("Decision = %q, want positive", got.Decision)
+	}
+	if got.Method != "ziwei" {
+		t.Fatalf("Method = %q, want ziwei", got.Method)
+	}
+	if math.Abs(got.Score-1.0) > 1e-9 {
+		t.Fatalf("Score = %v, want 1.0", got.Score)
+	}
+}
+
+func TestMatch_NegativePriority(t *testing.T) {
+	embedder := newMockEmbedder(map[string][][]float64{
+		"我不看紫微": {{-1, 0}},
+	}, nil)
+
+	r := &SemanticRouter{
+		embedder: embedder,
+		routes: map[string]cachedRoute{
+			"ziwei": {
+				Positive: [][]float64{{1, 0}},
+				Negative: [][]float64{{-1, 0}},
+			},
+		},
+		threshold: 0.75,
+	}
+
+	got, err := r.Match(context.Background(), "我不看紫微")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got.Decision != DecisionNegative {
+		t.Fatalf("Decision = %q, want negative", got.Decision)
+	}
+}
+
+func TestMatch_BelowThreshold(t *testing.T) {
+	embedder := newMockEmbedder(map[string][][]float64{
+		"今天天气": {{0, 0.1}},
+	}, nil)
+
+	r := &SemanticRouter{
+		embedder: embedder,
+		routes: map[string]cachedRoute{
+			"ziwei": {Positive: [][]float64{{1, 0}}, Negative: [][]float64{{-1, 0}}},
+		},
+		threshold: 0.75,
+	}
+
+	got, err := r.Match(context.Background(), "今天天气")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got.Decision != DecisionNone {
+		t.Fatalf("Decision = %q, want none", got.Decision)
+	}
+}
+
+func TestMatch_EmptyMsg(t *testing.T) {
+	r := &SemanticRouter{
+		embedder: newMockEmbedder(nil, nil),
+		routes:   map[string]cachedRoute{"ziwei": {Positive: [][]float64{{1, 0}}}},
+		threshold: 0.75,
+	}
+	got, err := r.Match(context.Background(), "")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got.Decision != DecisionNone {
+		t.Fatalf("Decision = %q, want none for empty msg", got.Decision)
+	}
+}
+
+func TestMatch_EmbedderError(t *testing.T) {
+	embedder := newMockEmbedder(nil, map[string]error{
+		"排个紫微盘": errors.New("network timeout"),
+	})
+
+	r := &SemanticRouter{
+		embedder: embedder,
+		routes: map[string]cachedRoute{
+			"ziwei": {Positive: [][]float64{{1, 0}}},
+		},
+		threshold: 0.75,
+	}
+
+	_, err := r.Match(context.Background(), "排个紫微盘")
+	if err == nil {
+		t.Fatal("expected err, got nil")
 	}
 }
