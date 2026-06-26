@@ -4,6 +4,10 @@ package tracing
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
 	"sync"
 
 	einocallbacks "github.com/cloudwego/eino/callbacks"
@@ -47,12 +51,16 @@ func einoSpanFromContext(ctx context.Context) Span {
 func NewEinoTraceCallbackHandler() einocallbacks.Handler {
 	return einoutils.NewHandlerHelper().
 		ChatModel(&einoutils.ModelCallbackHandler{
-			OnStart: func(ctx context.Context, _ *einocallbacks.RunInfo, input *einomodel.CallbackInput) context.Context {
+			OnStart: func(ctx context.Context, info *einocallbacks.RunInfo, input *einomodel.CallbackInput) context.Context {
 				cfg, ok := einoCallbackSpanConfigFromContext(ctx)
 				if !ok {
 					return ctx
 				}
-				span := SpanFromContext(ctx, cfg.Name, cfg.Kind)
+				name := cfg.Name
+				if info != nil && info.Name != "" {
+					name = info.Name
+				}
+				span := SpanFromContext(ctx, name, cfg.Kind)
 				for k, v := range cfg.Attributes {
 					span.SetAttribute(k, v)
 				}
@@ -66,6 +74,12 @@ func NewEinoTraceCallbackHandler() einocallbacks.Handler {
 					span.SetAttribute("gen_ai.request.model", input.Config.Model)
 				}
 				span.SetAttribute("gen_ai.operation.name", cfg.Name)
+					if input != nil && len(input.Messages) > 0 {
+						summarizeLLMMessages(span, input.Messages)
+						if shouldRecordLLMInputPreview() {
+							span.SetAttribute("input.messages.preview", serializeLLMMessagePreview(input.Messages))
+						}
+					}
 				return context.WithValue(ctx, einoCallbackSpanKey_, span)
 			},
 			OnEnd: func(ctx context.Context, _ *einocallbacks.RunInfo, output *einomodel.CallbackOutput) context.Context {
@@ -252,6 +266,66 @@ func finishEinoRetrieverErrorSpan(ctx context.Context, err error) {
 	}
 	span.SetStatus("degraded")
 	span.End()
+}
+
+// summarizeLLMMessages 记录 LLM 输入 messages 的结构信号，不包含原文内容。
+func summarizeLLMMessages(span Span, msgs []*schema.Message) {
+	if span == nil {
+		return
+	}
+	roles := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		if m == nil {
+			continue
+		}
+		roles = append(roles, string(m.Role))
+	}
+	span.SetAttribute("input.message_count", len(roles))
+	span.SetAttribute("input.message_roles", strings.Join(roles, ","))
+}
+
+// shouldRecordLLMInputPreview 控制是否记录脱敏后的 message 内容预览。
+// 默认关闭，避免 OTel mirror 外发完整 prompt、出生资料和历史上下文。
+func shouldRecordLLMInputPreview() bool {
+	return os.Getenv("TRACE_LLM_INPUT_MESSAGES") == "1"
+}
+
+// serializeLLMMessagePreview 把 LLM 输入 messages 序列化为脱敏截断预览，用于本地排障。
+func serializeLLMMessagePreview(msgs []*schema.Message) string {
+	var b strings.Builder
+	for i, m := range msgs {
+		if m == nil {
+			continue
+		}
+		role := string(m.Role)
+		content := redactTracePreview(m.Content)
+		if r := []rune(content); len(r) > 200 {
+			content = string(r[:200]) + "...(truncated)"
+		}
+		fmt.Fprintf(&b, "[%d] %s: %s", i, role, content)
+		if i < len(msgs)-1 {
+			b.WriteString("\n")
+		}
+		if r := []rune(b.String()); len(r) > 3000 {
+			return string(r[:3000]) + "...(truncated)"
+		}
+	}
+	return b.String()
+}
+
+func redactTracePreview(s string) string {
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)authorization:\s*bearer\s+[^\s]+`),
+		regexp.MustCompile(`(?i)api[_-]?key\s*[:=]\s*[^\s]+`),
+		regexp.MustCompile(`sk-[A-Za-z0-9_-]+`),
+		regexp.MustCompile(`\b1[3-9]\d{9}\b`),
+		regexp.MustCompile(`\b\d{17}[\dXx]\b`),
+	}
+	out := s
+	for _, p := range patterns {
+		out = p.ReplaceAllString(out, "[redacted]")
+	}
+	return out
 }
 
 var installEinoCallbackTracingOnce sync.Once
