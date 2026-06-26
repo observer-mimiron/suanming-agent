@@ -80,6 +80,11 @@ func emitShortCircuitNode(ctx context.Context, in string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	span := tracing.SpanFromContext(ctx, "short_circuit", tracing.KindChain)
+	span.SetAttribute("turn_type", oc.GS.PreflightResult.TurnType)
+	span.SetAttribute("short_circuit", oc.GS.PreflightResult.ShortCircuit)
+	defer span.End()
+
 	oc.RT.Executor.updateGuidanceState(oc.Init.St, oc.Init.Route, oc.Init.UserMsg, oc.GS.PreflightResult)
 	_ = emitEventWithTrace(ctx, oc.RT.Sink, Event{
 		Type: "text",
@@ -107,7 +112,11 @@ func guardNode(ctx context.Context, finalText string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	span := tracing.SpanFromContext(ctx, "final_guard", tracing.KindChain)
+	defer span.End()
+
 	turnType, guardedText := guardFinalAnswerWithTrace(ctx, oc.GS.Route, oc.Init.St, finalText)
+	span.SetAttribute("turn_type", turnType)
 	if shouldBufferFinalAnswer() && guardedText != "" {
 		_ = emitEventWithTrace(ctx, oc.RT.Sink, Event{
 			Type: "text",
@@ -129,12 +138,15 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 	if err != nil {
 		return nil, err
 	}
+	nodeSpan := tracing.SpanFromContext(ctx, "agent", tracing.KindChain)
+	nodeSpan.SetAttribute("primary_domain", oc.GS.Route.PrimaryDomain)
 
 	// ForcedRoute 覆盖（preflight 返回 ForcedRoute 时）
 	route := oc.GS.Route
 	if oc.GS.PreflightResult.ForcedRoute != nil {
 		route = *oc.GS.PreflightResult.ForcedRoute
 		oc.GS.Route = route // 同步到 Graph state，guardNode 用
+		nodeSpan.SetAttribute("forced_route", true)
 	}
 
 	// emit transition text（ForcedRoute 场景）
@@ -170,13 +182,17 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 	sr, sw := schema.Pipe[string](64)
 	go func() {
 		defer sw.Close()
+		defer nodeSpan.End()
 		finalText, err := agentEventBridge(ctx, oc.RT.Sink, iter, func(toolName, resultJSON string) {
 			oc.RT.Executor.saveToolResult(oc.Init.St, toolName, resultJSON)
 		}, oc.RT.Executor.reg.DisplayName, shouldBufferFinalAnswer())
 		if err != nil {
+			nodeSpan.RecordError(err)
+			nodeSpan.SetStatus("error")
 			sw.Send("", err)
 			return
 		}
+		nodeSpan.SetAttribute("final_text_len", len([]rune(finalText)))
 		sw.Send(finalText, nil)
 	}()
 	return sr, nil
