@@ -41,7 +41,7 @@ func (t *KnowledgeSearchTool) Execute(_ context.Context, params map[string]any) 
 		return nil, fmt.Errorf("query is required")
 	}
 	topK := 3
-	if v, ok := params["topK"].(float64); ok {
+	if v, ok := params["top_k"].(float64); ok {
 		topK = int(v)
 	}
 	passages, err := t.client.Search(query, topK)
