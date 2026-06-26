@@ -64,6 +64,7 @@ func BuildContainer() *Container {
 	reg.Register(&baziCalc.CalcTool{})
 	reg.Register(&baziCalc.YongShenTool{})
 	reg.Register(&baziCalc.DayunAnalyzer{})
+	reg.Register(&baziCalc.BaziLiuNianTool{})
 	reg.Register(&qimenTools.Tool{})
 	reg.Register(&ziweiTools.ZiWeiCalcTool{})
 	reg.Register(&ziweiTools.ZiWeiLiuNianTool{})

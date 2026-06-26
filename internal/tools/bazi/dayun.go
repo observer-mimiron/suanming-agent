@@ -35,19 +35,10 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 	yongList := toStringSlice(yongshen["yong_shen"])
 	jiList := toStringSlice(yongshen["ji_shen"])
 
-	// 十神速查表：以日干和目标天干为键，返回十神名称
-	shiShenTable := map[string]map[string]string{
-		"甲": {"甲": "比肩", "乙": "劫财", "丙": "食神", "丁": "伤官", "戊": "偏财", "己": "正财", "庚": "七杀", "辛": "正官", "壬": "偏印", "癸": "正印"},
-		"乙": {"甲": "劫财", "乙": "比肩", "丙": "伤官", "丁": "食神", "戊": "正财", "己": "偏财", "庚": "正官", "辛": "七杀", "壬": "正印", "癸": "偏印"},
-		"丙": {"甲": "偏印", "乙": "正印", "丙": "比肩", "丁": "劫财", "戊": "食神", "己": "伤官", "庚": "偏财", "辛": "正财", "壬": "七杀", "癸": "正官"},
-		"丁": {"甲": "正印", "乙": "偏印", "丙": "劫财", "丁": "比肩", "戊": "伤官", "己": "食神", "庚": "正财", "辛": "偏财", "壬": "正官", "癸": "七杀"},
-		"戊": {"甲": "七杀", "乙": "正官", "丙": "偏印", "丁": "正印", "戊": "比肩", "己": "劫财", "庚": "食神", "辛": "伤官", "壬": "偏财", "癸": "正财"},
-		"己": {"甲": "正官", "乙": "七杀", "丙": "正印", "丁": "偏印", "戊": "劫财", "己": "比肩", "庚": "伤官", "辛": "食神", "壬": "正财", "癸": "偏财"},
-		"庚": {"甲": "偏财", "乙": "正财", "丙": "七杀", "丁": "正官", "戊": "偏印", "己": "正印", "庚": "比肩", "辛": "劫财", "壬": "食神", "癸": "伤官"},
-		"辛": {"甲": "正财", "乙": "偏财", "丙": "正官", "丁": "七杀", "戊": "正印", "己": "偏印", "庚": "劫财", "辛": "比肩", "壬": "伤官", "癸": "食神"},
-		"壬": {"甲": "食神", "乙": "伤官", "丙": "偏财", "丁": "正财", "戊": "七杀", "己": "正官", "庚": "偏印", "辛": "正印", "壬": "比肩", "癸": "劫财"},
-		"癸": {"甲": "伤官", "乙": "食神", "丙": "正财", "丁": "偏财", "戊": "正官", "己": "七杀", "庚": "正印", "辛": "偏印", "壬": "劫财", "癸": "比肩"},
-	}
+	// 命局四柱地支，用于大运-命局冲合应期分析（复用 liunian.go 的提取 helper）
+	_, allZhi := extractGanZhiFromPillars(baziResult["pillars"])
+
+	// shiShenTable 引用 tables.go 包级十神速查表（与 liunian.go 共享）
 
 	// 五行相生：key 生 value（木生火 等）
 	generates := map[string]string{"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
@@ -115,10 +106,18 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 			quality = "平"
 		}
 
+		// 大运地支——冲合刑害应期分析（大运为客，命局为主）
+		dyZhi := ""
+		if len(runes) >= 2 {
+			dyZhi = string(runes[1])
+		}
+		chonghe := computeDayunChonghe(dyZhi, allZhi)
+
 		annotated = append(annotated, map[string]any{
 			"startAge": dy["startAge"], "endAge": dy["endAge"],
 			"ganZhi": gz, "tenGod": tenGod, "tenGodType": godType,
-			"quality": quality,
+			"quality":     quality,
+			"dayun_chonghe": chonghe,
 		})
 	}
 
@@ -149,4 +148,138 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// computeDayunChonghe 检测大运地支与命局四支的冲合刑害关系。
+// 大运为客、命局为主——只报告包含大运地支的关系，纯命局间关系由 computeChonghe 产出。
+// 复用 chonghe.go 包级配对表（liuChongPairs/haiPairs/ziXingSet/sanHeCombos/sanHuiCombos/sanXingCombos）。
+func computeDayunChonghe(dayunZhi string, allZhi []string) []map[string]string {
+	items := []map[string]string{}
+	if dayunZhi == "" {
+		return items
+	}
+	pillarNames := []string{"年柱", "月柱", "日柱", "时柱"}
+
+	// 六冲
+	for _, pair := range liuChongPairs {
+		a := string([]rune(pair)[0])
+		b := string([]rune(pair)[1])
+		if dayunZhi != a && dayunZhi != b {
+			continue
+		}
+		otherZhi := b
+		if dayunZhi == b {
+			otherZhi = a
+		}
+		for i, z := range allZhi {
+			if z == otherZhi {
+				items = append(items, makeDayunChongheItem("六冲", pair, pillarNames[i]+otherZhi, "冲"))
+			}
+		}
+	}
+
+	// 相害
+	for _, pair := range haiPairs {
+		a := string([]rune(pair)[0])
+		b := string([]rune(pair)[1])
+		if dayunZhi != a && dayunZhi != b {
+			continue
+		}
+		otherZhi := b
+		if dayunZhi == b {
+			otherZhi = a
+		}
+		for i, z := range allZhi {
+			if z == otherZhi {
+				items = append(items, makeDayunChongheItem("相害", pair, pillarNames[i]+otherZhi, "害"))
+			}
+		}
+	}
+
+	// 自刑：大运支与命局同地支（辰午酉亥）
+	if ziXingSet[dayunZhi] {
+		for i, z := range allZhi {
+			if z == dayunZhi {
+				items = append(items, makeDayunChongheItem("相刑", dayunZhi+dayunZhi, pillarNames[i]+dayunZhi, "自刑"))
+			}
+		}
+	}
+
+	// 三合/三会/三刑：大运支参与的组合，需命局凑齐其余 2 个地支
+	for combo, elem := range sanHeCombos {
+		if !comboContainsRune(combo, dayunZhi) {
+			continue
+		}
+		if pillars, ok := findTriplePillarsWithTarget(combo, dayunZhi, "大运", allZhi, pillarNames); ok {
+			items = append(items, map[string]string{
+				"type":        "三合",
+				"zhi":         combo,
+				"pillars":     pillars,
+				"description": "大运参与" + combo + "合" + elem + "局",
+			})
+		}
+	}
+	for combo, elem := range sanHuiCombos {
+		if !comboContainsRune(combo, dayunZhi) {
+			continue
+		}
+		if pillars, ok := findTriplePillarsWithTarget(combo, dayunZhi, "大运", allZhi, pillarNames); ok {
+			items = append(items, map[string]string{
+				"type":        "三会",
+				"zhi":         combo,
+				"pillars":     pillars,
+				"description": "大运参与" + combo + "会" + elem + "局",
+			})
+		}
+	}
+	for _, combo := range sanXingCombos {
+		if !comboContainsRune(combo, dayunZhi) {
+			continue
+		}
+		if pillars, ok := findTriplePillarsWithTarget(combo, dayunZhi, "大运", allZhi, pillarNames); ok {
+			items = append(items, map[string]string{
+				"type":        "相刑",
+				"zhi":         combo,
+				"pillars":     pillars,
+				"description": "大运参与" + combo + "三刑",
+			})
+		}
+	}
+
+	return items
+}
+
+// makeDayunChongheItem 构造大运冲合条目。description 格式："大运Xsuffix otherPillar"。
+func makeDayunChongheItem(typ, zhi, otherPillar, suffix string) map[string]string {
+	return map[string]string{
+		"type":        typ,
+		"zhi":         zhi,
+		"pillars":     "大运" + otherPillar,
+		"description": "大运" + zhi + suffix + otherPillar,
+	}
+}
+
+// findTriplePillarsWithTarget 检查 combo 三地支是否在 allZhi 中齐备。
+// pillars 按 combo 顺序拼接，targetZhi 标记为 targetLabel（如"大运"）。
+func findTriplePillarsWithTarget(combo, targetZhi, targetLabel string, allZhi, pillarNames []string) (string, bool) {
+	pillars := ""
+	for _, r := range []rune(combo) {
+		z := string(r)
+		if z == targetZhi {
+			pillars += targetLabel
+			continue
+		}
+		idx := -1
+		for i, ez := range allZhi {
+			if ez == z {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return "", false
+		}
+		pillars += pillarNames[idx]
+	}
+	return pillars, true
 }

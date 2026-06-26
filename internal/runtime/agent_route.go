@@ -3,9 +3,8 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-
-	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -18,6 +17,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/wikiglobal/suanming-agent/internal/llm"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/specialists"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -65,33 +65,45 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 	if err != nil {
 		return nil, err
 	}
-	instruction := cfg.Instruction
-	instruction += "\n\n## 当前运行时上下文\n当前系统日期：" + time.Now().Format("2006-01-02") + "。\n当前系统时区：Asia/Shanghai。"
+	// 会话已有上下文（含权威命盘数据）通过 instruction 中的 {{SESSION_CONTEXT}} 占位符注入，
+	// 让 prompt 作者控制数据位置，避免 LLM 因长 instruction 注意力稀释而幻觉其他出生年份。
+	// 占位符不存在时兜底拼到 instruction 最前面。
+	var sessionCtx string
 	if st != nil && (len(st.Profile) > 0 || st.HasBaziResult() || st.QimenResult != nil || st.HasZiWeiResult()) {
-		instruction += "\n\n## 会话已有上下文\n\n以下资料已在当前会话中提供，**直接使用，无需再次索要或调用工具获取**：\n"
+		sessionCtx = "## 会话已有上下文\n\n以下资料已在当前会话中提供，**直接使用，无需再次索要或调用工具获取**：\n"
 		if len(st.Profile) > 0 {
 			pb := NewBuilder() // 只用 buildProfileSection
-			instruction += "\n### 出生资料\n" + pb.buildProfileSection(st) + "\n"
+			sessionCtx += "\n### 出生资料\n" + pb.buildProfileSection(st) + "\n"
 		}
 		if st.HasBaziResult() {
-			instruction += "\n### 命盘结果（已就绪，严禁重新调用排盘/用神/大运工具）\n"
-			instruction += b.buildBaziDataBlock(st)
+			sessionCtx += "\n### 命盘结果（已就绪，严禁重新调用排盘/用神/大运工具）\n"
+			sessionCtx += b.buildBaziDataBlock(st)
 		}
 		if st.QimenResult != nil {
-			instruction += "\n### 奇门遁甲盘结果（已就绪，严禁重新调用 qimen_dunjia 工具）\n"
-			instruction += b.buildQimenDataBlock(st)
+			sessionCtx += "\n### 奇门遁甲盘结果（已就绪，严禁重新调用 qimen_dunjia 工具）\n"
+			sessionCtx += b.buildQimenDataBlock(st)
 		}
 		if st.HasZiWeiResult() {
-			instruction += "\n### 紫微命盘结果（已就绪，严禁重新调用 ziwei_calc/ziwei_liunian 工具）\n"
-			instruction += b.buildZiWeiDataBlock(st)
+			sessionCtx += "\n### 紫微命盘结果（已就绪，严禁重新调用 ziwei_calc/ziwei_liunian 工具）\n"
+			sessionCtx += b.buildZiWeiDataBlock(st)
 		}
 	}
+	const sessionCtxPlaceholder = "{{SESSION_CONTEXT}}"
+	instruction := cfg.Instruction
+	if sessionCtx != "" {
+		if strings.Contains(instruction, sessionCtxPlaceholder) {
+			instruction = strings.Replace(instruction, sessionCtxPlaceholder, sessionCtx, 1)
+		} else {
+			instruction = sessionCtx + "\n\n---\n\n" + instruction
+		}
+	}
+	instruction += "\n\n## 当前运行时上下文\n当前系统日期：" + time.Now().Format("2006-01-02") + "。\n当前系统时区：Asia/Shanghai。"
 	return adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          cfg.Name,
 		Description:   cfg.Description,
 		Instruction:   instruction,
 		Model:         b.model,
-		MaxIterations: 6,
+		MaxIterations: 15,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools: adapters,
@@ -104,13 +116,14 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 }
 
 // buildSpecialistHandlers 返回 specialist agent 的中间件链。
-// 顺序遵循 ADK 规定：PatchToolCalls → Reduction → Summarization。
+// 仅挂载 reduction（knowledge_search 截断）；不挂 summarization。
+// 原因：summarization 的 Trigger 配置只设 ContextMessages=20、未设 ContextTokens，
+// 导致 getTriggerContextTokens 返回 0，tokens>0 恒成立——每次 specialist 调用都触发
+// summarizer 改写输入，污染注入的权威命盘数据（产生"好的我们继续"+日主幻觉+跳流年）。
+// 会话历史压缩由 orchestrator.recordTurnAndMaintainContext + RunningSummary 负责。
 func (b *AgentBuilder) buildSpecialistHandlers() []adk.ChatModelAgentMiddleware {
 	var handlers []adk.ChatModelAgentMiddleware
 	if mw, err := buildToolReductionMiddleware(); err == nil && mw != nil {
-		handlers = append(handlers, mw)
-	}
-	if mw, err := buildSummarizationMiddleware(b.summarizerModel); err == nil && mw != nil {
 		handlers = append(handlers, mw)
 	}
 	return handlers
@@ -131,7 +144,7 @@ func buildSummarizationMiddleware(m einomodel.ToolCallingChatModel) (adk.ChatMod
 		},
 		UserInstruction: "你在为命理咨询对话生成摘要。要求：\n" +
 			"1. 保留所有命理术语原文（天干地支、十神、用神、日主、大运、流年、命宫、身宫、四化、格局、神煞、节气等），不得改写或意译。\n" +
-			"2. 保留用户提供的出生信息（年月日时、性别）和已排盘的关键数据（四柱、用神、大运、命宫主星等）。\n" +
+			"2. 保留用户提供的出生信息（年月日时、性别）和**完整的**已排盘关键数据（四柱干支、十神、用神、大运、五行、命宫主星等）——命盘数据必须完整传递，不得截断、省略或改写。\n" +
 			"3. 保留 specialist 的核心结论与判断依据。\n" +
 			"4. 删除寒暄、过渡语、重复的盘面数据。\n" +
 			"5. 摘要忠于原意，不添加推断或未提及的内容。",
@@ -220,10 +233,44 @@ func buildYongshenBlock(sb *strings.Builder, ys map[string]interface{}) {
 		}
 		sb.WriteString("。**格局名为系统确定性计算结果。组合关系中的[主/次/辅/忌]为建议优先级（基于位置距离、半合局、身强身弱），你应综合全部事实做最终主次判断。**\n")
 	}
+	// 冲合刑害显式渲染：算法证据字段，LLM 在 interpret.md 命格层次清单中引用
+	if ch, ok := ys["chonghe"].([]map[string]string); ok && len(ch) > 0 {
+		parts := make([]string, 0, len(ch))
+		for _, item := range ch {
+			parts = append(parts, fmt.Sprintf("[%s]%s", item["type"], item["description"]))
+		}
+		sb.WriteString(fmt.Sprintf("**冲合刑害**：%s\n", strings.Join(parts, "；")))
+	}
+	// 十神力量显式渲染：按 weighted 降序，便于 LLM 识别主导十神
+	if ssp, ok := ys["shi_shen_power"].(map[string]map[string]float64); ok && len(ssp) > 0 {
+		type kv struct {
+			god             string
+			gan, zhi, total int
+			weighted        float64
+		}
+		pairs := make([]kv, 0, len(ssp))
+		for god, item := range ssp {
+			pairs = append(pairs, kv{
+				god:      god,
+				gan:      int(item["gan_count"]),
+				zhi:      int(item["zhi_count"]),
+				total:    int(item["total"]),
+				weighted: item["weighted"],
+			})
+		}
+		sort.SliceStable(pairs, func(i, j int) bool {
+			return pairs[i].weighted > pairs[j].weighted
+		})
+		parts := make([]string, 0, len(pairs))
+		for _, p := range pairs {
+			parts = append(parts, fmt.Sprintf("%s(透%d藏%d总%d权%.1f)", p.god, p.gan, p.zhi, p.total, p.weighted))
+		}
+		sb.WriteString(fmt.Sprintf("**十神力量**：%s\n", strings.Join(parts, " ")))
+	}
 	// 其余用神字段
 	ysCopy := map[string]interface{}{}
 	for k, v := range ys {
-		if k != "geju" && k != "geju_status" && k != "geju_detail" && k != "geju_basis" && k != "geju_qing_zhuo" && k != "geju_combination" {
+		if k != "geju" && k != "geju_status" && k != "geju_detail" && k != "geju_basis" && k != "geju_qing_zhuo" && k != "geju_combination" && k != "chonghe" && k != "shi_shen_power" {
 			ysCopy[k] = v
 		}
 	}
@@ -241,6 +288,39 @@ func buildYongshenBlockAny(sb *strings.Builder, ys map[string]any) {
 	buildYongshenBlock(sb, m)
 }
 
+// buildLiuNianBlock 渲染流年应期数据段。算法证据字段，LLM 在 interpret.md:140 框架下引用。
+func buildLiuNianBlock(sb *strings.Builder, ln map[string]interface{}) {
+	sb.WriteString("**流年应期**：")
+	if year, ok := ln["liunian_year"]; ok {
+		if gz, ok := ln["liunian_ganzhi"].(string); ok && gz != "" {
+			sb.WriteString(fmt.Sprintf("%v年=%s。", year, gz))
+		}
+		if ss, ok := ln["liunian_shi_shen"].(string); ok && ss != "" {
+			sb.WriteString(fmt.Sprintf("流年天干十神=%s。", ss))
+		}
+	}
+	if cd, ok := ln["current_dayun"].(map[string]interface{}); ok && len(cd) > 0 {
+		sb.WriteString(fmt.Sprintf("当前大运=%v-%v岁 %v。", cd["startAge"], cd["endAge"], cd["ganZhi"]))
+	}
+	if ch, ok := ln["liunian_chonghe"].([]map[string]string); ok && len(ch) > 0 {
+		parts := make([]string, 0, len(ch))
+		for _, item := range ch {
+			parts = append(parts, fmt.Sprintf("[%s]%s", item["type"], item["description"]))
+		}
+		sb.WriteString(fmt.Sprintf("流年冲合刑害=%s。", strings.Join(parts, "；")))
+	}
+	sb.WriteString("\n")
+}
+
+// buildLiuNianBlockAny 是 buildLiuNianBlock 的 map[string]any 版本。
+func buildLiuNianBlockAny(sb *strings.Builder, ln map[string]any) {
+	m := make(map[string]interface{}, len(ln))
+	for k, v := range ln {
+		m[k] = v
+	}
+	buildLiuNianBlock(sb, m)
+}
+
 func (b *AgentBuilder) buildBaziDataBlock(st *state.SessionState) string {
 	br := st.BaziResult
 	if br == nil {
@@ -250,7 +330,7 @@ func (b *AgentBuilder) buildBaziDataBlock(st *state.SessionState) string {
 	var sb strings.Builder
 
 	// 四柱十神
-	sb.WriteString("**四柱十神**：")
+	sb.WriteString("**本命四柱十神（日柱标注日主，以下为命主本命，非大运）**：")
 	if pillars, ok := br["pillars"].([]interface{}); ok {
 		for _, p := range pillars {
 			if pm, ok := p.(map[string]interface{}); ok {
@@ -263,6 +343,12 @@ func (b *AgentBuilder) buildBaziDataBlock(st *state.SessionState) string {
 			sb.WriteString(fmt.Sprintf(" %s%s(%s)",
 				pm["stem"], pm["branch"], pm["shiShen"]))
 		}
+	}
+	sb.WriteString("\n")
+
+	// 日主单独突出一行，防止 LLM 把大运干支误读为日主
+	if dayGan, ok := br["dayGan"].(string); ok && dayGan != "" {
+		sb.WriteString(fmt.Sprintf("**日主：%s（此为命主本命日干，大运干支不是日主）**\n", dayGan))
 	}
 	sb.WriteString("\n")
 
@@ -302,17 +388,24 @@ func (b *AgentBuilder) buildBaziDataBlock(st *state.SessionState) string {
 		}
 		sb.WriteString("\n")
 	} else if dayun, ok := br["dayun"].([]interface{}); ok && len(dayun) > 0 {
-		sb.WriteString("**大运脉络**：")
+		sb.WriteString("**大运脉络（以下为大运周期干支，非本命四柱，勿与日主混淆）**：")
 		for i, d := range dayun {
 			if dm, ok := d.(map[string]interface{}); ok {
 				if i > 0 {
 					sb.WriteString(" | ")
 				}
-				sb.WriteString(fmt.Sprintf("%v-%v岁 %s",
+				sb.WriteString(fmt.Sprintf("%v-%v岁 %s(大运)",
 					dm["startAge"], dm["endAge"], dm["ganZhi"]))
 			}
 		}
 		sb.WriteString("\n")
+	}
+
+	// 流年应期
+	if ln, ok := br["liunian"].(map[string]interface{}); ok {
+		buildLiuNianBlock(&sb, ln)
+	} else if ln, ok := br["liunian"].(map[string]any); ok {
+		buildLiuNianBlockAny(&sb, ln)
 	}
 
 	// 神煞

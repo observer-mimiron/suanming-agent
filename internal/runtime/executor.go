@@ -384,6 +384,21 @@ func (e *Executor) prefillBazi(ctx context.Context, sink EventSink, st *state.Se
 		}
 	}
 
+	// 预排当前流年（bazi_liunian）：注入 target_year=time.Now().Year()，
+	// 复用已就绪的 bazi_result（含 dayGan/pillars/dayun/birthday）。
+	// 仿 prefillZiWei:322-341 模式，已有结果则跳过避免重复计算。
+	if st.BaziResult != nil {
+		if _, ok := st.BaziResult["liunian"].(map[string]any); !ok {
+			liunianParams := map[string]any{
+				"target_year": float64(time.Now().Year()),
+				"bazi_result": st.BaziResult,
+			}
+			if result := e.callTool(ctx, "bazi_liunian", liunianParams); result != nil {
+				st.BaziResult["liunian"] = result
+			}
+		}
+	}
+
 
 
 	return true
@@ -494,13 +509,19 @@ func updateRoutingSnapshot(st *state.SessionState, route policy.ApprovedRoute) {
 }
 
 // buildConversationMessages 从会话状态构建完整的输入消息列表。
+// 若 RunningSummary 非空（对话超 30 轮后产生），作为 SystemMessage 注入消息列表开头，
+// 让 supervisor 能看到早期对话的摘要，避免上下文断裂。
 func (e *Executor) buildConversationMessages(st *state.SessionState, currentMessage string) []*schema.Message {
 	limit := e.historyLimit
 	if limit <= 0 {
 		limit = len(st.RecentTurns)
 	}
 
-	msgs := make([]*schema.Message, 0, limit+1)
+	msgs := make([]*schema.Message, 0, limit+2)
+
+	if st.RunningSummary != "" {
+		msgs = append(msgs, schema.SystemMessage("## 之前对话摘要（早期对话的压缩，供参考）\n\n"+st.RunningSummary))
+	}
 
 	start := 0
 	if len(st.RecentTurns) > limit {
