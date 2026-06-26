@@ -3,6 +3,8 @@ package intent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math"
 	"strings"
 
@@ -117,4 +119,31 @@ func (r *SemanticRouter) Match(ctx context.Context, msg string) (MatchResult, er
 	default:
 		return MatchResult{Decision: DecisionNone}, nil
 	}
+}
+
+// NewSemanticRouter 构造 router，启动时一次性 embed 所有 utterance 存内存。
+// 失败时返回 error，调用方据此决定是否走 regex 兜底（router=nil）。
+func NewSemanticRouter(ctx context.Context, embedder embedding.Embedder, utterances map[string]RouteUtterances, threshold float64) (*SemanticRouter, error) {
+	if embedder == nil {
+		return nil, errors.New("embedder is nil")
+	}
+
+	routes := make(map[string]cachedRoute, len(utterances))
+	for name, u := range utterances {
+		pos, err := embedder.EmbedStrings(ctx, u.Positive)
+		if err != nil {
+			return nil, fmt.Errorf("embed positive utterances for %s: %w", name, err)
+		}
+		neg, err := embedder.EmbedStrings(ctx, u.Negative)
+		if err != nil {
+			return nil, fmt.Errorf("embed negative utterances for %s: %w", name, err)
+		}
+		routes[name] = cachedRoute{Positive: pos, Negative: neg}
+	}
+
+	return &SemanticRouter{
+		embedder:  embedder,
+		routes:    routes,
+		threshold: threshold,
+	}, nil
 }

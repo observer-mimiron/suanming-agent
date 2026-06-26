@@ -163,3 +163,30 @@ func TestMatch_EmbedderError(t *testing.T) {
 		t.Fatal("expected err, got nil")
 	}
 }
+
+func TestNewSemanticRouter_EmbedsAllUtterancesAtStartup(t *testing.T) {
+	// mockEmbedder：为每个 utterance 字符串预设 {1, 0} 向量
+	embedder := newMockEmbedder(map[string][][]float64{
+		"a": {{1, 0}},
+		"b": {{1, 0}},
+		"c": {{1, 0}},
+	}, nil)
+
+	utterances := map[string]RouteUtterances{
+		"ziwei": {
+			Positive: []string{"a", "b"},
+			Negative: []string{"c"},
+		},
+	}
+
+	r, err := NewSemanticRouter(context.Background(), embedder, utterances, 0.75)
+	if err != nil {
+		t.Fatalf("NewSemanticRouter err: %v", err)
+	}
+	if r.routes["ziwei"].Positive == nil {
+		t.Fatalf("positive vectors not cached at startup")
+	}
+	if r.routes["ziwei"].Negative == nil {
+		t.Fatalf("negative vectors not cached at startup")
+	}
+}
