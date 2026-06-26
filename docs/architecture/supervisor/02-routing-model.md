@@ -1,5 +1,6 @@
 # 02 Routing Model
 
+> **Status:** Implemented
 ## Routing Layers
 
 The supervisor should output layered decisions, not a single `action`.
@@ -148,7 +149,9 @@ flowchart TD
 As of 2026-06-19, route execution has two additional guarantees:
 
 1. **explicit method obey**
-   - if the user explicitly says “use ziwei / qimen / bazi”, `normalizeApprovedRoute` forces the corresponding primary domain
+   - if the user explicitly says "use ziwei / qimen / bazi", `applyExplicitMethodPreference` forces the corresponding primary domain
+   - as of 2026-06-26: detection done by **semantic router**（embedding 余弦相似度，[spec](../../../docs/superpowers/specs/2026-06-26-embedding-intent-router-design.md)）replacing the old `MentionsXxxMethod` regex; router 配正向+负向 utterance，negative 优先（"我不看紫微" 不覆盖）；regex 降为兜底，仅在 `Confidence < 0.7` 且 router 不可用时启用
+   - 三态开关 `ROUTER_MODE`：`off`（regex only）/ `shadow`（旁路 log）/ `enforce`（router 接入决策）
 2. **post-run contract check**
    - if `primary_domain=qimen`, runtime must observe `QimenResult`
    - if `primary_domain=ziwei`, runtime must observe `ZiWeiResult`
@@ -179,5 +182,5 @@ This keeps the design debuggable even if an optimized implementation later compr
 The practical routing stack today is:
 
 - prompt-level **domain capability framing**
-- policy-level **deterministic explicit-intent correction**
+- policy-level **deterministic explicit-intent correction**（semantic router 优先，regex 兜底，[spec](../../../docs/superpowers/specs/2026-06-26-embedding-intent-router-design.md)）
 - runtime-level **artifact contract validation**

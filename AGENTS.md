@@ -54,7 +54,7 @@ cd web && npm run dev
 ```
 
 **端口：** 知识库 :3100，后端默认 :8080（可通过 `LISTEN_ADDR` 环境变量修改），前端 :5173。
-环境变量：`LLM_API_KEY`（必填）、`LLM_BASE_URL`、`LLM_MODEL`、`KNOWLEDGE_MCP_URL`。
+环境变量：`LLM_API_KEY`（必填）、`LLM_BASE_URL`、`LLM_MODEL`、`KNOWLEDGE_MCP_URL`、`EMBEDDING_API_KEY`/`EMBEDDING_BASE_URL`/`EMBEDDING_MODEL`（semantic router，默认 DashScope `text-embedding-v4`）、`ROUTER_MODE`（`off`/`shadow`/`enforce`，默认 `off`）。
 
 ## 知识库
 
@@ -99,14 +99,13 @@ npm run build                   # 构建
 
 ## 实施状态
 
-项目处于 **v1.5 收口 + Eino Phase 1-5B** 阶段。所有设计文档在 `docs/` 下，架构专题在 `docs/architecture/supervisor/` 下，实施状态见 `docs/implementation.md`。
+项目处于 **v1.5 收口 + Eino Phase 1-5B** 阶段。所有设计文档在 `docs/` 下，架构专题在 `docs/architecture/supervisor/` 下，实施状态见 `PROGRESS.md`。
 
 实施按领域递增（八字 → 奇门 → 紫微），验收标准见 `docs/acceptance-criteria.md`。
 
 **开始开发前必读：**
 - `docs/architecture.md`（入口）和 `docs/architecture/supervisor/`（专题） — 架构总图、调用链路、ADR
 - `docs/acceptance-criteria.md` — 当前模块的验收用例
-- `docs/implementation.md` — 模块依赖关系
 
 
 ## 关键设计决策
@@ -196,9 +195,8 @@ Specialists: bazi / qimen / ziwei（各自挂载领域工具）
 
 | 文档 | 用途 |
 |------|------|
-| `docs/product.md` | 产品定义和功能范围 |
 | `docs/architecture.md`（入口）和 `docs/architecture/supervisor/`（专题） | 架构总图、调用链路、容错、ADR |
-| `docs/checklist-agent-engineering.md` | Agent 工程能力自检（43 项） |
 | `docs/acceptance-criteria.md` | 验收标准 |
-| `docs/implementation.md` | 实施总览和模块依赖 |
 | `docs/data-flow.md` | 数据链路：用户消息 → AI 回答的完整调用链 |
+| `docs/glossary.md` | 名词对照表，术语统一 |
+| `PROGRESS.md` | 实施进度、决策记录、上下文恢复 |

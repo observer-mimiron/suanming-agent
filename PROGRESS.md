@@ -6,25 +6,31 @@
 
 ## 当前状态
 
-**阶段：** v1.5 Supervisor Phase 1.5 收口 + Eino Phase 1-3 完成中 + Phase 5B 推进中
-**分支：** codex/specialists-agent-as-tool
-**最后更新：** 2026-06-20
-**状态：** `llm.Chat` 已收口为 Eino backend，原生 HTTP LLM 路径已删除；supervisor 运行面也已进一步收口为固定 ADK route engine，`SUPERVISOR_ENGINE` 配置、classic `structuredDecide` 路径、`GenerateWithTool` 接口以及 registry 的 Eino `InvokableTool` 兼容导出都已删除。现有 supervisor / orchestrator / SSE 协议保持不变，Go 侧仍保留 `textDecide + fallbackExtract + safeFallback` 三层降级骨架。
-最新收口：ADK route engine 遇到 `output` tool 校验失败时，不再直接把 ToolNode 错误冒泡结束；外层会抽取校验反馈并按同一用户消息做一次本地重试，补齐 classic structured route 的自纠正能力。
-最新收口：前端 trace 展示已收口为“raw trace + 双投影”模型。`TurnTrace` 继续作为本地落盘与原始事实来源；`ProcessDigest` 负责 `TracePanel` 的处理过程主卡；`DebugTraceDigest` 负责 debug 抽屉，`thinking/tool_call` 不再混入主回答与主过程链。
-最新收口：Phase 5A 先以最小粒度接入 Eino callback tracing，已覆盖 `streamInterpretation` 的 Eino ChatModel 主回答链，以及 supervisor ADK 路由和 text fallback 中的底层 Eino ChatModel 调用；现有 `TurnTrace` / 文件落盘模型继续保留为稳定 raw envelope。Phase 5B 的第一刀已把 `knowledge_search` 的 retriever 事件源切到 Eino callback，generic tool callback 迁移仍待后续推进。
-最新收口：`bridgeDecision` 和重复的 `specialists.ApprovedRoute` 已删除；`ApprovedRoute` 现在被 runtime 直接消费，`specialists` 改为复用统一的 `policy.ApprovedRoute` 契约。
-最新收口：已引入 `internal/runtime/` 作为“已批准路由执行层”，把候选会话流转、领域执行、知识检索、prompt 构建与流式回答从 `internal/orchestrator/` 主包移出；`orchestrator` 现收缩为 turn lifecycle 外壳。
-最新收口：已修复普通追问误带奇门的问题。`fortune_followup` 不再默认触发 `qimen_dunjia`，且 `NeedsQimen` 只由当前批准路由决定，不再把上一轮择时状态粘到后续八字概念追问。
-最新收口：奇门触发从“强绑 task_intent”调整为“task_intent + capability hints”混合模式。新增 `policy_hints.qimen_mode=none|supplement|primary` 与 `profile_requirement=none|full`：允许“今天运气/本日运道”这类问题在无八字资料时直接走奇门主链；只有明确要求结合个人命盘时，才因资料不足追问出生信息。
-最新收口：supervisor 路由提示词已从“词面示例优先”调整为“术数能力画像 + 判题步骤优先”。用户显式指定 `八字/紫微/奇门` 时，`normalizeApprovedRoute` 会做 deterministic obey；未指定时，supervisor 先判断“本命结构 / 宫位主题 / 当前时机”再选主领域。
-最新收口：runtime 已增加 post-run contract gate。`primary_domain=qimen` 必须真拿到 `QimenResult`，`primary_domain=ziwei` 必须真拿到 `ZiWeiResult`；最终文本先经 guardrail 校验后再发 SSE，避免“未起盘先给结论”的假成功。
-最新收口：`prefill` 已收缩为八字可复用链，不再承担紫微 correctness；specialist 运行时 instruction 统一注入当前系统日期与时区，减少相对时间漂移。
-最新收口：live 注册链上的 `tools.DayunAnalyzer` 已补齐 `[]interface{} -> []map[string]any` 兼容，修复 `dayun_analyzer` 在 JSON round-trip 后可能空跑的问题。bazi prefill 现已对 `yongshen` / `dayun_analyzed` / `knowledge_summary` 做结果级缓存，避免 followup 轮次重复重算；同时 prefill 工具调用会写入 trace span（`source=prefill`），普通 bazi 主链恢复为持续 `text` 流式输出，仅 `qimen/ziwei` 继续缓冲到 contract gate 后再发最终文本。
-最新收口：可观测性方案已明确收口为“raw trace + 双投影 + OTel”：`TurnTrace` 继续作为本地落盘与原始链路；前端展示拆为 `ProcessDigest` 产品主卡和 `DebugTraceDigest` 调试抽屉；下层新增 OTel 标准映射作为对外观测面，首个 AI-native backend 优先对接 Langfuse，Phoenix 作为纯 tracing 对照参考。
-最新收口：Phase A 的本地 trace 边界已开始落代码。`Execute` 现会显式记录 `preflight` span；`prefill` 新增业务级 `prefill` span；最终回答验收已通过 `contract_gate` span 记录 artifact 是否真实存在；所有 runtime SSE 输出统一经 `sse_emit` span 包裹，且不改变现有前端协议。
-最新收口：标准属性 contract 已开始落到现有 trace。root trace 现会记录 `session_id`、`turn_type`、`user_message_summary` 与已批准路由的关键元数据；Eino LLM callback 已补 `gen_ai.request.model`、`gen_ai.usage.input_tokens`、`gen_ai.usage.output_tokens` 等 OTel-friendly 别名。
-最新收口：Phase B 已完成最小 OTLP 接线。`realTracer` 现可在保持本地 `TurnTrace` 与前端双投影不变的前提下，把同一批 root trace 与 child spans 并行镜像到 OTLP HTTP exporter；默认关闭，仅在配置 `OTEL_*` 环境变量后启用。
+**阶段：** v1.5 收口 + Eino 迁移完成 + 可观测性 Phase 5B 收尾
+**最后更新：** 2026-06-26
+**状态：** 核心链路稳定。LLM 后端全 Eino（原生 HTTP 路径已删除）；路由固定 ADK RouteEngine（三层降级骨架保留）；执行走 orchestrationGraph（preflight → prefill → agent → guard）；Supervisor + AgentAsTool + Specialist 架构稳定运行。文档已清理：过期 plans 移入 archive/，stale prompts 删除。
+
+### 近期关键收口
+
+**架构与路由**
+- `internal/runtime/` 承载已批准路由执行，`orchestrator` 收缩为生命周期壳
+- 奇门触发改为 `task_intent + capability hints` 混合模式（`qimen_mode=none|supplement|primary`）
+- supervisor 路由提示词升级为"术数能力画像 + 判题步骤优先"，`normalizeApprovedRoute` 做 deterministic obey
+- post-run contract gate：qimen/ziwei 主链必须真拿到对应命盘结果，防止"未起盘先给结论"
+- ADK route engine 校验失败时自动本地重试一次，补齐自纠能力
+- **semantic router 上线（2026-06-26）**：`applyExplicitMethodPreference` + `anyHardNegative` 改用 Eino Embedder（DashScope `text-embedding-v4`）+ 余弦相似度替代 `MentionsXxxMethod` regex；每方法配正向+负向 utterance，**negative 优先**（"我不看紫微" 不覆盖不退回 regex）；`Match` 返回 `(MatchResult, error)`，error 才退回 regex（受 `Confidence < 0.7` 守卫）；三态开关 `ROUTER_MODE=off|shadow|enforce`，默认 `off`（regex only）。spec/plan 见 `docs/superpowers/specs|plans/2026-06-26-embedding-intent-router*`
+
+**执行与排盘**
+- prefill 收缩为八字可复用链；`yongshen` / `dayun_analyzed` / `knowledge_summary` 结果级缓存
+- 普通 bazi 主链流式输出 text；qimen/ziwei 缓冲到 contract gate 后再发最终文本
+- `DayunAnalyzer` 兼容 `[]interface{} → []map[string]any`；specialist instruction 统一注入系统日期+时区
+
+**可观测性**
+- "raw trace + 双投影 + OTel"：`TurnTrace`（本地事实）→ `ProcessDigest`（产品主卡）+ `DebugTraceDigest`（调试抽屉）
+- Eino callback tracing 覆盖 ChatModel + supervisor + knowledge_search retriever
+- OTLP 接线：`realTracer` 可并行镜像到 OTLP HTTP exporter（默认关闭，`OTEL_*` 环境变量启用）
+- span 覆盖：`preflight` / `prefill` / `contract_gate` / `sse_emit`
+
 
 ## 已完成功能
 
