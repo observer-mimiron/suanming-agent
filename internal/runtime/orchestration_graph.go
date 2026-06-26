@@ -46,7 +46,7 @@ func preflightNode(ctx context.Context, in string) (string, error) {
 	preflightSpan := tracing.SpanFromContext(ctx, "preflight", tracing.KindChain)
 	preflightSpan.SetAttribute("primary_domain", oc.Init.Route.PrimaryDomain)
 	preflightSpan.SetAttribute("task_intent", oc.Init.Route.TaskIntent)
-	result := preflight(oc.Init.St, oc.Init.Route, oc.Init.UserMsg)
+	result := preflight(oc.Init.St, oc.Init.Route, oc.Init.UserMsg, oc.RT.Router)
 	preflightSpan.SetAttribute("short_circuit", result.ShortCircuit)
 	if result.TurnType != "" {
 		preflightSpan.SetAttribute("turn_type", result.TurnType)

@@ -1,12 +1,75 @@
 package runtime
 
 import (
+	"context"
 	"testing"
 
+	"github.com/wikiglobal/suanming-agent/internal/guidance"
+	"github.com/wikiglobal/suanming-agent/internal/intent"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/state"
 )
+
+type stubGateRouter struct {
+	result intent.MatchResult
+	err    error
+	called bool
+}
+
+func (s *stubGateRouter) Match(_ context.Context, msg string) (intent.MatchResult, error) {
+	s.called = true
+	return s.result, s.err
+}
+
+func newGateRoute(primary string, conf float64) policy.ApprovedRoute {
+	return policy.ApprovedRoute{
+		PrimaryDomain: primary,
+		Confidence:    conf,
+	}
+}
+
+func TestAnyHardNegative_RouterPositiveBreaksGuidance(t *testing.T) {
+	r := &stubGateRouter{result: intent.MatchResult{Decision: intent.DecisionPositive, Method: "ziwei"}}
+	route := newGateRoute("bazi", 0.5)
+	signal := guidance.Signal{}
+
+	got := anyHardNegative(r, "排个紫微盘", route, signal)
+	if !got {
+		t.Fatal("router positive should break guidance")
+	}
+}
+
+func TestAnyHardNegative_RouterNegativeDoesNotBreak(t *testing.T) {
+	r := &stubGateRouter{result: intent.MatchResult{Decision: intent.DecisionNegative}}
+	route := newGateRoute("bazi", 0.5)
+	signal := guidance.Signal{}
+
+	got := anyHardNegative(r, "我不看紫微", route, signal)
+	if got {
+		t.Fatal("router negative should NOT break guidance (avoid regex hit)")
+	}
+}
+
+func TestAnyHardNegative_NilRouterFallsBackToRegex(t *testing.T) {
+	route := newGateRoute("bazi", 0.5) // 低置信，regex 兜底启用
+	signal := guidance.Signal{}
+
+	got := anyHardNegative(nil, "排个紫微盘", route, signal)
+	if !got {
+		t.Fatal("nil router + low confidence + 紫微 keyword should break guidance via regex")
+	}
+}
+
+func TestAnyHardNegative_NilRouterHighConfidenceSkipsRegex(t *testing.T) {
+	route := newGateRoute("bazi", 0.9) // 高置信，regex 兜底禁用
+	signal := guidance.Signal{}
+
+	got := anyHardNegative(nil, "排个紫微盘看紫微", route, signal)
+	if got {
+		t.Fatal("nil router + high confidence should skip regex, trust LLM")
+	}
+}
 
 // Hard negative: 含出生信息的首轮消息不应进入 guidance
 func TestShouldEnterGuidance_MessageWithBirthInfoReturnsFalse(t *testing.T) {
@@ -15,7 +78,7 @@ func TestShouldEnterGuidance_MessageWithBirthInfoReturnsFalse(t *testing.T) {
 		PrimaryDomain: "bazi",
 		TaskIntent:    "collect_profile",
 	}
-	result := ShouldEnterGuidance("我是1990年5月生的，男", route, st)
+	result := ShouldEnterGuidance(nil,"我是1990年5月生的，男", route, st)
 	if result {
 		t.Fatal("ShouldEnterGuidance with birth info message should return false")
 	}
@@ -28,7 +91,7 @@ func TestShouldEnterGuidance_ExplicitMethodReturnsFalse(t *testing.T) {
 		PrimaryDomain: "ziwei",
 		TaskIntent:    "collect_profile",
 	}
-	result := ShouldEnterGuidance("用紫微看看我的婚姻", route, st)
+	result := ShouldEnterGuidance(nil,"用紫微看看我的婚姻", route, st)
 	if result {
 		t.Fatal("ShouldEnterGuidance with explicit method should return false")
 	}
@@ -46,8 +109,8 @@ func TestShouldEnterGuidance_ExplicitActionReturnsFalse(t *testing.T) {
 		"帮我看一下运势",
 		"排盘分析一下",
 	} {
-		if ShouldEnterGuidance(msg, route, st) {
-			t.Fatalf("ShouldEnterGuidance(%q) should return false", msg)
+		if ShouldEnterGuidance(nil,msg, route, st) {
+			t.Fatalf("ShouldEnterGuidance(nil,%q) should return false", msg)
 		}
 	}
 }
@@ -70,8 +133,8 @@ func TestShouldEnterGuidance_QimenPrimaryTimingReturnsFalse(t *testing.T) {
 		"什么时候能转运",
 	}
 	for _, msg := range cases {
-		if ShouldEnterGuidance(msg, route, st) {
-			t.Fatalf("ShouldEnterGuidance(%q) should return false (pure timing)", msg)
+		if ShouldEnterGuidance(nil,msg, route, st) {
+			t.Fatalf("ShouldEnterGuidance(nil,%q) should return false (pure timing)", msg)
 		}
 	}
 }
@@ -87,7 +150,7 @@ func TestShouldEnterGuidance_QimenPrimaryDoesNotBlockFateAdjacent(t *testing.T) 
 			ProfileRequirement: "none",
 		},
 	}
-	if !ShouldEnterGuidance("最近真是喝凉水都塞牙", route, st) {
+	if !ShouldEnterGuidance(nil,"最近真是喝凉水都塞牙", route, st) {
 		t.Fatal("fate-adjacent should enter guidance even if model routes to qimen primary")
 	}
 }
@@ -100,7 +163,7 @@ func TestShouldEnterGuidance_CollectProfileInProgressReturnsFalse(t *testing.T) 
 			PrimaryDomain: "bazi",
 			TaskIntent:    intent,
 		}
-		if ShouldEnterGuidance("我1990年5月20日生的", route, st) {
+		if ShouldEnterGuidance(nil,"我1990年5月20日生的", route, st) {
 			t.Fatalf("ShouldEnterGuidance with %s should return false", intent)
 		}
 	}
@@ -113,7 +176,7 @@ func TestShouldEnterGuidance_FateAdjacentReturnsTrue(t *testing.T) {
 		PrimaryDomain: "bazi",
 		TaskIntent:    "collect_profile",
 	}
-	result := ShouldEnterGuidance("最近真是喝凉水都塞牙", route, st)
+	result := ShouldEnterGuidance(nil,"最近真是喝凉水都塞牙", route, st)
 	if !result {
 		t.Fatal("ShouldEnterGuidance with fate-adjacent message should return true")
 	}
@@ -126,7 +189,7 @@ func TestShouldEnterGuidance_BroadIntentReturnsTrue(t *testing.T) {
 		PrimaryDomain: "bazi",
 		TaskIntent:    "collect_profile",
 	}
-	result := ShouldEnterGuidance("看看事业", route, st)
+	result := ShouldEnterGuidance(nil,"看看事业", route, st)
 	if !result {
 		t.Fatal("ShouldEnterGuidance with broad intent message should return true")
 	}
@@ -140,7 +203,7 @@ func TestShouldEnterGuidance_ActiveGuidanceContinuationReturnsTrue(t *testing.T)
 		PrimaryDomain: "bazi",
 		TaskIntent:    "collect_profile",
 	}
-	result := ShouldEnterGuidance("行，那你看看", route, st)
+	result := ShouldEnterGuidance(nil,"行，那你看看", route, st)
 	if !result {
 		t.Fatal("ShouldEnterGuidance with active guidance continuation should return true")
 	}
@@ -154,7 +217,7 @@ func TestShouldEnterGuidance_ActiveGuidanceBreaksOnExplicitMethod(t *testing.T) 
 		PrimaryDomain: "bazi",
 		TaskIntent:    "collect_profile",
 	}
-	result := ShouldEnterGuidance("用奇门看看", route, st)
+	result := ShouldEnterGuidance(nil,"用奇门看看", route, st)
 	if result {
 		t.Fatal("active guidance should break on explicit method")
 	}
@@ -168,7 +231,7 @@ func TestShouldEnterGuidance_ActiveGuidanceBreaksOnFullBirthInfo(t *testing.T) {
 		PrimaryDomain: "bazi",
 		TaskIntent:    "collect_profile",
 	}
-	result := ShouldEnterGuidance("我1990年5月20日早上8点生的，男，北京", route, st)
+	result := ShouldEnterGuidance(nil,"我1990年5月20日早上8点生的，男，北京", route, st)
 	if result {
 		t.Fatal("active guidance should break on full birth info")
 	}
@@ -186,7 +249,7 @@ func TestShouldEnterGuidance_ActiveGuidanceBreaksOnQimenTiming(t *testing.T) {
 			ProfileRequirement: "none",
 		},
 	}
-	if ShouldEnterGuidance("今天适合出门吗", route, st) {
+	if ShouldEnterGuidance(nil,"今天适合出门吗", route, st) {
 		t.Fatal("active guidance should break on qimen timing")
 	}
 }
@@ -199,7 +262,7 @@ func TestShouldEnterGuidance_ActiveGuidanceBreaksOnSniffTimingFocus(t *testing.T
 		PrimaryDomain: "bazi",
 		TaskIntent:    "collect_profile",
 	}
-	if ShouldEnterGuidance("最近运势怎么样", route, st) {
+	if ShouldEnterGuidance(nil,"最近运势怎么样", route, st) {
 		t.Fatal("active guidance should break on sniff timing focus")
 	}
 }
@@ -214,8 +277,8 @@ func TestShouldEnterGuidance_ActiveGuidanceBreaksOnExplicitAction(t *testing.T) 
 	}
 	msgs := []string{"帮我算算八字", "帮我看看财运"}
 	for _, msg := range msgs {
-		if ShouldEnterGuidance(msg, route, st) {
-			t.Fatalf("ShouldEnterGuidance(%q) with active guidance should be false (break guidance)", msg)
+		if ShouldEnterGuidance(nil,msg, route, st) {
+			t.Fatalf("ShouldEnterGuidance(nil,%q) with active guidance should be false (break guidance)", msg)
 		}
 	}
 }
@@ -227,10 +290,10 @@ func TestShouldEnterGuidance_FirstTurnExplicitActionReturnsFalse(t *testing.T) {
 		PrimaryDomain: "bazi",
 		TaskIntent:    "collect_profile",
 	}
-	if ShouldEnterGuidance("帮我算一下八字", route, st) {
+	if ShouldEnterGuidance(nil,"帮我算一下八字", route, st) {
 		t.Fatal("'帮我算一下八字' should NOT enter guidance")
 	}
-	if ShouldEnterGuidance("帮我看看运势", route, st) {
+	if ShouldEnterGuidance(nil,"帮我看看运势", route, st) {
 		t.Fatal("'帮我看看运势' should NOT enter guidance")
 	}
 }

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"github.com/wikiglobal/suanming-agent/internal/guidance"
+	"github.com/wikiglobal/suanming-agent/internal/intent"
 	"github.com/wikiglobal/suanming-agent/internal/policy"
 	"github.com/wikiglobal/suanming-agent/internal/schemas"
 	"github.com/wikiglobal/suanming-agent/internal/state"
@@ -25,9 +26,9 @@ type preflightResult struct {
 //  4. profile_requirement=full 但没有完整资料 → 短路
 //  5. bazi 主域无资料且无命盘 → 短路
 //  6. ziwei 主域无资料且无命盘 → 短路
-func preflight(st *state.SessionState, route policy.ApprovedRoute, message string) preflightResult {
+func preflight(st *state.SessionState, route policy.ApprovedRoute, message string, router intent.Router) preflightResult {
 	// 1. sniff + guidance 判定（code-owned 路径）
-	if st.Guidance != nil || ShouldEnterGuidance(message, route, st) {
+	if st.Guidance != nil || ShouldEnterGuidance(router, message, route, st) {
 		var next *state.GuidanceState
 		if st.Guidance != nil {
 			// 已有 guidance → 推进

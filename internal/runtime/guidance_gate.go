@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"strings"
 
 	"github.com/wikiglobal/suanming-agent/internal/guidance"
@@ -10,10 +11,8 @@ import (
 )
 
 // ShouldEnterGuidance 判断本轮消息是否允许进入或继续 guidance。
-//
-// 只做 hard gate，不改 route / session / domain。
-// 优先检查 hard negative，再检查 hard positive。
-func ShouldEnterGuidance(message string, route policy.ApprovedRoute, st *state.SessionState) bool {
+// router 非空时优先用 router；nil 走 regex 兜底（受 Confidence 守卫）。
+func ShouldEnterGuidance(router intent.Router, message string, route policy.ApprovedRoute, st *state.SessionState) bool {
 	trimmed := strings.TrimSpace(message)
 	if trimmed == "" {
 		return false
@@ -21,24 +20,20 @@ func ShouldEnterGuidance(message string, route policy.ApprovedRoute, st *state.S
 
 	signal := guidance.Sniff(trimmed)
 
-	// ── Active guidance: check break conditions, then allow continuation ──
 	if st.Guidance != nil {
-		if anyHardNegative(trimmed, route, signal) {
-			return false // break guidance: birth info / explicit method / explicit action
+		if anyHardNegative(router, trimmed, route, signal) {
+			return false
 		}
-		// qimen primary timing or sniff timing focus → break guidance
 		if route.PolicyHints.QimenMode == "primary" || intent.HasTimingFocus(trimmed) {
 			return false
 		}
-		return true // continuation
+		return true
 	}
 
-	// ── No active guidance: hard negative + collect_profile gate blocks entry ──
-	if anyHardNegativeForNewEntry(trimmed, route, signal) {
+	if anyHardNegativeForNewEntry(router, trimmed, route, signal) {
 		return false
 	}
 
-	// ── Hard positive: first-turn fate-adjacent or broad-intent ──
 	if signal.ShouldOfferConsult() || signal.ShouldChooseTopic() {
 		return true
 	}
@@ -47,33 +42,48 @@ func ShouldEnterGuidance(message string, route policy.ApprovedRoute, st *state.S
 }
 
 // anyHardNegative 检查硬性不进入/断开 guidance 的条件。
-// 这些条件无论是否有 active guidance 都生效（如 birth info / explicit method）。
-func anyHardNegative(msg string, route policy.ApprovedRoute, signal guidance.Signal) bool {
+// router 非空时优先用 router；nil 或 err 走 regex 兜底（受 Confidence 守卫）。
+func anyHardNegative(router intent.Router, msg string, route policy.ApprovedRoute, signal guidance.Signal) bool {
 	if intent.ContainsBirthInfo(msg) {
-		return true
-	}
-	if intent.MentionsQimenMethod(msg) || intent.MentionsZiweiMethod(msg) || intent.MentionsBaziMethod(msg) {
 		return true
 	}
 	if intent.ContainsExplicitDivinationAction(msg) {
 		return true
 	}
+
+	// 术数方法提及——router 优先
+	if router != nil {
+		result, err := router.Match(context.Background(), msg)
+		if err == nil {
+			if result.Decision == intent.DecisionPositive {
+				return true
+			}
+			if result.Decision == intent.DecisionNegative || result.Decision == intent.DecisionNone {
+				return false // negative/none 不断——避免被 regex 击穿
+			}
+		}
+		// err 落到 regex 兜底
+	}
+
+	// regex 兜底（router nil 或 err），受 Confidence 守卫
+	if route.Confidence >= 0.7 {
+		return false // 高置信，禁用 dumb regex，信任 LLM
+	}
+	if intent.MentionsQimenMethod(msg) || intent.MentionsZiweiMethod(msg) || intent.MentionsBaziMethod(msg) {
+		return true
+	}
 	return false
 }
 
-// anyHardNegativeForNewEntry 检查新入场（无 active guidance 时）的额外 hard negative。
-// sniff 的 fate-adjacent / broad-intent 信号优先于模型路由（qimen primary / collect_profile 等），
-// 防止模型误路由阻止 guidance 入场。
-func anyHardNegativeForNewEntry(msg string, route policy.ApprovedRoute, signal guidance.Signal) bool {
-	if anyHardNegative(msg, route, signal) {
+// anyHardNegativeForNewEntry 检查新入场的额外 hard negative。
+func anyHardNegativeForNewEntry(router intent.Router, msg string, route policy.ApprovedRoute, signal guidance.Signal) bool {
+	if anyHardNegative(router, msg, route, signal) {
 		return true
 	}
-	// sniff 明确命中引导信号 → 允许入场，不阻
 	hasGuidanceSignal := signal.ShouldOfferConsult() || signal.ShouldChooseTopic()
 	if hasGuidanceSignal {
 		return false
 	}
-	// 无引导信号时：qimen primary timing 和 collect_profile 不进场
 	if route.PolicyHints.QimenMode == "primary" {
 		return true
 	}
@@ -85,4 +95,3 @@ func anyHardNegativeForNewEntry(msg string, route policy.ApprovedRoute, signal g
 	}
 	return false
 }
-
