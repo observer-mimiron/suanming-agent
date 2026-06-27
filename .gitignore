@@ -55,3 +55,7 @@ knowledge/tenants/
 knowledge/agents/
 knowledge/agent-secrets/
 knowledge/.llm-wiki-config.json
+
+# ±àÒë²úÎï
+*.exe
+

@@ -1,4 +1,8 @@
 # 命理大师
+<p align="center">
+  <img src="docs/screenshots/app-viewport.png" alt="命理大师应用预览" width="720">
+</p>
+<br>
 
 面向技术实现的命理 Agent 项目，采用 **Go 主控 runtime + Eino ADK** 的混合架构，覆盖 **八字（Bazi）**、**奇门（Qimen）**、**紫微（Ziwei）** 三个领域。
 
