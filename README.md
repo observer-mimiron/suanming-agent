@@ -1,6 +1,8 @@
 # 命理大师
 <p align="center">
   <img src="docs/screenshots/app-viewport.png" alt="命理大师应用预览" width="720">
+  <br>
+  <em>欢迎页面 · <a href="docs/screenshots/web.mhtml">下载 MHTML 存档查看完整交互页面</a></em>
 </p>
 <br>
 
