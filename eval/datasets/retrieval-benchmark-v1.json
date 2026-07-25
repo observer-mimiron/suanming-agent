@@ -1,0 +1,26 @@
+{
+  "name": "retrieval-benchmark-v1",
+  "description": "最小 retrieval Langfuse benchmark：验证知识检索链路和 retrieval 相关观测",
+  "cases": [
+    {
+      "id": "retrieval-bazi-followup",
+      "session_id": "eval-retrieval-v1",
+      "setup_message": "女，1985年8月20日午时，杭州",
+      "message": "子平真诠里对正官格有什么论述？引用原文",
+      "expected_route_primary": "bazi",
+      "expected_task_intent_any": ["fortune_followup", "direct_bazi", "collect_profile"],
+      "expected_turn_type_any": ["agent_reading", "clarification"],
+      "required_observations": ["preflight", "sse_emit", "knowledge_search"]
+    },
+    {
+      "id": "retrieval-bazi-tiaohou-quote",
+      "session_id": "eval-retrieval-v1",
+      "setup_message": "女，1985年8月20日午时，杭州",
+      "message": "穷通宝鉴里怎么讲秋木调候？引用原文",
+      "expected_route_primary": "bazi",
+      "expected_task_intent_any": ["fortune_followup", "direct_bazi", "collect_profile"],
+      "expected_turn_type_any": ["agent_reading", "clarification"],
+      "required_observations": ["preflight", "sse_emit", "knowledge_search"]
+    }
+  ]
+}

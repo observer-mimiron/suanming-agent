@@ -1,0 +1,67 @@
+# 密钥与配置
+.env
+
+# 运行时数据
+data/
+.pid/
+/tmp/
+__pycache__/
+*.py[cod]
+*.bak
+tmp-chat-body.json
+
+*.log
+logs/
+PROGRESS.md
+docs/agent-engineering
+# 构建产物
+dist/
+web/dist/
+server
+backend/server
+orchestrator.test
+
+# 依赖
+node_modules/
+package-lock.json
+package.json
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+
+# 工具链
+.codegraph/
+eino-agent/
+.claude/
+.gstack/
+.debug/
+
+# 外部资料
+/research/
+
+.claude/
+.agents/
+AGENTS.md
+CLAUDE.md
+
+# 知识库子项目 — 运行时数据与密钥
+knowledge/.env
+knowledge/.env.local
+knowledge/.dev.vars
+knowledge/.next/
+knowledge/node_modules/
+knowledge/*.tsbuildinfo
+knowledge/.wrangler/
+knowledge/.open-next/
+knowledge/.clerk/
+knowledge/discuss/
+knowledge/.indexes/
+knowledge/tenants/
+knowledge/agents/
+knowledge/agent-secrets/
+knowledge/.llm-wiki-config.json
+
+# �������
+*.exe

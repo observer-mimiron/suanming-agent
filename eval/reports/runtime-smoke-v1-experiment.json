@@ -1,0 +1,31 @@
+{
+  "dataset": "runtime-smoke-v1",
+  "run_name": "runtime-smoke-v1-demo",
+  "results": [
+    {
+      "id": "runtime-smoke-bazi-main",
+      "session_id": "eval-runtime-smoke-bazi-main-2a15685e88c34f7085e165117d71de48",
+      "trace_id": "405976dfc73266b0d0f40316a0cb13e3",
+      "dataset_item_id": "runtime-smoke-v1:runtime-smoke-bazi-main",
+      "route_primary": "bazi",
+      "task_intent": "collect_profile",
+      "turn_type": "agent_reading",
+      "observations": [
+        "agent",
+        "chat.turn",
+        "sse_emit",
+        "final_guard",
+        "contract_gate",
+        "knowledge_search",
+        "preflight",
+        "yongshen",
+        "bazi_liunian",
+        "dayun_analyzer",
+        "prefill",
+        "bazi_calc",
+        "supervisor_model",
+        "supervisor_output"
+      ]
+    }
+  ]
+}

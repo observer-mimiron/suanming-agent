@@ -1,0 +1,237 @@
+"use client";
+
+import { useState, useCallback, useRef, useEffect } from "react";
+import { extractCitedSlugs } from "@/lib/citations";
+import type { QueryFormat } from "@/lib/query-format";
+
+export interface QueryResponse {
+  answer: string;
+  sources: string[];
+  error?: string;
+}
+
+export interface UseStreamingQueryReturn {
+  question: string;
+  setQuestion: (q: string) => void;
+  format: QueryFormat;
+  setFormat: (f: QueryFormat) => void;
+  /** Active scope sent with each query ("mine", "owner:<h>", or undefined=All). */
+  scope: string | undefined;
+  setScope: (s: string | undefined) => void;
+  result: QueryResponse | null;
+  setResult: (r: QueryResponse | null) => void;
+  loading: boolean;
+  setLoading: (l: boolean) => void;
+  streaming: boolean;
+  setStreaming: (s: boolean) => void;
+  error: string | null;
+  setError: (e: string | null) => void;
+  submit: (e: React.FormEvent) => void;
+  /**
+   * Run a query programmatically (e.g. from a `?q=` deep link). `scopeOverride`
+   * applies that scope to THIS run directly — pass it when the scope arrives in
+   * the same tick (deep link) and `scope` state may not have propagated yet.
+   */
+  runQuery: (q: string, scopeOverride?: string) => void;
+  isProcessing: boolean;
+}
+
+interface UseStreamingQueryOptions {
+  onComplete?: (
+    question: string,
+    answer: string,
+    sources: string[],
+    format: QueryFormat,
+  ) => void;
+  onSubmitStart?: () => void;
+  /** Initial query scope (e.g. "mine" when signed in, or a deep-linked owner:<h>). */
+  initialScope?: string;
+}
+
+export function useStreamingQuery(
+  options: UseStreamingQueryOptions = {},
+): UseStreamingQueryReturn {
+  const [question, setQuestion] = useState("");
+  const [format, setFormat] = useState<QueryFormat>("prose");
+  const [scope, setScope] = useState<string | undefined>(options.initialScope);
+  const [result, setResult] = useState<QueryResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Stable ref for callbacks so we don't trigger re-renders
+  const onCompleteRef = useRef(options.onComplete);
+  onCompleteRef.current = options.onComplete;
+  const onSubmitStartRef = useRef(options.onSubmitStart);
+  onSubmitStartRef.current = options.onSubmitStart;
+
+  // Abort any in-flight streaming request on unmount
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
+  // Core query runner — takes the question explicitly so it can be driven both
+  // by the form (submit) and programmatically (runQuery), with no state-timing
+  // race between setQuestion() and reading `question` back.
+  const execute = useCallback(
+    async (rawQuestion: string, scopeOverride?: string) => {
+      const trimmed = rawQuestion.trim();
+      if (!trimmed) return;
+      // Use the explicit scope when given (deep-link arriving the same tick that
+      // setScope was called, before state propagates); else the current state.
+      const effectiveScope = scopeOverride ?? scope;
+
+      // Abort any previous in-flight request
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      setLoading(true);
+      setStreaming(false);
+      setError(null);
+      setResult(null);
+      onSubmitStartRef.current?.();
+
+      try {
+        // Try the streaming endpoint first
+        const res = await fetch("/api/query/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: trimmed, format, scope: effectiveScope }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          // Streaming endpoint failed — try non-streaming fallback
+          const data = await res.json().catch(() => null);
+          const errMsg = data?.error ?? `Request failed (${res.status})`;
+
+          // Fall back to non-streaming endpoint
+          const fallbackRes = await fetch("/api/query", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question: trimmed, format, scope: effectiveScope }),
+            signal: controller.signal,
+          });
+
+          const fallbackData = await fallbackRes.json().catch(() => null);
+          if (!fallbackRes.ok || !fallbackData) {
+            setError(fallbackData?.error ?? errMsg);
+            return;
+          }
+          setResult(fallbackData);
+          onCompleteRef.current?.(
+            trimmed,
+            fallbackData.answer,
+            fallbackData.sources,
+            format,
+          );
+          return;
+        }
+
+        // Parse sources from the custom header. The server percent-encodes the
+        // JSON so non-ASCII slugs (e.g. CJK titles) survive the Latin-1 header
+        // transport; decode before parsing.
+        const sourcesHeader = res.headers.get("X-Wiki-Sources");
+        let sources: string[] = [];
+        if (sourcesHeader) {
+          try {
+            sources = JSON.parse(decodeURIComponent(sourcesHeader)) as string[];
+          } catch {
+            // Malformed header — fall back to empty array
+            sources = [];
+          }
+        }
+
+        // Stream the response body
+        const reader = res.body?.getReader();
+        if (!reader) {
+          setError("Streaming not supported by the browser");
+          return;
+        }
+
+        setStreaming(true);
+        setLoading(false);
+
+        const decoder = new TextDecoder();
+        let answer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          answer += chunk;
+          setResult({ answer, sources });
+        }
+
+        // Refine sources to only those actually cited in the answer
+        const citedSources = extractCitedSlugs(answer, sources);
+        // Fall back to loaded sources if no citations detected (defensive)
+        const finalSources =
+          citedSources.length > 0 ? citedSources : sources;
+        setResult({ answer, sources: finalSources });
+        setStreaming(false);
+
+        // Notify caller that query completed
+        onCompleteRef.current?.(trimmed, answer, finalSources, format);
+      } catch (err) {
+        // Don't report abort errors as failures
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
+        setError("Failed to connect to the server");
+      } finally {
+        setLoading(false);
+        setStreaming(false);
+      }
+    },
+    [format, scope],
+  );
+
+  // Form submit — reads the current question from state.
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      execute(question);
+    },
+    [execute, question],
+  );
+
+  // Programmatic run — submits with the given question directly (also reflects
+  // it in the input via setQuestion).
+  const runQuery = useCallback(
+    (q: string, scopeOverride?: string) => {
+      setQuestion(q);
+      if (scopeOverride !== undefined) setScope(scopeOverride);
+      execute(q, scopeOverride);
+    },
+    [execute],
+  );
+
+  const isProcessing = loading || streaming;
+
+  return {
+    question,
+    setQuestion,
+    format,
+    setFormat,
+    scope,
+    setScope,
+    result,
+    setResult,
+    loading,
+    setLoading,
+    streaming,
+    setStreaming,
+    error,
+    setError,
+    submit: handleSubmit,
+    runQuery,
+    isProcessing,
+  };
+}

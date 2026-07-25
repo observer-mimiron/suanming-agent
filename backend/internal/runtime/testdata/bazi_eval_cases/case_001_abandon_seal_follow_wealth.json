@@ -1,0 +1,76 @@
+{
+  "case_id": "case_001_abandon_seal_follow_wealth",
+  "label": "冬子月甲木，印旺寒重，弃印就财成立但调候压层",
+  "source_session_id": "f13c8bd4-0ad6-4327-b7c0-82d34dddddfe",
+  "input_profile": {
+    "year": 2001,
+    "month": 1,
+    "day": 1,
+    "hour": 1,
+    "gender": "男",
+    "birthplace": "北京"
+  },
+  "source_facts": {
+    "birthday": "2001-01-01 01:00",
+    "day_master": "甲",
+    "geju": "正印格",
+    "geju_status": "成格",
+    "geju_qing_zhuo": "浊中有清",
+    "strength": "身旺极",
+    "tiaohou": "需火调候暖局",
+    "yong_shen": ["火", "土", "金"],
+    "ji_shen": ["木", "水"],
+    "geju_basis": "月令子本气癸未透出，以本气十神正印取暗格正印格"
+  },
+  "expected": {
+    "primary_axis_candidates": [
+      "正印格守成",
+      "弃印就财",
+      "杀印相生",
+      "从印格"
+    ],
+    "expected_primary_axis": "弃印就财",
+    "forbidden_axes": [
+      "杀印相生为主轴",
+      "从印格",
+      "从强格"
+    ],
+    "tiaohou_priority": "high",
+    "strength_assessment_bounds": {
+      "allowed": ["身旺极", "印旺身强"],
+      "forbidden": ["身弱", "从强", "中和偏弱"]
+    },
+    "required_limitations": [
+      "调候不足",
+      "财星偏湿",
+      "药力不足",
+      "难以拔高"
+    ],
+    "dynamic_expectations": {
+      "current_dayun": "辛卯",
+      "liunian_2026": {
+        "window_level": "窗口年",
+        "required_signals": [
+          "机会伴随强变动",
+          "不宜激进",
+          "子午双冲"
+        ],
+        "forbidden_phrases": [
+          "关键翻身年",
+          "一飞冲天",
+          "纯机会年"
+        ]
+      }
+    },
+    "forbidden_flourishes": [
+      "可享清福",
+      "贵人众多",
+      "福泽深厚"
+    ],
+    "review_focus": [
+      "不要把财星直接写成强救",
+      "不要把2026写成纯机会年",
+      "不要吞掉调候压层与药力不足"
+    ]
+  }
+}

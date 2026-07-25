@@ -1,0 +1,11 @@
+﻿{
+    "dataset":  "runtime-smoke-v1",
+    "passed":  1,
+    "failed":  0,
+    "results":  [
+                    {
+                        "id":  "runtime-smoke-bazi-main",
+                        "passed":  true
+                    }
+                ]
+}

@@ -1,0 +1,601 @@
+import path from "path";
+import type { WikiPage, IndexEntry } from "./types";
+import { withFileLock } from "./lock";
+import { logger } from "./logger";
+import { saveRevision } from "./revisions";
+import { isEnoent } from "./errors";
+import { getStorage } from "./storage";
+import {
+  getWikiDir as _getWikiDir,
+  getRawDir as _getRawDir,
+  getDataDir,
+} from "./config";
+import { getTenantWikiDir, getTenantRawDir } from "./paths";
+import { DEFAULT_TENANT, ownerToTenant } from "./links";
+import { parseSources, dedupeSourcesForDisplay } from "./sources";
+
+// ---------------------------------------------------------------------------
+// Configurable base directories — delegated to the config layer
+// ---------------------------------------------------------------------------
+
+export function getWikiDir(): string {
+  return _getWikiDir();
+}
+
+export function getRawDir(): string {
+  return _getRawDir();
+}
+
+// ---------------------------------------------------------------------------
+// Storage path helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute a storage-relative path for a wiki file.
+ *
+ * The StorageProvider resolves paths relative to `getDataDir()`. This helper
+ * computes `path.relative(getDataDir(), absoluteWikiPath)` so that it works
+ * regardless of whether WIKI_DIR is overridden (e.g. in tests) or uses the
+ * default `{dataDir}/wiki`.
+ */
+export function wikiRelPath(filename: string): string {
+  return path.relative(getDataDir(), path.join(getWikiDir(), filename));
+}
+
+// Pure page-type predicates live in a client-safe leaf; re-export so existing
+// server importers keep using `@/lib/wiki`.
+export { isAgentScopedType, isArtifactType } from "./page-types";
+
+/**
+ * Compute a storage-relative path for a raw source file.
+ *
+ * Same logic as {@link wikiRelPath} but for the `raw/` directory. Used by
+ * raw.ts and anywhere else that needs to address raw sources through the
+ * StorageProvider.
+ */
+export function rawRelPath(filename: string): string {
+  return path.relative(getDataDir(), path.join(getRawDir(), filename));
+}
+
+// ---------------------------------------------------------------------------
+// Per-tenant path helpers (tenant-silos groundwork — see knowledge architecture doc).
+//
+// Additive and behavior-preserving: the legacy `wikiRelPath`/`rawRelPath`
+// above are unchanged, and nothing yet routes through these. Later phases
+// thread a `tenant` (the owner handle) through reads/writes and the migration
+// relocates existing content under `tenants/<tenant>/…`.
+// ---------------------------------------------------------------------------
+
+/**
+ * Catch-all tenant for ownerless / seed content (re-exported from the pure
+ * `links` module so client and server share one definition). knowledge is built
+ * in public by yoyo, so unattributed/seed pages are the platform's own — they
+ * belong to the "knowledge" tenant; "ownerless" never surfaces in a URL.
+ */
+export { DEFAULT_TENANT, ownerToTenant };
+
+/**
+ * Guard a tenant name against path traversal before using it to build a key.
+ * Deliberately lighter than {@link validateSlug} (owner handles need not match
+ * the strict slug pattern) — it only blocks traversal and separators.
+ */
+export function validateTenant(tenant: string): void {
+  if (
+    typeof tenant !== "string" ||
+    tenant.length === 0 ||
+    tenant === "." || // a bare dot collapses the segment under path.join
+    tenant.includes("..") ||
+    tenant.includes("/") ||
+    tenant.includes("\\") ||
+    // any whitespace or control char would make a malformed/ambiguous key
+    /[\s\x00-\x1f]/.test(tenant)
+  ) {
+    throw new Error(`Invalid tenant: ${JSON.stringify(tenant)}`);
+  }
+}
+
+/**
+ * The canonical tenant for a page owner. Lowercased (owner checks are
+ * case-insensitive — see owner.ts — so one owner must not split across
+ * "Alice"/"alice" silos), falling back to {@link DEFAULT_TENANT} for
+ * ownerless/seed content. This is the SINGLE place tenant-from-owner is
+ * derived; commons and the migration both use it so they stay consistent.
+ */
+export function tenantForOwner(owner: string | undefined | null): string {
+  return ownerToTenant(owner);
+}
+
+/**
+ * Build a slug→tenant map over the whole flat index — used to resolve canonical
+ * `/u/<tenant>/<slug>` URLs for in-content wikilinks/backlinks where only the
+ * target slug is known. Pre-P5 slugs are globally unique, so each maps to one
+ * tenant. Cheap (tens of pages); computed once per server render.
+ */
+export async function buildSlugTenantMap(): Promise<Record<string, string>> {
+  const map: Record<string, string> = {};
+  for (const p of await listWikiPages()) map[p.slug] = tenantForOwner(p.owner);
+  return map;
+}
+
+/** Storage-relative path for a file in a tenant's wiki tree. */
+export function tenantWikiRelPath(tenant: string, filename: string): string {
+  validateTenant(tenant);
+  return path.relative(
+    getDataDir(),
+    path.join(getTenantWikiDir(tenant), filename),
+  );
+}
+
+/** Storage-relative path for a file in a tenant's raw-sources tree. */
+export function tenantRawRelPath(tenant: string, filename: string): string {
+  validateTenant(tenant);
+  return path.relative(
+    getDataDir(),
+    path.join(getTenantRawDir(tenant), filename),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Slug validation — path traversal protection
+// ---------------------------------------------------------------------------
+
+/**
+ * Safe slug pattern: lowercase alphanumeric **or CJK** (Han incl. Ext-A and
+ * compatibility ideographs, Japanese kana, Korean hangul), may contain hyphens,
+ * cannot start/end with hyphen. CJK is allowed so Chinese/Japanese/Korean
+ * titles can have meaningful slugs (matches {@link slugify}); path-safety is
+ * enforced separately below (null bytes, separators, `..`).
+ */
+const SLUG_CHAR = "a-z0-9\\u3400-\\u9fff\\uf900-\\ufaff\\u3040-\\u30ff\\uac00-\\ud7af";
+const SAFE_SLUG_RE = new RegExp(
+  `^[${SLUG_CHAR}][${SLUG_CHAR}-]*[${SLUG_CHAR}]$|^[${SLUG_CHAR}]$`,
+);
+
+/**
+ * Validate that a slug is safe to use as a filename inside the wiki/raw dirs.
+ *
+ * Rejects empty strings, path traversal attempts (`..`, `/`, `\`), null bytes,
+ * and anything that doesn't match the safe pattern.
+ *
+ * @throws {Error} with a descriptive message when the slug is invalid.
+ */
+export function validateSlug(slug: string): void {
+  if (typeof slug !== "string" || slug.trim().length === 0) {
+    throw new Error("Invalid slug: must be a non-empty string");
+  }
+  if (slug.includes("\0")) {
+    throw new Error("Invalid slug: must not contain null bytes");
+  }
+  if (slug.includes("/") || slug.includes("\\")) {
+    throw new Error("Invalid slug: must not contain path separators");
+  }
+  if (slug.includes("..")) {
+    throw new Error("Invalid slug: must not contain path traversal (..)")
+  }
+  if (!SAFE_SLUG_RE.test(slug)) {
+    throw new Error(
+      `Invalid slug: "${slug}" does not match the safe pattern (lowercase alphanumeric and hyphens, cannot start or end with hyphen)`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Directory helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure the `raw/` and `wiki/` directories exist.
+ *
+ * Uses the StorageProvider to write a `.gitkeep` marker file in each
+ * directory. The filesystem provider's `writeFile` auto-creates parent
+ * directories, so this is idempotent and works with any storage backend.
+ */
+export async function ensureDirectories(): Promise<void> {
+  const storage = getStorage();
+  await storage.writeFile(wikiRelPath(".gitkeep"), "");
+  await storage.writeFile(rawRelPath(".gitkeep"), "");
+}
+
+// Re-export frontmatter utilities for backward compatibility
+export { parseFrontmatter, serializeFrontmatter } from "./frontmatter";
+export type { Frontmatter, ParsedPage } from "./frontmatter";
+
+// Import frontmatter utilities for local use within this module
+import { parseFrontmatter } from "./frontmatter";
+import type { Frontmatter } from "./frontmatter";
+
+// ---------------------------------------------------------------------------
+// Per-operation page cache — opt-in to avoid redundant filesystem reads
+// ---------------------------------------------------------------------------
+
+/** Module-level cache state. `null` means caching is inactive. */
+let pageCache: Map<string, WikiPage | null> | null = null;
+let pageCacheRefCount = 0;
+
+/**
+ * Enable per-operation page caching. Returns a cleanup function that
+ * deactivates the cache and discards all entries.
+ *
+ * While active, `readWikiPage()` checks the cache before reading disk and
+ * stores its result. `writeWikiPage()` invalidates the cache entry so the
+ * next read fetches fresh data.
+ *
+ * Uses reference counting so multiple concurrent operations can share the
+ * same cache — it is only cleaned up when the last user releases it.
+ */
+export function beginPageCache(): () => void {
+  if (pageCacheRefCount === 0) {
+    pageCache = new Map();
+  }
+  pageCacheRefCount++;
+  return () => {
+    pageCacheRefCount--;
+    if (pageCacheRefCount <= 0) {
+      pageCache = null;
+      pageCacheRefCount = 0;
+    }
+  };
+}
+
+/**
+ * Convenience wrapper: run `fn` with page caching enabled, then clean up —
+ * even if `fn` throws.
+ */
+export async function withPageCache<T>(fn: () => Promise<T>): Promise<T> {
+  const cleanup = beginPageCache();
+  try {
+    return await fn();
+  } finally {
+    cleanup();
+  }
+}
+
+/** For testing: return the number of entries in the active cache, or 0 if inactive. */
+export function _getPageCacheSize(): number {
+  return pageCache?.size ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// Wiki page I/O
+// ---------------------------------------------------------------------------
+
+/** Read a wiki page by slug. Returns `null` when the file doesn't exist or the slug is invalid. */
+export async function readWikiPage(slug: string): Promise<WikiPage | null> {
+  try {
+    validateSlug(slug);
+  } catch (err) {
+    logger.warn("wiki", `readWikiPage slug validation failed for "${slug}":`, err);
+    return null;
+  }
+
+  // Check cache first (when active)
+  if (pageCache !== null && pageCache.has(slug)) {
+    return pageCache.get(slug) ?? null;
+  }
+
+  const storagePath = wikiRelPath(`${slug}.md`);
+  const filePath = `${getWikiDir()}/${slug}.md`;
+  try {
+    const content = await getStorage().readFile(storagePath);
+    // Derive title from the first markdown heading, falling back to the slug.
+    const titleMatch = content.match(/^#\s+(.+)$/m);
+    const title = titleMatch ? titleMatch[1].trim() : slug;
+    const result: WikiPage = { slug, title, content, path: filePath };
+
+    // Store in cache (when active)
+    if (pageCache !== null) {
+      pageCache.set(slug, result);
+    }
+
+    return result;
+  } catch (err) {
+    if (!isEnoent(err)) {
+      logger.warn("wiki", `readWikiPage failed for "${slug}":`, err);
+    }
+    // Store negative result in cache too (when active)
+    if (pageCache !== null) {
+      pageCache.set(slug, null);
+    }
+    return null;
+  }
+}
+
+/**
+ * Extended read that additionally exposes parsed frontmatter and the
+ * body (markdown with the YAML block stripped).
+ *
+ * This is a separate export so that {@link WikiPage} in `types.ts` stays
+ * unchanged and existing call sites continue to work without modification.
+ * Callers that specifically need the frontmatter — currently only
+ * `ingest()`'s re-ingest path — use this helper.
+ *
+ * Returns `null` when the page doesn't exist or the slug is invalid.
+ * Throws when the file exists but its frontmatter block is malformed.
+ */
+export async function readWikiPageWithFrontmatter(
+  slug: string,
+): Promise<(WikiPage & { frontmatter: Frontmatter; body: string }) | null> {
+  const page = await readWikiPage(slug);
+  if (!page) return null;
+  const { data, body } = parseFrontmatter(page.content);
+  // Prefer the H1 inside the body so frontmatter lines can never contribute
+  // to the derived title.
+  const titleMatch = body.match(/^#\s+(.+)$/m);
+  const title = titleMatch ? titleMatch[1].trim() : page.title;
+  return { ...page, title, frontmatter: data, body };
+}
+
+/** Write (or overwrite) a wiki page. Ensures the wiki directory exists first. Throws on invalid slug. */
+export async function writeWikiPage(
+  slug: string,
+  content: string,
+  author?: string,
+  reason?: string,
+): Promise<void> {
+  validateSlug(slug);
+  const storagePath = wikiRelPath(`${slug}.md`);
+  const storage = getStorage();
+
+  // Snapshot the current content as a revision before overwriting.
+  // Only save a revision if the file already exists (new pages don't have
+  // a previous version to save).
+  try {
+    const existing = await storage.readFile(storagePath);
+    await saveRevision(slug, existing, author, reason);
+  } catch (err) {
+    // File doesn't exist yet — first write, no revision needed.
+    if (!isEnoent(err)) {
+      logger.warn("wiki", `unexpected error reading existing page "${slug}" before revision:`, err);
+    }
+  }
+
+  await storage.writeFile(storagePath, content);
+
+  // Invalidate cache entry so next read fetches fresh data
+  if (pageCache !== null) {
+    pageCache.delete(slug);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Index management
+// ---------------------------------------------------------------------------
+
+/** Build an enriched {@link IndexEntry} from a base (title/slug/summary) + the
+ *  page's frontmatter. The single source of the enrichment rules — used by the
+ *  per-page scan AND the `_idx:pages` rebuild so they can't drift. */
+export function enrichEntry(
+  base: IndexEntry,
+  fm: Frontmatter,
+): IndexEntry {
+  const tags = Array.isArray(fm.tags)
+    ? fm.tags.filter((t): t is string => typeof t === "string" && t.length > 0)
+    : undefined;
+
+  const updated =
+    typeof fm.updated === "string" && fm.updated.length > 0 ? fm.updated : undefined;
+
+  // Displayed source count = number of DISTINCT sources (deduped by URL), so it
+  // matches the SOURCES panel. `source_count` frontmatter is an ingest-EVENT
+  // counter (re-ingesting one URL bumps it), so it overcounts — only fall back
+  // to it for legacy pages that have no structured `sources[]`.
+  const distinctSources = dedupeSourcesForDisplay(
+    parseSources(fm.sources as string | string[] | undefined),
+  ).length;
+  const sourceCountRaw = fm.source_count;
+  const sourceCountNum =
+    typeof sourceCountRaw === "number"
+      ? sourceCountRaw
+      : typeof sourceCountRaw === "string" && sourceCountRaw.length > 0
+        ? Number.parseInt(sourceCountRaw, 10)
+        : NaN;
+  const legacyCount =
+    Number.isFinite(sourceCountNum) && sourceCountNum >= 0 ? sourceCountNum : undefined;
+  const sourceCount = distinctSources > 0 ? distinctSources : legacyCount;
+
+  const sourceUrl =
+    typeof fm.source_url === "string" && fm.source_url.length > 0
+      ? fm.source_url
+      : undefined;
+
+  const owner =
+    typeof fm.owner === "string" && fm.owner.length > 0 ? fm.owner : undefined;
+
+  const pageType =
+    typeof fm.type === "string" && fm.type.length > 0 ? fm.type : undefined;
+
+  // Only "private" is meaningful for read-gating; everything else is public.
+  const visibility =
+    typeof fm.visibility === "string" && fm.visibility === "private"
+      ? "private"
+      : undefined;
+
+  const confidenceRaw = fm.confidence;
+  const confidenceNum =
+    typeof confidenceRaw === "number"
+      ? confidenceRaw
+      : typeof confidenceRaw === "string" && confidenceRaw.length > 0
+        ? Number.parseFloat(confidenceRaw)
+        : NaN;
+  const confidence =
+    Number.isFinite(confidenceNum) && confidenceNum >= 0 && confidenceNum <= 1
+      ? confidenceNum
+      : undefined;
+
+  return {
+    ...base,
+    ...(tags && tags.length > 0 ? { tags } : {}),
+    ...(updated ? { updated } : {}),
+    ...(sourceCount !== undefined ? { sourceCount } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
+    ...(confidence !== undefined ? { confidence } : {}),
+    ...(owner ? { owner } : {}),
+    ...(pageType ? { type: pageType } : {}),
+    ...(visibility ? { visibility } : {}),
+  };
+}
+
+/** Parse the ordered base entries (title/slug/summary) from `wiki/index.md`. */
+async function readIndexBaseEntries(): Promise<IndexEntry[]> {
+  const storagePath = wikiRelPath("index.md");
+  let raw: string;
+  try {
+    raw = await getStorage().readFile(storagePath);
+  } catch (err: unknown) {
+    if (!isEnoent(err)) {
+      // A transient read failure on index.md makes the WHOLE wiki look empty to
+      // every list surface — surface it at error level (ENOENT = genuinely no
+      // index yet, which is the normal empty-state and stays quiet).
+      logger.error("wiki", "listWikiPages failed to read index.md:", err);
+    }
+    return [];
+  }
+  const baseEntries: IndexEntry[] = [];
+  const lineRe = /^-\s+\[(.+?)]\((.+?)\.md\)\s*—\s*(.+)$/;
+  for (const line of raw.split(/\r?\n/)) {
+    const m = line.match(lineRe);
+    if (m) baseEntries.push({ title: m[1], slug: m[2], summary: m[3].trim() });
+  }
+  return baseEntries;
+}
+
+/**
+ * The O(pages) scan: read `index.md` then EACH page's frontmatter to enrich.
+ * The fallback for {@link listWikiPages} and the source for the `_idx:pages`
+ * rebuild. A page that fails to parse falls back to its plain index entry so one
+ * malformed page never breaks the whole list.
+ */
+export async function scanWikiPagesUncached(): Promise<IndexEntry[]> {
+  const baseEntries = await readIndexBaseEntries();
+  return Promise.all(
+    baseEntries.map(async (entry): Promise<IndexEntry> => {
+      try {
+        const page = await readWikiPageWithFrontmatter(entry.slug);
+        if (!page) return entry;
+        return enrichEntry(entry, page.frontmatter);
+      } catch (err) {
+        logger.warn(
+          "wiki",
+          `listWikiPages: failed to read frontmatter for "${entry.slug}" — falling back to plain entry`,
+          err,
+        );
+        return entry;
+      }
+    }),
+  );
+}
+
+/**
+ * Parse `wiki/index.md` and return its entries with enriched metadata.
+ *
+ * Fast path: read the ordered base from `index.md` (1 read) and enrich from the
+ * `_idx:pages` metadata index (1 KV read) — O(1) instead of reading every page
+ * file. Falls back to the per-page {@link scanWikiPagesUncached} when the index
+ * isn't seeded, so behavior is identical with or without the index.
+ *
+ * Expected `index.md` line format: `- [Title](slug.md) — summary`
+ */
+export async function listWikiPages(): Promise<IndexEntry[]> {
+  const { getPageIndex } = await import("./page-index");
+  const meta = await getPageIndex();
+  if (meta === null) return scanWikiPagesUncached();
+
+  const baseEntries = await readIndexBaseEntries();
+  return baseEntries.map((b) => {
+    const m = meta[b.slug];
+    // index.md stays authoritative for title/summary; the metadata index
+    // supplies the enriched fields. A slug missing from the index (just added,
+    // pre-rebuild) falls back to its plain base entry.
+    return m ? { ...m, title: b.title, slug: b.slug, summary: b.summary } : b;
+  });
+}
+
+/**
+ * Like {@link listWikiPages} but filtered to the pages `principal` may read —
+ * the read-side counterpart used by every list-consuming surface (browse,
+ * graph, search, query, export, trail, profiles…). Public pages always pass;
+ * `visibility: private` pages pass only for their owner. `principal` is passed
+ * explicitly (never an implicit default) so callers fail closed.
+ *
+ * Imported dynamically to avoid a static cycle (authz → agents → wiki).
+ */
+export async function listReadableWikiPages(
+  principal: import("./auth").Principal | null,
+): Promise<IndexEntry[]> {
+  const { canReadEntry } = await import("./authz");
+  const entries = await listWikiPages();
+  return entries.filter((e) => canReadEntry(e, principal));
+}
+
+/**
+ * Write `wiki/index.md` from an array of entries.
+ *
+ * Format:
+ * ```
+ * # Wiki Index
+ *
+ * - [Title](slug.md) — summary
+ * ```
+ */
+export async function updateIndex(entries: IndexEntry[]): Promise<void> {
+  await withFileLock("index.md", async () => {
+    await updateIndexUnsafe(entries);
+  });
+}
+
+/**
+ * Write `wiki/index.md` from an array of entries **without** acquiring the
+ * `index.md` file lock.
+ *
+ * This exists so that callers who already hold the lock (e.g.
+ * `runPageLifecycleOp` in `lifecycle.ts`) can perform a read → mutate → write
+ *
+ * **Do not call from outside a `withFileLock("index.md", …)` block** — use
+ * {@link updateIndex} instead.
+ */
+export async function updateIndexUnsafe(entries: IndexEntry[]): Promise<void> {
+  const lines = entries.map(
+    (e) => `- [${e.title}](${e.slug}.md) — ${e.summary}`,
+  );
+  const content = `# Wiki Index\n\n${lines.join("\n")}\n`;
+  const storagePath = wikiRelPath("index.md");
+  await getStorage().writeFile(storagePath, content);
+}
+
+// Re-export raw source utilities for backward compatibility
+export { saveRawSource, saveRawSourceFor, listRawSources, readRawSource, readRawSourceById } from "./raw";
+export type { RawSource, RawSourceWithContent } from "./raw";
+
+// ---------------------------------------------------------------------------
+// Append-only log — re-exported from wiki-log.ts for backward compat
+// ---------------------------------------------------------------------------
+
+export { appendToLog, readLog } from "./wiki-log";
+export type { LogOperation } from "./wiki-log";
+
+// ---------------------------------------------------------------------------
+// Search & cross-referencing — re-exported from search.ts for backward compat
+// ---------------------------------------------------------------------------
+
+export {
+  findRelatedPages,
+  findSimilarPages,
+  updateRelatedPages,
+  findBacklinks,
+  searchWikiContent,
+  fuzzySearchWikiContent,
+  fuzzyMatch,
+  levenshteinDistance,
+} from "./search";
+export type { ContentSearchResult } from "./search";
+
+// ---------------------------------------------------------------------------
+// Lifecycle pipeline — re-exported from lifecycle.ts for backward compatibility
+// ---------------------------------------------------------------------------
+
+export { writeWikiPageWithSideEffects, deleteWikiPage } from "./lifecycle";
+export type {
+  WritePageOptions,
+  WritePageResult,
+  DeletePageResult,
+} from "./lifecycle";

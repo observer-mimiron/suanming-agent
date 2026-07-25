@@ -1,0 +1,75 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/observer-mimiron/suanming-agent/internal/policy"
+	"github.com/observer-mimiron/suanming-agent/internal/state"
+	"github.com/observer-mimiron/suanming-agent/internal/tracing"
+)
+
+func TestValidatePlanArtifacts_ReturnsArtifactMissingFailure(t *testing.T) {
+	st := state.NewSession("artifact-missing")
+	plan := ExecutionPlan{
+		Route: policy.ApprovedRoute{
+			PrimaryDomain: "qimen",
+		},
+		Domains:           []string{"qimen"},
+		RequiredArtifacts: []string{artifactQimenChart},
+	}
+
+	err := validatePlanArtifacts(st, plan)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	var rf *RuntimeFailure
+	if !errors.As(err, &rf) {
+		t.Fatalf("expected RuntimeFailure, got %T", err)
+	}
+	if rf.Class != "artifact_missing" {
+		t.Fatalf("Class = %q, want artifact_missing", rf.Class)
+	}
+	if rf.Stage != "prefill" {
+		t.Fatalf("Stage = %q, want prefill", rf.Stage)
+	}
+	if rf.Domain != "qimen" {
+		t.Fatalf("Domain = %q, want qimen", rf.Domain)
+	}
+	if !rf.UserVisible {
+		t.Fatal("UserVisible = false, want true")
+	}
+}
+
+func TestGuardFinalAnswerWithTrace_AnnotatesRuntimeFailureMetadata(t *testing.T) {
+	tracer := tracing.NewRealTracer(nil)
+	ctx, trace := tracer.StartTrace(context.Background(), "chat.turn")
+	defer trace.End()
+
+	st := state.NewSession("guard-failure")
+	route := policy.ApprovedRoute{PrimaryDomain: "qimen"}
+
+	turnType, _ := guardFinalAnswerWithTrace(ctx, route, st, "final")
+	if turnType != "guardrail_blocked" {
+		t.Fatalf("turnType = %q, want guardrail_blocked", turnType)
+	}
+
+	tr := tracing.TraceFromContext(ctx)
+	if tr == nil {
+		t.Fatal("TraceFromContext returned nil")
+	}
+	if got := tr.Attributes["failure.class"]; got != "specialist_contract_violation" {
+		t.Fatalf("failure.class = %v, want specialist_contract_violation", got)
+	}
+	if got := tr.Attributes["failure.stage"]; got != "final_guard" {
+		t.Fatalf("failure.stage = %v, want final_guard", got)
+	}
+	if got := tr.Attributes["failure.domain"]; got != "qimen" {
+		t.Fatalf("failure.domain = %v, want qimen", got)
+	}
+	if got := tr.Attributes["failure.user_visible"]; got != true {
+		t.Fatalf("failure.user_visible = %v, want true", got)
+	}
+}

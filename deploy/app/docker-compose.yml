@@ -1,0 +1,54 @@
+services:
+  knowledge:
+    build:
+      context: ../../knowledge
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+        NEXT_PUBLIC_OWNER_HANDLE: ${NEXT_PUBLIC_OWNER_HANDLE:-}
+    env_file:
+      - .env
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      DATA_DIR: /app
+    ports:
+      - "3100:3000"
+    volumes:
+      - ../../knowledge/wiki:/app/wiki
+      - ../../knowledge/raw:/app/raw
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/status || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    env_file:
+      - .env
+    depends_on:
+      knowledge:
+        condition: service_healthy
+    environment:
+      LISTEN_ADDR: :8080
+      STATIC_DIR: /app/web/dist
+      KNOWLEDGE_MCP_URL: http://knowledge:3000
+    ports:
+      - "8080:8080"
+    volumes:
+      - app-data:/app/data
+      - app-logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  app-data:
+  app-logs:

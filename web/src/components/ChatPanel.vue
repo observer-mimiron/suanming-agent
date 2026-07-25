@@ -1,0 +1,288 @@
+<template>
+  <div
+    class="chat-shell"
+    :class="{ 'is-empty': messages.length === 0 && !isLoading }"
+  >
+    <!-- Empty state: centered -->
+    <div v-if="messages.length === 0 && !isLoading" class="empty-center">
+      <WelcomePanel @ask="handleSend" />
+      <div class="input-row empty-input">
+        <n-input
+          v-model:value="inputText"
+          :placeholder="inputPlaceholder"
+          @keydown.enter="() => handleSend()"
+          size="large"
+        >
+          <template #suffix>
+            <button
+              class="send-btn"
+              :class="{ active: inputText.trim() }"
+              :disabled="!inputText.trim()"
+              @click="() => handleSend()"
+            >
+              <ArrowUp :size="18" />
+            </button>
+          </template>
+        </n-input>
+      </div>
+    </div>
+
+    <!-- Chat state -->
+    <template v-else>
+      <div class="chat-body">
+        <div class="chat-toolbar">
+          <button
+            class="reset-btn"
+            :disabled="isLoading"
+            @click="handleNewSession"
+          >
+            新对话
+          </button>
+        </div>
+        <n-scrollbar ref="scrollRef" class="messages chat-scrollbar">
+          <div class="messages-inner">
+            <template v-for="msg in messages" :key="msg.id">
+              <AssistantTurn
+                v-if="msg.role === 'assistant'"
+                :message="msg"
+                :isLoading="isLoading && msg === messages[messages.length - 1]"
+              />
+              <ChatBubble v-else :message="msg" />
+            </template>
+          </div>
+        </n-scrollbar>
+      </div>
+      <div class="chat-input">
+        <div class="input-row">
+          <n-input
+            v-model:value="inputText"
+            :placeholder="inputPlaceholder"
+            :disabled="isLoading"
+            @keydown.enter="() => handleSend()"
+            size="large"
+          >
+            <template #suffix>
+              <button
+                class="send-btn"
+                :class="{ active: inputText.trim() }"
+                :disabled="!inputText.trim() || isLoading"
+                @click="() => handleSend()"
+              >
+                <ArrowUp :size="18" />
+              </button>
+            </template>
+          </n-input>
+        </div>
+      </div>
+    </template>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, nextTick, onMounted, ref } from "vue";
+import { NScrollbar, NInput } from "naive-ui";
+import { ArrowUp } from "lucide-vue-next";
+import ChatBubble from "./ChatBubble.vue";
+import AssistantTurn from "./AssistantTurn.vue";
+import WelcomePanel from "./WelcomePanel.vue";
+import { useSSE } from "../composables/useSSE";
+
+const {
+  messages,
+  isLoading,
+  sendMessage,
+  restoredPrompt,
+  restoreSession,
+  startNewSession,
+} = useSSE();
+const inputText = ref("");
+const scrollRef = ref();
+const inputPlaceholder = computed(() => {
+  if (messages.value.length === 0) {
+    return restoredPrompt.value
+      ? `继续上次问题：${restoredPrompt.value}`
+      : "请输入出生年月日时...";
+  }
+  return restoredPrompt.value
+    ? `继续追问：${restoredPrompt.value}`
+    : "继续提问...";
+});
+
+onMounted(async () => {
+  await restoreSession();
+});
+
+async function handleSend(t?: string) {
+  const text = (typeof t === "string" ? t : inputText.value).trim();
+  if (!text || isLoading.value) return;
+  inputText.value = "";
+  await sendMessage(text);
+  await nextTick();
+  scrollRef.value?.scrollTo({ top: 999999, behavior: "smooth" });
+}
+
+function handleNewSession() {
+  inputText.value = "";
+  startNewSession();
+  scrollRef.value?.scrollTo({ top: 0, behavior: "smooth" });
+}
+</script>
+
+<style scoped>
+.chat-shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.chat-shell.is-empty {
+  justify-content: center;
+}
+.empty-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  padding: 48px 32px;
+  box-sizing: border-box;
+  width: 100%;
+}
+.empty-input {
+  width: 100%;
+  max-width: 520px;
+  padding: 0;
+}
+.empty-input :deep(.n-input) {
+  --n-height: 52px;
+  --n-border-radius: 16px;
+  --n-bg-color: var(--bg-secondary);
+  --n-border-color: var(--border);
+  --n-text-color: var(--text-primary);
+  --n-placeholder-color: var(--text-muted);
+  transition: all 0.2s ease-in-out;
+}
+.empty-input :deep(.n-input:focus-within) {
+  --n-border-color: var(--accent) !important;
+  box-shadow: var(--shadow-glow) !important;
+}
+.chat-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+.chat-toolbar {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 16px 32px 0;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: flex-end;
+}
+.messages {
+  flex: 1;
+  width: 100%;
+}
+.messages-inner {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 32px 32px 80px;
+  box-sizing: border-box;
+  width: 100%;
+}
+.input-row {
+  width: 100%;
+  max-width: 920px;
+  padding: 16px 32px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+.chat-input {
+  width: 100%;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.chat-input :deep(.n-input) {
+  --n-height: 52px;
+  --n-border-radius: 16px;
+  --n-bg-color: var(--bg-secondary);
+  --n-border-color: var(--border);
+  --n-text-color: var(--text-primary);
+  --n-placeholder-color: var(--text-muted);
+  transition: all 0.2s ease-in-out;
+}
+.chat-input :deep(.n-input:focus-within) {
+  --n-border-color: var(--accent) !important;
+  box-shadow: var(--shadow-glow) !important;
+}
+
+@media (max-width: 680px) {
+  .messages-inner {
+    padding: 32px 20px 80px;
+  }
+  .input-row {
+    padding: 16px 20px;
+  }
+  .chat-toolbar {
+    padding: 16px 20px 0;
+  }
+}
+.send-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid #d4ccc0;
+  background: transparent;
+  color: #b0a89c;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.send-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(184, 149, 106, 0.08);
+}
+.send-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--accent-dim);
+}
+.send-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.reset-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.reset-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.reset-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chat-scrollbar :deep(.n-scrollbar-rail) {
+  opacity: 1 !important;
+  width: 6px !important;
+}
+.chat-scrollbar :deep(.n-scrollbar-rail__scrollbar) {
+  width: 6px !important;
+  border-radius: 3px;
+  background: var(--border) !important;
+}
+</style>

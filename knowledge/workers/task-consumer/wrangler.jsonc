@@ -1,0 +1,41 @@
+{
+  // Standalone consumer for the knowledge agent task queue. Separate from the main
+  // knowledge (OpenNext) Worker so we get a first-class Queues consumer without
+  // wrapping the OpenNext entry. It drains `knowledge-tasks` and POSTs each task to
+  // the deployed knowledge `/api/tasks/run` endpoint with the system token — a thin
+  // dispatcher; the actual work runs in the main app (full lib + OpenNext context).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "knowledge-task-consumer",
+  "main": "index.ts",
+  "compatibility_date": "2025-01-01",
+
+  // The /api/tasks/run call targets the main knowledge Worker on the same zone. A
+  // plain same-zone Worker→Worker fetch is blocked (error 1042); this flag makes
+  // fetch() resolve as a normal public request (same as workers/x-ingest).
+  "compatibility_flags": ["global_fetch_strictly_public"],
+
+  // Autonomous-maintenance cron (Q2): daily, POSTs /api/tasks/scan. The scan
+  // DRY-RUNS (logs only) until AUTONOMOUS_MAINTENANCE="on" is set on the main
+  // worker — so this trigger is safe to ship before maintenance is enabled.
+  "triggers": { "crons": ["0 6 * * *"] },
+
+  // Queue consumer. One-time provisioning of the queue + dead-letter queue:
+  //   npx wrangler queues create knowledge-tasks
+  //   npx wrangler queues create knowledge-tasks-dlq
+  "queues": {
+    "consumers": [
+      {
+        "queue": "knowledge-tasks",
+        "dead_letter_queue": "knowledge-tasks-dlq",
+        "max_retries": 3,
+        "max_batch_size": 5,
+        "max_batch_timeout": 10
+      }
+    ]
+  },
+
+  "vars": { "KNOWLEDGE_URL": "https://knowledge.yuanhao-li.workers.dev" }
+
+  // Secret (set with `wrangler secret put --config workers/task-consumer/wrangler.jsonc`):
+  //   KNOWLEDGE_SERVICE_TOKEN — the system write credential (same value as the main Worker's)
+}

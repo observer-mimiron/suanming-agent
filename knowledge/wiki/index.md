@@ -1,0 +1,319 @@
+# Wiki Index
+
+- [八字命理知识库](hub-bazi-knowledge.md) — - [○](ref-bazi-sanming-s016.md)
+- [事业财运](ref-bazi-career.md) — ```
+- [大运流年与婚姻](ref-bazi-dayun.md) — - **配偶星**（天干）：男命看正财（妻）与偏财（情人）；女命看正官（夫）与七杀（非正缘）
+- [一、天道](ref-bazi-ditiansui-s001.md) — 一、天道
+- [四、知命](ref-bazi-ditiansui-s002.md) — 四、知命
+- [五、理气](ref-bazi-ditiansui-s003.md) — 五、理气
+- [六、配合](ref-bazi-ditiansui-s004.md) — 六、配合
+- [八、地支](ref-bazi-ditiansui-s005.md) — 八、地支
+- [九、干支总论](ref-bazi-ditiansui-s006.md) — 九、干支总论
+- [十、形象](ref-bazi-ditiansui-s007.md) — 十、形象
+- [十一、方局](ref-bazi-ditiansui-s008.md) — 十一、方局
+- [十二、八格](ref-bazi-ditiansui-s009.md) — 十二、八格
+- [十三、体用](ref-bazi-ditiansui-s010.md) — 十三、体用
+- [十四、精神](ref-bazi-ditiansui-s011.md) — 十四、精神
+- [十五、月令](ref-bazi-ditiansui-s012.md) — 十五、月令
+- [十六、生时](ref-bazi-ditiansui-s013.md) — 十六、生时
+- [十八、中和](ref-bazi-ditiansui-s014.md) — 十八、中和
+- [十九、源流](ref-bazi-ditiansui-s015.md) — 十九、源流
+- [二十、通关](ref-bazi-ditiansui-s016.md) — 二十、通关
+- [二十一、官杀](ref-bazi-ditiansui-s017.md) — 二十一、官杀
+- [二十二、伤官](ref-bazi-ditiansui-s018.md) — 二十二、伤官
+- [二十三、清气](ref-bazi-ditiansui-s019.md) — 二十三、清气
+- [二十四、浊气](ref-bazi-ditiansui-s020.md) — 二十四、浊气
+- [二十五、真神](ref-bazi-ditiansui-s021.md) — 二十五、真神
+- [二十七、刚柔](ref-bazi-ditiansui-s022.md) — 二十七、刚柔
+- [二十八、顺逆](ref-bazi-ditiansui-s023.md) — 二十八、顺逆
+- [二十九、寒暖](ref-bazi-ditiansui-s024.md) — 二十九、寒暖
+- [三十、燥湿](ref-bazi-ditiansui-s025.md) — 三十、燥湿
+- [三十一、隐显](ref-bazi-ditiansui-s026.md) — 三十一、隐显
+- [三十三、震兑](ref-bazi-ditiansui-s027.md) — 三十三、震兑
+- [三十四、坎离](ref-bazi-ditiansui-s028.md) — 三十四、坎离
+- [一、夫妻](ref-bazi-ditiansui-s029.md) — 一、夫妻
+- [二、子女](ref-bazi-ditiansui-s030.md) — 二、子女
+- [三、父母](ref-bazi-ditiansui-s031.md) — 三、父母
+- [四、兄弟](ref-bazi-ditiansui-s032.md) — 四、兄弟
+- [五、何知章](ref-bazi-ditiansui-s033.md) — 五、何知章
+- [六、女命章](ref-bazi-ditiansui-s034.md) — 六、女命章
+- [七、小儿](ref-bazi-ditiansui-s035.md) — 七、小儿
+- [八、才德](ref-bazi-ditiansui-s036.md) — 八、才德
+- [九、奋郁](ref-bazi-ditiansui-s037.md) — 九、奋郁
+- [十、恩怨](ref-bazi-ditiansui-s038.md) — 十、恩怨
+- [十一、闲神](ref-bazi-ditiansui-s039.md) — 十一、闲神
+- [十三、化象](ref-bazi-ditiansui-s040.md) — 十三、化象
+- [十四、假从](ref-bazi-ditiansui-s041.md) — 十四、假从
+- [十五、假化](ref-bazi-ditiansui-s042.md) — 十五、假化
+- [十六、顺局](ref-bazi-ditiansui-s043.md) — 十六、顺局
+- [十七、反局](ref-bazi-ditiansui-s044.md) — 十七、反局
+- [十八、战局](ref-bazi-ditiansui-s045.md) — 十八、战局
+- [十九、合局](ref-bazi-ditiansui-s046.md) — 十九、合局
+- [二十、君象](ref-bazi-ditiansui-s047.md) — 二十、君象
+- [二十二、母象](ref-bazi-ditiansui-s048.md) — 二十二、母象
+- [二十四、性情](ref-bazi-ditiansui-s049.md) — 二十四、性情
+- [二十五、疾病](ref-bazi-ditiansui-s050.md) — 二十五、疾病
+- [滴天髓阐微](ref-bazi-ditiansui.md) — - [一、 · 二、 · 三、](ref-bazi-ditiansui-s001.md)
+- [天干地支与五行基础](ref-bazi-foundation.md) — 口诀："甲己之年丙作首，乙庚之年戊為頭，丙辛之年庚開始，丁壬壬寅順行流，戊癸之年甲寅起，正月寅位不須求。"
+- [格局与用神](ref-bazi-geju.md) — | 月份 | 地支 | 用神 | 说明 |
+- [第一章 基础](ref-bazi-gelulunming-s001.md) — 第一章  基础
+- [（三）阴阳五行的生克定律](ref-bazi-gelulunming-s002.md) — （三）阴阳五行的生克定律
+- [（四）干支](ref-bazi-gelulunming-s003.md) — （四）干支
+- [（六）五行旺衰强弱](ref-bazi-gelulunming-s004.md) — （六）五行旺衰强弱
+- [（七）宫位](ref-bazi-gelulunming-s005.md) — （七）宫位
+- [（八）十神的义象](ref-bazi-gelulunming-s006.md) — （八）十神的义象
+- [（九）十神组合的义象](ref-bazi-gelulunming-s007.md) — （九）十神组合的义象
+- [第二章 取用](ref-bazi-gelulunming-s008.md) — 第二章  取用
+- [（二）相神和忌神](ref-bazi-gelulunming-s009.md) — （二） 相神和忌神
+- [（三）喜神和仇神](ref-bazi-gelulunming-s010.md) — （三）喜神和仇神
+- [（一）正格的取用法则](ref-bazi-gelulunming-s011.md) — （一）正格的取用法则
+- [（二）外格的取用法则](ref-bazi-gelulunming-s012.md) — （二）外格的取用法则
+- [第四章 实例](ref-bazi-gelulunming-s013.md) — 第四章  实例
+- [例二： 顾竹轩一发轰天](ref-bazi-gelulunming-s014.md) — 例二：顾竹轩一发轰天
+- [例四： 李宇春一唱火死](ref-bazi-gelulunming-s015.md) — 例四：李宇春一唱火死
+- [例六： 五马奇人马寅初](ref-bazi-gelulunming-s016.md) — 例六：五马奇人马寅初
+- [例八、冷宫凄情贺子珍](ref-bazi-gelulunming-s017.md) — 例八、冷宫凄情贺子珍
+- [例十： 中国阿信董竹君，生于1900年农历正月初五申时](ref-bazi-gelulunming-s018.md) — 例十：中国阿信董竹君，生于1900年农历正月初五申时，
+- [例十一：网络大腕丁磊](ref-bazi-gelulunming-s019.md) — 例十一： 网络大腕丁磊，生于1971年农历9月10日卯时，
+- [格局论命](ref-bazi-gelulunming.md) — - [第一章 · （一） · （二）](ref-bazi-gelulunming-s001.md)
+- [健康疾病](ref-bazi-health.md) — 
+- [八字AI综合知识库](ref-bazi-knowledge.md) — | 组合 | 触发条件 | 直断 |
+- [合婚](ref-bazi-marriage.md) — 以上合婚方法中，日柱配对法、用神喜忌法、五行互补法直接源自《渊海子平》《三命通会》等古典古籍体系的婚姻章节。属相法和纳音法在民间流传较广，属于《三命通会》中提及
+- [五行总论](ref-bazi-qiongtong-s001.md) — 五行总论
+- [论丙火](ref-bazi-qiongtong-s002.md) — 论丙火
+- [论丁火](ref-bazi-qiongtong-s003.md) — 论丁火
+- [论土](ref-bazi-qiongtong-s004.md) — 论土
+- [论戊土](ref-bazi-qiongtong-s005.md) — 论戊土
+- [论己土](ref-bazi-qiongtong-s006.md) — 论己土
+- [论金](ref-bazi-qiongtong-s007.md) — 论金
+- [论辛金](ref-bazi-qiongtong-s008.md) — 论辛金
+- [论水](ref-bazi-qiongtong-s009.md) — 论水
+- [论癸水](ref-bazi-qiongtong-s010.md) — 论癸水
+- [穷通宝鉴](ref-bazi-qiongtong.md) — - [五行总论 · 论木](ref-bazi-qiongtong-s001.md)
+- [论五行生成](ref-bazi-sanming-s001.md) — ○论五行生成
+- [论支干源流](ref-bazi-sanming-s002.md) — ○论支干源流
+- [论纳音取象](ref-bazi-sanming-s003.md) — ○论纳音取象
+- [释六十甲子性质吉凶](ref-bazi-sanming-s004.md) — ○释六十甲子性质吉凶
+- [论天干阴阳生死](ref-bazi-sanming-s005.md) — ○论天干阴阳生死
+- [论地支](ref-bazi-sanming-s006.md) — ○论地支
+- [十干分配天文](ref-bazi-sanming-s007.md) — ○十干分配天文
+- [十二支分配地理](ref-bazi-sanming-s008.md) — ○十二支分配地理
+- [论人元司事](ref-bazi-sanming-s009.md) — ○论人元司事
+- [论五行旺相休囚死并寄生十二宫](ref-bazi-sanming-s010.md) — ○论五行旺相休囚死并寄生十二宫
+- [论遁月时](ref-bazi-sanming-s011.md) — ○论遁月时
+- [论胎元](ref-bazi-sanming-s012.md) — ○论胎元
+- [论小运](ref-bazi-sanming-s013.md) — ○论小运
+- [总论岁运](ref-bazi-sanming-s014.md) — ○总论岁运
+- [论进交退伏](ref-bazi-sanming-s015.md) — ○论进交退伏
+- [论十干化气](ref-bazi-sanming-s016.md) — ○论十干化气
+- [论支元六合](ref-bazi-sanming-s017.md) — ○论支元六合
+- [论将星华盖](ref-bazi-sanming-s018.md) — ○论将星华盖
+- [论三刑](ref-bazi-sanming-s019.md) — ○论三刑
+- [论冲击](ref-bazi-sanming-s020.md) — ○论冲击
+- [论金舆](ref-bazi-sanming-s021.md) — ○论金舆
+- [总论禄马](ref-bazi-sanming-s022.md) — ○总论禄马
+- [论三奇](ref-bazi-sanming-s023.md) — ○论三奇
+- [论天月德](ref-bazi-sanming-s024.md) — ○论天月德
+- [论太极贵](ref-bazi-sanming-s025.md) — ○论太极贵
+- [论正印](ref-bazi-sanming-s026.md) — ○论正印
+- [论德秀](ref-bazi-sanming-s027.md) — ○论德秀
+- [论空亡](ref-bazi-sanming-s028.md) — ○论空亡
+- [论元辰](ref-bazi-sanming-s029.md) — ○论元辰
+- [论灾煞](ref-bazi-sanming-s030.md) — ○论灾煞
+- [论天罗地网](ref-bazi-sanming-s031.md) — ○论天罗地网
+- [总论诸神煞](ref-bazi-sanming-s032.md) — ○总论诸神煞
+- [论十干坐支兼得月时及行运吉凶](ref-bazi-sanming-s033.md) — ○论十干坐支兼得月时及行运吉凶
+- [论十二月支得日干吉凶](ref-bazi-sanming-s034.md) — ○论十二月支得日干吉凶
+- [论五行时地分野吉凶](ref-bazi-sanming-s035.md) — ○论五行时地分野吉凶
+- [论火](ref-bazi-sanming-s036.md) — ○论火
+- [论土](ref-bazi-sanming-s037.md) — ○论土
+- [论金](ref-bazi-sanming-s038.md) — ○论金
+- [论水](ref-bazi-sanming-s039.md) — ○论水
+- [论古人立印食官财名义](ref-bazi-sanming-s040.md) — ○论古人立印食官财名义
+- [论正官](ref-bazi-sanming-s041.md) — ○论正官
+- [天福贵人](ref-bazi-sanming-s042.md) — ○天福贵人
+- [时上正官](ref-bazi-sanming-s043.md) — ○时上正官
+- [天元坐煞](ref-bazi-sanming-s044.md) — ○天元坐煞
+- [官煞混杂](ref-bazi-sanming-s045.md) — ○官煞混杂
+- [壬骑龙背](ref-bazi-sanming-s046.md) — ○壬骑龙背
+- [丑遥巳禄](ref-bazi-sanming-s047.md) — ○丑遥巳禄
+- [破官](ref-bazi-sanming-s048.md) — ○破官
+- [六阴朝阳](ref-bazi-sanming-s049.md) — ○六阴朝阳
+- [日禄归时](ref-bazi-sanming-s050.md) — ○日禄归时
+- [拱禄拱贵](ref-bazi-sanming-s051.md) — ○拱禄拱贵
+- [六甲趋乾](ref-bazi-sanming-s052.md) — ○六甲趋乾
+- [日贵](ref-bazi-sanming-s053.md) — ○日贵
+- [魁罡](ref-bazi-sanming-s054.md) — ○魁罡
+- [禄元互换](ref-bazi-sanming-s055.md) — ○禄元互换
+- [玄武当权](ref-bazi-sanming-s056.md) — ○玄武当权
+- [曲直](ref-bazi-sanming-s057.md) — ○曲直
+- [土局润下](ref-bazi-sanming-s058.md) — ○土局润下
+- [四位纯全](ref-bazi-sanming-s059.md) — ○四位纯全
+- [背禄逐马](ref-bazi-sanming-s060.md) — ○背禄逐马
+- [论正财](ref-bazi-sanming-s061.md) — ○论正财
+- [岁带正马](ref-bazi-sanming-s062.md) — ○岁带正马
+- [时上偏财](ref-bazi-sanming-s063.md) — ○时上偏财
+- [论印绶](ref-bazi-sanming-s064.md) — ○论印绶
+- [时逢生印](ref-bazi-sanming-s065.md) — ○时逢生印
+- [论杂气](ref-bazi-sanming-s066.md) — ○论杂气
+- [附论墓运](ref-bazi-sanming-s067.md) — ○附论墓运
+- [论食神](ref-bazi-sanming-s068.md) — ○论食神
+- [飞天禄马](ref-bazi-sanming-s069.md) — ○飞天禄马
+- [福星贵人](ref-bazi-sanming-s070.md) — ○福星贵人
+- [论建禄（此与前论禄同参）](ref-bazi-sanming-s071.md) — ○论建禄（此与前论禄同参）
+- [论性情相貌](ref-bazi-sanming-s072.md) — ○论性情相貌
+- [论疾病先知五脏六腑所属干支](ref-bazi-sanming-s073.md) — ○论疾病先知五脏六腑所属干支
+- [论女命](ref-bazi-sanming-s074.md) — ○论女命
+- [浊](ref-bazi-sanming-s075.md) — ○浊
+- [旺子伤夫](ref-bazi-sanming-s076.md) — ○旺子伤夫
+- [正偏自处](ref-bazi-sanming-s077.md) — ○正偏自处
+- [论小儿](ref-bazi-sanming-s078.md) — ○论小儿
+- [论六亲](ref-bazi-sanming-s079.md) — ○论六亲
+- [定妇人孕生男女](ref-bazi-sanming-s080.md) — ○定妇人孕生男女
+- [六甲日乙丑时断（以下六甲所忌月同上，时忌并论）](ref-bazi-sanming-s081.md) — ○六甲日乙丑时断（以下六甲所忌月同上，时忌并论）
+- [六甲日丁卯时断](ref-bazi-sanming-s082.md) — ○六甲日丁卯时断
+- [六甲日己巳时断](ref-bazi-sanming-s083.md) — ○六甲日己巳时断
+- [六甲日辛未时断](ref-bazi-sanming-s084.md) — ○六甲日辛未时断
+- [六甲日癸酉时断](ref-bazi-sanming-s085.md) — ○六甲日癸酉时断
+- [六甲日乙亥时断](ref-bazi-sanming-s086.md) — ○六甲日乙亥时断
+- [六乙日丁丑时断](ref-bazi-sanming-s087.md) — ○六乙日丁丑时断
+- [六乙日己卯时断](ref-bazi-sanming-s088.md) — ○六乙日己卯时断
+- [六乙日辛巳时断](ref-bazi-sanming-s089.md) — ○六乙日辛巳时断
+- [六乙日癸未时断](ref-bazi-sanming-s090.md) — ○六乙日癸未时断
+- [六乙日乙酉时断](ref-bazi-sanming-s091.md) — ○六乙日乙酉时断
+- [六乙日丁亥时断](ref-bazi-sanming-s092.md) — ○六乙日丁亥时断
+- [六丙日己丑时断](ref-bazi-sanming-s093.md) — ○六丙日己丑时断
+- [六丙日辛卯时断](ref-bazi-sanming-s094.md) — ○六丙日辛卯时断
+- [六丙日癸巳时断](ref-bazi-sanming-s095.md) — ○六丙日癸巳时断
+- [六丙日乙未时断](ref-bazi-sanming-s096.md) — ○六丙日乙未时断
+- [六丙日丁酉时断](ref-bazi-sanming-s097.md) — ○六丙日丁酉时断
+- [六丙日己亥时断](ref-bazi-sanming-s098.md) — ○六丙日己亥时断
+- [六丁日辛丑时断](ref-bazi-sanming-s099.md) — ○六丁日辛丑时断
+- [六丁日癸卯时断](ref-bazi-sanming-s100.md) — ○六丁日癸卯时断
+- [六丁日乙巳时断](ref-bazi-sanming-s101.md) — ○六丁日乙巳时断
+- [六丁日丁未时断](ref-bazi-sanming-s102.md) — ○六丁日丁未时断
+- [六丁日己酉时断](ref-bazi-sanming-s103.md) — ○六丁日己酉时断
+- [六丁日辛亥时断](ref-bazi-sanming-s104.md) — ○六丁日辛亥时断
+- [六戊日癸丑时断](ref-bazi-sanming-s105.md) — ○六戊日癸丑时断
+- [六戊日乙卯时断](ref-bazi-sanming-s106.md) — ○六戊日乙卯时断
+- [六戊日丁巳时断](ref-bazi-sanming-s107.md) — ○六戊日丁巳时断
+- [六戊日己未时断](ref-bazi-sanming-s108.md) — ○六戊日己未时断
+- [六戊日辛酉时断](ref-bazi-sanming-s109.md) — ○六戊日辛酉时断
+- [六戊日癸亥时断](ref-bazi-sanming-s110.md) — ○六戊日癸亥时断
+- [六己日乙丑时断](ref-bazi-sanming-s111.md) — ○六己日乙丑时断
+- [六己日丁卯时断](ref-bazi-sanming-s112.md) — ○六己日丁卯时断
+- [六己日己巳时断](ref-bazi-sanming-s113.md) — ○六己日己巳时断
+- [六己日辛未时断](ref-bazi-sanming-s114.md) — ○六己日辛未时断
+- [六己日癸酉时断](ref-bazi-sanming-s115.md) — ○六己日癸酉时断
+- [六己日乙亥时断](ref-bazi-sanming-s116.md) — ○六己日乙亥时断
+- [六庚日丁丑时断](ref-bazi-sanming-s117.md) — ○六庚日丁丑时断
+- [六庚日己卯时断](ref-bazi-sanming-s118.md) — ○六庚日己卯时断
+- [六庚日辛巳时断](ref-bazi-sanming-s119.md) — ○六庚日辛巳时断
+- [六庚日癸未时断](ref-bazi-sanming-s120.md) — ○六庚日癸未时断
+- [六庚日乙酉时断](ref-bazi-sanming-s121.md) — ○六庚日乙酉时断
+- [六庚日丁亥时断](ref-bazi-sanming-s122.md) — ○六庚日丁亥时断
+- [六辛日己丑时断](ref-bazi-sanming-s123.md) — ○六辛日己丑时断
+- [六辛日辛卯时断](ref-bazi-sanming-s124.md) — ○六辛日辛卯时断
+- [六辛日癸巳时断](ref-bazi-sanming-s125.md) — ○六辛日癸巳时断
+- [六辛日乙未时断](ref-bazi-sanming-s126.md) — ○六辛日乙未时断
+- [六辛日丁酉时断](ref-bazi-sanming-s127.md) — ○六辛日丁酉时断
+- [六辛日己亥时断](ref-bazi-sanming-s128.md) — ○六辛日己亥时断
+- [六壬日辛丑时断](ref-bazi-sanming-s129.md) — ○六壬日辛丑时断
+- [六壬日癸卯时断](ref-bazi-sanming-s130.md) — ○六壬日癸卯时断
+- [六壬日乙巳时断](ref-bazi-sanming-s131.md) — ○六壬日乙巳时断
+- [六壬日丁未时断](ref-bazi-sanming-s132.md) — ○六壬日丁未时断
+- [六壬日己酉时断](ref-bazi-sanming-s133.md) — ○六壬日己酉时断
+- [六壬日辛亥时断](ref-bazi-sanming-s134.md) — ○六壬日辛亥时断
+- [六癸日癸丑时断](ref-bazi-sanming-s135.md) — ○六癸日癸丑时断
+- [六癸日乙卯时断](ref-bazi-sanming-s136.md) — ○六癸日乙卯时断
+- [六癸日丁巳时断](ref-bazi-sanming-s137.md) — ○六癸日丁巳时断
+- [六癸日庚申时断](ref-bazi-sanming-s138.md) — ○六癸日庚申时断
+- [六癸日壬戌时断](ref-bazi-sanming-s139.md) — ○六癸日壬戌时断
+- [三命通会](ref-bazi-sanming.md) — - [○ · ](ref-bazi-sanming-s001.md)
+- [渊海子平](ref-bazi-yuanhai-s001.md) — 【渊海子平】
+- [论日为主](ref-bazi-yuanhai-s002.md) — 《论 日 为 主》
+- [论征太岁](ref-bazi-yuanhai-s003.md) — 《论 征 太 岁》
+- [论疾病](ref-bazi-yuanhai-s004.md) — 《论 疾 病》
+- [论性情](ref-bazi-yuanhai-s005.md) — 《论 性 情》
+- [伤官说](ref-bazi-yuanhai-s006.md) — 《伤 官 说》
+- [正官论](ref-bazi-yuanhai-s007.md) — 《正 官 论》
+- [论七杀](ref-bazi-yuanhai-s008.md) — 《论 七 杀》
+- [论倒食](ref-bazi-yuanhai-s009.md) — 《论 倒 食》
+- [论日刃](ref-bazi-yuanhai-s010.md) — 《论 日 刃》
+- [论金神](ref-bazi-yuanhai-s011.md) — 《论 金 神》
+- [论母](ref-bazi-yuanhai-s012.md) — 《论 母》
+- [论小儿](ref-bazi-yuanhai-s013.md) — 《论 小 儿》
+- [孤鸞煞](ref-bazi-yuanhai-s014.md) — 《孤鸞煞》云：『木虎孀无婿，金猪岂有郎；赤黄马独卧，黑鼠守空房。』主女寡而男孤。
+- [滚浪桃花](ref-bazi-yuanhai-s015.md) — 《滚 浪 桃 花》
+- [理愚歌](ref-bazi-yuanhai-s016.md) — 【理愚歌】云：『五行真假少人知，知时须是洩天机』是也。俗以甲子作海中金，即娄景之前，未知金在海中之论。
+- [看命入式](ref-bazi-yuanhai-s017.md) — 《看 命 入 式》
+- [当兴与崛起](ref-bazi-yuanhai-s018.md) — 《当兴》夫人生有秉富贵之荣，而当兴富贵，而且能享福，而保其终身。其何故也？盖四柱中身主专旺；而其所用吉神，或为财、或为官、或为印綬、或为食神，俱各带禄权得令，不
+- [论兴亡](ref-bazi-yuanhai-s019.md) — 《论 兴 亡》
+- [宝法第二](ref-bazi-yuanhai-s020.md) — 《宝 法》第 二
+- [论命细法](ref-bazi-yuanhai-s021.md) — 《论 命 细 法》
+- [心镜歌](ref-bazi-yuanhai-s022.md) — 《心 镜 歌》
+- [相心赋](ref-bazi-yuanhai-s023.md) — 《相 心 赋》
+- [幽微赋](ref-bazi-yuanhai-s024.md) — 《幽 微 赋》
+- [五行元理消息赋](ref-bazi-yuanhai-s025.md) — 《五 行 元 理 消 息 赋》
+- [碧渊赋捷驰千里马](ref-bazi-yuanhai-s026.md) — 《碧 渊 赋》捷驰千里马
+- [造微论](ref-bazi-yuanhai-s027.md) — 《造 微 论》
+- [人鑑论](ref-bazi-yuanhai-s028.md) — 《人 鑑 论》
+- [爱憎赋](ref-bazi-yuanhai-s029.md) — 《爱 憎 赋》
+- [万金赋](ref-bazi-yuanhai-s030.md) — 《万 金 赋》
+- [渊源集说](ref-bazi-yuanhai-s031.md) — 《渊 源 集 说》
+- [四言独步](ref-bazi-yuanhai-s032.md) — 《四 言 独 步》
+- [弃命从杀论](ref-bazi-yuanhai-s033.md) — 《弃 命 从 杀 论》
+- [五行生剋赋](ref-bazi-yuanhai-s034.md) — 《五 行 生 剋 赋》
+- [论八字撮要法](ref-bazi-yuanhai-s035.md) — 《论 八 字 撮 要 法》
+- [渊海子平](ref-bazi-yuanhai.md) — - [【 · 《 · 《 · 《](ref-bazi-yuanhai-s001.md)
+- [ref-bazi-ziping-part1](ref-bazi-ziping-part1.md) — 为壬戊甲。土寄生于寅申，寄旺于巳亥。仅言寅巳而不言申亥者，以寅中有丙火之生，故土旺可用申；亥中有金水之泄，故土弱不可用也。辰戌丑未为墓地，所藏者即余气及入墓之物
+- [方重审序](ref-bazi-ziping-s001.md) — 方重审序
+- [子平真诠原序](ref-bazi-ziping-s002.md) — 《子平真诠》原序
+- [一、原书序文](ref-bazi-ziping-s003.md) — 一．原书序文谓手录三十九篇，盖论八格与取运合为一篇也（如论正官与论正官取运实为一
+- [二、论阴阳生克](ref-bazi-ziping-s004.md) — 二、论阴阳生克
+- [三、论阴阳生死](ref-bazi-ziping-s005.md) — 三、论阴阳生死
+- [四、论十干配合性情](ref-bazi-ziping-s006.md) — 四、论十干配合性情
+- [五、论十干合而不合](ref-bazi-ziping-s007.md) — 五、论十干合而不合
+- [六、论十干得时不旺失时不弱](ref-bazi-ziping-s008.md) — 六、论十干得时不旺失时不弱
+- [七、论刑冲会合解法](ref-bazi-ziping-s009.md) — 七、论刑冲会合解法
+- [八、论用神](ref-bazi-ziping-s010.md) — 八、论用神
+- [九、论用神成败救应](ref-bazi-ziping-s011.md) — 九、论用神成败救应
+- [十、论用神变化](ref-bazi-ziping-s012.md) — 十、论用神变化
+- [十一、论用神纯杂](ref-bazi-ziping-s013.md) — 十一、论用神纯杂
+- [十二、论用神格局高低](ref-bazi-ziping-s014.md) — 十二、 论用神格局高低
+- [十三、论用神因成得败因败得成](ref-bazi-ziping-s015.md) — 十三、论用神因成得败因败得成
+- [十四、论用神配气候得失](ref-bazi-ziping-s016.md) — 十四、论用神配气候得失
+- [十五、论相神紧要](ref-bazi-ziping-s017.md) — 十五、论相神紧要
+- [十六、论杂气如何取用](ref-bazi-ziping-s018.md) — 十六、论杂气如何取用
+- [十七、论墓库刑冲之说](ref-bazi-ziping-s019.md) — 十七、论墓库刑冲之说
+- [十八、论四吉神能破格](ref-bazi-ziping-s020.md) — 十八、论四吉神能破格
+- [二十一、论星辰无关格局](ref-bazi-ziping-s021.md) — 二十一、论星辰无关格局
+- [二十二、论外格用舍](ref-bazi-ziping-s022.md) — 二十二、论外格用舍
+- [二十三、论宫分用神配六亲](ref-bazi-ziping-s023.md) — 二十三、论宫分用神配六亲
+- [二十四、论妻子](ref-bazi-ziping-s024.md) — 二十四、论妻子
+- [二十五、论行运](ref-bazi-ziping-s025.md) — 二十五、论行运
+- [二十六、论行运成格变格](ref-bazi-ziping-s026.md) — 二十六、论行运成格变格
+- [二十七、论喜忌干支有别](ref-bazi-ziping-s027.md) — 二十七、论喜忌干支有别
+- [二十八、论支中喜忌逢运透清](ref-bazi-ziping-s028.md) — 二十八、论支中喜忌逢运透清
+- [二十九、论时说拘泥格局](ref-bazi-ziping-s029.md) — 二十九、论时说拘泥格局
+- [三十、论时说以讹传讹](ref-bazi-ziping-s030.md) — 三十、论时说以讹传讹
+- [三十一、论正官](ref-bazi-ziping-s031.md) — 三十一、论正官
+- [三十二、论正官取运](ref-bazi-ziping-s032.md) — 三十二、论正官取运
+- [三十三、论财](ref-bazi-ziping-s033.md) — 三十三、论财
+- [三十四、论财取运](ref-bazi-ziping-s034.md) — 三十四、论财取运
+- [三十五、论印绶](ref-bazi-ziping-s035.md) — 三十五、论印绶
+- [三十六、论印绶取运](ref-bazi-ziping-s036.md) — 三十六、论印绶取运
+- [三十七、论食神](ref-bazi-ziping-s037.md) — 三十七、论食神
+- [三十八、论食神取运](ref-bazi-ziping-s038.md) — 三十八、论食神取运
+- [三十九、论偏官](ref-bazi-ziping-s039.md) — 三十九、论偏官
+- [四十、论偏官取运](ref-bazi-ziping-s040.md) — 四十、论偏官取运
+- [四十一、论伤官](ref-bazi-ziping-s041.md) — 四十一、论伤官
+- [四十二、论伤官取运](ref-bazi-ziping-s042.md) — 四十二、论伤官取运
+- [四十三、论阳刃](ref-bazi-ziping-s043.md) — 四十三、论阳刃
+- [四十四、论阳刃取运](ref-bazi-ziping-s044.md) — 四十四、论阳刃取运
+- [四十五、论建禄月劫](ref-bazi-ziping-s045.md) — 四十五、论建禄月劫
+- [四十六、论建禄月劫取运](ref-bazi-ziping-s046.md) — 四十六、论建禄月劫取运
+- [四十七、论杂格](ref-bazi-ziping-s047.md) — 四十七、论杂格
+- [四十八、附论杂格取运](ref-bazi-ziping-s048.md) — 四十八、附论杂格 取运
+- [子平真诠评注](ref-bazi-ziping.md) — - [方重审 · 徐乐吾](ref-bazi-ziping-s001.md)
+- [冲突解决规则](spec-bazi-conflict-rules.md) — 1. **S 级内容锁定**：古籍原文不可修改，新增引用需标注版本

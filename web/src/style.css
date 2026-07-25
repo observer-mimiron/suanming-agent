@@ -1,0 +1,60 @@
+:root {
+  --bg:            #f7f5f2;
+  --bg-secondary:  #faf8f5;
+  --bg-hover:      #f3f0eb;
+  --border:        #e8e4dc;
+  --border-light:  #f0ece6;
+  --text-primary:  #2d2a28;
+  --text-secondary:#6b665e;
+  --text-muted:    #9c9690;
+  --accent:        #b8956a;
+  --accent-bg:     rgba(184,149,106,0.1);
+  --accent-dim:    #8a7a60;
+
+  --wx-wood:   #7a9e7e;
+  --wx-fire:   #c47a6a;
+  --wx-earth:  #b8956a;
+  --wx-metal:  #c4a96a;
+  --wx-water:  #6b8aa8;
+
+  --serif: "Playfair Display", "Cormorant Garamond", serif;
+  --sans:  "Inter", "SF Pro Text", system-ui, -apple-system, sans-serif;
+  --mono:  "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-card: 0 2px 12px rgba(0,0,0,0.04);
+  --shadow-glow: 0 0 0 4px rgba(184,149,106,0.1);
+
+  font: 15px/1.65 var(--sans);
+  color: var(--text-primary);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+}
+
+#app {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Naive UI overrides for warm theme */
+.n-input {
+  --n-bg-color: var(--bg-secondary) !important;
+  --n-border-color: var(--border) !important;
+  --n-text-color: var(--text-primary) !important;
+  --n-placeholder-color: var(--text-muted) !important;
+  --n-border-radius: 14px !important;
+}
+.n-scrollbar {
+  --n-scrollbar-color: var(--border) !important;
+}
+

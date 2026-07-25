@@ -1,0 +1,11 @@
+﻿{
+    "dataset":  "retrieval-benchmark-v1",
+    "passed":  1,
+    "failed":  0,
+    "results":  [
+                    {
+                        "id":  "retrieval-bazi-followup",
+                        "passed":  true
+                    }
+                ]
+}

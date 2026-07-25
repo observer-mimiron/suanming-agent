@@ -1,0 +1,28 @@
+node_modules/
+.next/
+*.tsbuildinfo
+.open-next/
+.wrangler/
+.claude/
+.env
+.env.local
+/discuss/
+/data/
+/.indexes/
+/tenants/
+/agents/
+/agent-secrets/
+.llm-wiki-config.json
+SESSION_PLAN.md
+ISSUE_RESPONSE.md
+timelapse.mp4
+generate_video.py
+.yoyo/scripts/__pycache__/
+journal-site/dist/
+.dev.vars
+
+# 知识库数据文�?
+
+# clerk configuration (can include secrets)
+/.clerk/
+.gstack/

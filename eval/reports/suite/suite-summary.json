@@ -1,0 +1,16 @@
+﻿{
+    "datasets":  [
+                     {
+                         "dataset":  "runtime-smoke-v1",
+                         "passed":  true,
+                         "report":  "eval\\reports\\suite\\runtime-smoke-v1.json"
+                     },
+                     {
+                         "dataset":  "retrieval-benchmark-v1",
+                         "passed":  true,
+                         "report":  "eval\\reports\\suite\\retrieval-benchmark-v1.json"
+                     }
+                 ],
+    "passed":  2,
+    "failed":  0
+}
