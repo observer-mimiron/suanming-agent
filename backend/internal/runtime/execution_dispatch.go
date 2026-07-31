@@ -27,15 +27,10 @@ func (e *Executor) runExecutionPlan(ctx context.Context, sink EventSink, st *sta
 	}
 
 	ctx = withEventSink(ctx, sink)
-	results := make([]specialists.Result, len(plan.Domains))
-	for _, domain := range plan.Domains {
-		domainPlan := plan
-		domainPlan.Domains = []string{domain}
-		domainPlan.RequiredArtifacts = selectRequiredArtifacts(domainPlan.Domains)
-		if err := validatePlanArtifacts(st, domainPlan); err != nil {
-			return specialists.Result{}, err
-		}
+	if err := validatePlanArtifacts(st, plan); err != nil {
+		return specialists.Result{}, err
 	}
+	results := make([]specialists.Result, len(plan.Domains))
 
 	var (
 		wg       sync.WaitGroup

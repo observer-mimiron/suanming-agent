@@ -49,7 +49,7 @@ func TestExecute_RecordsPreflightAndSSETraceOnShortCircuit(t *testing.T) {
 		ClarificationQuestion: "请确认问题范围。",
 	}
 	sink := &recordingSink{}
-	graph, err := buildOrchestrationGraph(nil)
+	graph, err := buildOrchestrationGraph()
 	if err != nil {
 		t.Fatalf("buildOrchestrationGraph: %v", err)
 	}
@@ -109,9 +109,9 @@ func TestExecutor_SyncExecutionRoute_UpdatesSnapshotManagerContextAndTrace(t *te
 		TaskIntent:    "fortune_followup",
 	}
 	plan := ExecutionPlan{
-		Route:             route,
-		Domains:           []string{"qimen"},
-		RequiredArtifacts: []string{artifactQimenChart},
+		Route:        route,
+		Domains:      []string{"qimen"},
+		Requirements: selectArtifactRequirements(st, []string{"qimen"}),
 	}
 	plan.Snapshot.PrimaryDomain = "qimen"
 	plan.Snapshot.TaskIntent = "fortune_followup"
@@ -322,9 +322,9 @@ func TestPrefill_RecordsBaziPrefillSpan(t *testing.T) {
 		},
 	}
 	plan := ExecutionPlan{
-		Route:             route,
-		Domains:           []string{"bazi"},
-		RequiredArtifacts: []string{artifactBaziChart},
+		Route:        route,
+		Domains:      []string{"bazi"},
+		Requirements: selectArtifactRequirements(st, []string{"bazi"}),
 	}
 	vals := map[string]any{}
 
@@ -500,9 +500,9 @@ func TestPrefill_FortuneFollowupDoesNotReemitCachedBaziChart(t *testing.T) {
 		TaskIntent:    "fortune_followup",
 	}
 	plan := ExecutionPlan{
-		Route:             route,
-		Domains:           []string{"bazi"},
-		RequiredArtifacts: []string{artifactBaziChart},
+		Route:        route,
+		Domains:      []string{"bazi"},
+		Requirements: selectArtifactRequirements(st, []string{"bazi"}),
 	}
 
 	exec.prefill(context.Background(), sink, st, plan, vals)
@@ -574,9 +574,9 @@ func TestPrefill_CrossDomainFollowupPrefillsSecondaryZiwei(t *testing.T) {
 		TaskIntent:       "fortune_followup",
 	}
 	plan := ExecutionPlan{
-		Route:             route,
-		Domains:           []string{"bazi", "ziwei"},
-		RequiredArtifacts: []string{artifactBaziChart, artifactZiweiChart},
+		Route:        route,
+		Domains:      []string{"bazi", "ziwei"},
+		Requirements: selectArtifactRequirements(st, []string{"bazi", "ziwei"}),
 	}
 	vals := map[string]any{}
 

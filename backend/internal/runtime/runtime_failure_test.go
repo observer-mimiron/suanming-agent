@@ -16,8 +16,8 @@ func TestValidatePlanArtifacts_ReturnsArtifactMissingFailure(t *testing.T) {
 		Route: policy.ApprovedRoute{
 			PrimaryDomain: "qimen",
 		},
-		Domains:           []string{"qimen"},
-		RequiredArtifacts: []string{artifactQimenChart},
+		Domains:      []string{"qimen"},
+		Requirements: selectArtifactRequirements(st, []string{"qimen"}),
 	}
 
 	err := validatePlanArtifacts(st, plan)

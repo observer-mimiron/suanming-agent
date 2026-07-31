@@ -87,11 +87,11 @@ func TestManager_BuildExecutionPlan_UsesMainRuntimePathForMultiDomain(t *testing
 	if plan.Domains[0] != "bazi" || plan.Domains[1] != "ziwei" {
 		t.Fatalf("Domains = %v, want [bazi ziwei]", plan.Domains)
 	}
-	if len(plan.RequiredArtifacts) != 2 {
-		t.Fatalf("len(RequiredArtifacts) = %d, want 2", len(plan.RequiredArtifacts))
+	if len(plan.Requirements) != 2 {
+		t.Fatalf("len(Requirements) = %d, want 2", len(plan.Requirements))
 	}
-	if plan.RequiredArtifacts[0] != artifactBaziChart || plan.RequiredArtifacts[1] != artifactZiweiChart {
-		t.Fatalf("RequiredArtifacts = %v, want [%s %s]", plan.RequiredArtifacts, artifactBaziChart, artifactZiweiChart)
+	if plan.Requirements[0].Kind != artifactBaziChart || plan.Requirements[1].Kind != artifactZiweiChart {
+		t.Fatalf("Requirements = %v, want bazi/ziwei chart requirements", plan.Requirements)
 	}
 	if plan.Snapshot.PrimaryDomain != "bazi" {
 		t.Fatalf("Snapshot.PrimaryDomain = %q, want bazi", plan.Snapshot.PrimaryDomain)
@@ -119,8 +119,8 @@ func TestManager_BuildExecutionPlan_UsesMainRuntimePathForSingleDomain(t *testin
 	if len(plan.Domains) != 1 || plan.Domains[0] != "bazi" {
 		t.Fatalf("Domains = %v, want [bazi]", plan.Domains)
 	}
-	if len(plan.RequiredArtifacts) != 1 || plan.RequiredArtifacts[0] != artifactBaziChart {
-		t.Fatalf("RequiredArtifacts = %v, want [%s]", plan.RequiredArtifacts, artifactBaziChart)
+	if len(plan.Requirements) != 1 || plan.Requirements[0].Kind != artifactBaziChart {
+		t.Fatalf("Requirements = %v, want bazi chart requirement", plan.Requirements)
 	}
 	if plan.FollowupMode != followupModeRerunSpecialist {
 		t.Fatalf("FollowupMode = %q, want %q", plan.FollowupMode, followupModeRerunSpecialist)
@@ -190,12 +190,12 @@ func TestManager_BuildExecutionPlan_ReusesCachedSingleDomainInterpretation(t *te
 		},
 	}
 	st := state.NewSession("s1")
-	st.DomainContexts.Bazi.RuntimeValues = map[string]any{
-		followupArtifactKey: map[string]any{
-			"domain":  "bazi",
-			"summary": "上轮已经判断事业主线可走稳",
-		},
-	}
+	st.MergeProfile(map[string]any{"year": 1991.0, "month": 5.0, "day": 20.0, "hour": 8.0, "gender": "男"})
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": "zi_zheng_v1"}, "test")
+	st.StoreInterpretation("bazi", map[string]any{
+		"domain":  "bazi",
+		"summary": "上轮已经判断事业主线可走稳",
+	})
 	route := policy.ApprovedRoute{
 		PrimaryDomain: "bazi",
 		TaskIntent:    "fortune_followup",
@@ -216,12 +216,12 @@ func TestManager_BuildExecutionPlan_ReusesCachedSingleDomainInterpretation(t *te
 func TestManager_BuildExecutionPlan_DoesNotReuseCachedInterpretationForCrossDomainFollowup(t *testing.T) {
 	manager := &Manager{}
 	st := state.NewSession("s1")
-	st.DomainContexts.Bazi.RuntimeValues = map[string]any{
-		followupArtifactKey: map[string]any{
-			"domain":  "bazi",
-			"summary": "上轮已经判断事业主线可走稳",
-		},
-	}
+	st.MergeProfile(map[string]any{"year": 1991.0, "month": 5.0, "day": 20.0, "hour": 8.0, "gender": "男"})
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": "zi_zheng_v1"}, "test")
+	st.StoreInterpretation("bazi", map[string]any{
+		"domain":  "bazi",
+		"summary": "上轮已经判断事业主线可走稳",
+	})
 	route := policy.ApprovedRoute{
 		PrimaryDomain:    "bazi",
 		SecondaryDomains: []string{"ziwei"},
@@ -323,91 +323,6 @@ func TestManager_BeginTurnSeedsManagerContextFromRoute(t *testing.T) {
 	}
 	if st.ManagerContext.CurrentTopic != "career timing" {
 		t.Fatalf("CurrentTopic = %q, want career timing", st.ManagerContext.CurrentTopic)
-	}
-}
-
-func TestManager_RecordInterruptStoresCheckpointInDomainContext(t *testing.T) {
-	manager := &Manager{}
-	st := state.NewSession("s1")
-	route := policy.ApprovedRoute{
-		PrimaryDomain: "bazi",
-		TaskIntent:    "fortune_followup",
-	}
-
-	manager.RecordInterrupt(st, route, "cp-1", "interrupt-1", "solar_time_confirm")
-
-	if st.ManagerContext.WaitingOn != "solar_time_confirm" {
-		t.Fatalf("WaitingOn = %q, want solar_time_confirm", st.ManagerContext.WaitingOn)
-	}
-	if st.ManagerContext.LastReplyOwner != "manager" {
-		t.Fatalf("LastReplyOwner = %q, want manager", st.ManagerContext.LastReplyOwner)
-	}
-	if st.DomainContexts.Bazi.InterruptID != "interrupt-1" {
-		t.Fatalf("InterruptID = %q, want interrupt-1", st.DomainContexts.Bazi.InterruptID)
-	}
-	if st.DomainContexts.Bazi.CheckpointID != "cp-1" {
-		t.Fatalf("CheckpointID = %q, want cp-1", st.DomainContexts.Bazi.CheckpointID)
-	}
-	if st.DomainContexts.Bazi.WorkingSummary != "solar_time_confirm" {
-		t.Fatalf("WorkingSummary = %q, want solar_time_confirm", st.DomainContexts.Bazi.WorkingSummary)
-	}
-	if got := st.DomainContexts.Bazi.RuntimeValues["interrupt_reason"]; got != "solar_time_confirm" {
-		t.Fatalf("interrupt_reason = %v, want solar_time_confirm", got)
-	}
-	if st.DomainContexts.Bazi.Version != 1 {
-		t.Fatalf("Version = %d, want 1", st.DomainContexts.Bazi.Version)
-	}
-}
-
-func TestManager_ResolveResumeInterruptIDFallsBackToStoredContext(t *testing.T) {
-	manager := &Manager{}
-	st := state.NewSession("s1")
-	st.Routing.PrimaryDomain = "bazi"
-	st.DomainContexts.Bazi.CheckpointID = "cp-1"
-	st.DomainContexts.Bazi.InterruptID = "interrupt-1"
-
-	interruptID := manager.ResolveResumeInterruptID(st, "cp-1", "")
-	if interruptID != "interrupt-1" {
-		t.Fatalf("interruptID = %q, want interrupt-1", interruptID)
-	}
-}
-
-func TestManager_FinishTurnClearsCheckpointAfterSuccessfulReply(t *testing.T) {
-	manager := &Manager{}
-	st := state.NewSession("s1")
-	route := policy.ApprovedRoute{
-		PrimaryDomain: "bazi",
-		TaskIntent:    "fortune_followup",
-		Slots: schemas.DecisionSlots{
-			QuestionText: "wealth",
-		},
-	}
-
-	manager.RecordInterrupt(st, route, "cp-1", "interrupt-1", "solar_time_confirm")
-	manager.FinishTurn(st, route, "fortune_followup")
-
-	if st.ManagerContext.WaitingOn != "" {
-		t.Fatalf("WaitingOn = %q, want empty", st.ManagerContext.WaitingOn)
-	}
-	if st.ManagerContext.LastReplyOwner != "manager" {
-		t.Fatalf("LastReplyOwner = %q, want manager", st.ManagerContext.LastReplyOwner)
-	}
-	if st.ManagerContext.CurrentTopic != "wealth" {
-		t.Fatalf("CurrentTopic = %q, want wealth", st.ManagerContext.CurrentTopic)
-	}
-	if st.DomainContexts.Bazi.CheckpointID != "" {
-		t.Fatalf("CheckpointID = %q, want cleared", st.DomainContexts.Bazi.CheckpointID)
-	}
-	if st.DomainContexts.Bazi.WorkingSummary != "" {
-		t.Fatalf("WorkingSummary = %q, want cleared", st.DomainContexts.Bazi.WorkingSummary)
-	}
-	if st.DomainContexts.Bazi.RuntimeValues != nil {
-		if _, ok := st.DomainContexts.Bazi.RuntimeValues["interrupt_reason"]; ok {
-			t.Fatalf("interrupt_reason should be cleared, got %v", st.DomainContexts.Bazi.RuntimeValues["interrupt_reason"])
-		}
-	}
-	if st.DomainContexts.Bazi.Version != 2 {
-		t.Fatalf("Version = %d, want 2", st.DomainContexts.Bazi.Version)
 	}
 }
 

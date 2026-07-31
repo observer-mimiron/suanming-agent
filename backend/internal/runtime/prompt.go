@@ -7,16 +7,8 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 )
 
-// Builder 负责构建 specialist instruction 中注入的出生资料文本。
-type Builder struct{}
-
-// NewBuilder 创建 prompt builder。
-func NewBuilder() *Builder {
-	return &Builder{}
-}
-
 // buildProfileSection 构建出生资料文本。同时给出原始出生时间和系统已计算的权威四柱。
-func (b *Builder) buildProfileSection(st *state.SessionState) string {
+func buildProfileSection(st *state.SessionState) string {
 	year, _ := st.Profile["year"]
 	month, _ := st.Profile["month"]
 	day, _ := st.Profile["day"]

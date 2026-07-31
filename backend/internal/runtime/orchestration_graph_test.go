@@ -15,7 +15,7 @@ import (
 // TestOrchestrationGraphTopology 验证 Graph 拓扑结构正确编译。
 // 不验证行为（行为由现有回归测试覆盖），只验证 Runnable 可编译。
 func TestOrchestrationGraphTopology(t *testing.T) {
-	r, err := buildOrchestrationGraph(nil)
+	r, err := buildOrchestrationGraph()
 	if err != nil {
 		t.Fatalf("buildOrchestrationGraph failed: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestOrchestrationGraphTopology(t *testing.T) {
 }
 
 func TestExecute_ManagerOwnedPathDispatchesBoundedRunnerThroughGraph(t *testing.T) {
-	graph, err := buildOrchestrationGraph(nil)
+	graph, err := buildOrchestrationGraph()
 	if err != nil {
 		t.Fatalf("buildOrchestrationGraph: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestExecute_ManagerOwnedPathDispatchesBoundedRunnerThroughGraph(t *testing.
 }
 
 func TestExecute_ReturnsAgentErrorWhenPrefillCannotSatisfyRequiredArtifact(t *testing.T) {
-	graph, err := buildOrchestrationGraph(nil)
+	graph, err := buildOrchestrationGraph()
 	if err != nil {
 		t.Fatalf("buildOrchestrationGraph: %v", err)
 	}

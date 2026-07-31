@@ -17,10 +17,10 @@ type baziEvidencePlan struct {
 }
 
 type baziEvidenceBundle struct {
-	Stage        string                      `json:"stage"`
-	TopicBuckets map[string][]baziCitation  `json:"topic_buckets"`
-	Citations    []baziCitation             `json:"citations"`
-	Conflicts    []string                   `json:"conflicts"`
+	Stage        string                    `json:"stage"`
+	TopicBuckets map[string][]baziCitation `json:"topic_buckets"`
+	Citations    []baziCitation            `json:"citations"`
+	Conflicts    []string                  `json:"conflicts"`
 }
 
 type baziEvidenceQuality struct {

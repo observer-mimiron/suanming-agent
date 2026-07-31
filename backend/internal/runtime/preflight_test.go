@@ -474,12 +474,11 @@ func TestPreflight_BaziGlossaryFollowupDoesNotHijackCrossDomain(t *testing.T) {
 
 func TestPreflight_ReusedArtifactFollowupShortCircuitsDirectly(t *testing.T) {
 	st := makeSession(true, true, false)
-	st.DomainContexts.Bazi.RuntimeValues = map[string]any{
-		followupArtifactKey: map[string]any{
-			"domain":  "bazi",
-			"summary": "上轮已经判断事业主线可走稳。",
-		},
-	}
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": "zi_zheng_v1"}, "test")
+	st.StoreInterpretation("bazi", map[string]any{
+		"domain":  "bazi",
+		"summary": "上轮已经判断事业主线可走稳。",
+	})
 	manager := &Manager{}
 	route := routeWithHints("bazi", "fortune_followup", "none", "full")
 	plan := manager.BuildExecutionPlan(st, route, "那事业具体怎么推进")

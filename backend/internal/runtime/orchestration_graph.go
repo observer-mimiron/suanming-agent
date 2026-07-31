@@ -119,7 +119,7 @@ func guardNode(ctx context.Context, finalText string) (string, error) {
 
 	turnType, guardedText := guardFinalAnswerWithTrace(ctx, oc.GS.Route, oc.Init.St, finalText)
 	span.SetAttribute("turn_type", turnType)
-	if shouldBufferFinalAnswer() && guardedText != "" {
+	if guardedText != "" {
 		_ = emitEventWithTrace(ctx, oc.RT.Sink, Event{
 			Type: "text",
 			Data: map[string]any{"content": guardedText},
@@ -229,7 +229,7 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 	return sr, nil
 }
 
-func buildOrchestrationGraph(cpStore compose.CheckPointStore) (compose.Runnable[string, string], error) {
+func buildOrchestrationGraph() (compose.Runnable[string, string], error) {
 	g := compose.NewGraph[string, string](compose.WithGenLocalState(genOrchestrationState))
 
 	if err := g.AddLambdaNode("preflight",
@@ -281,14 +281,5 @@ func buildOrchestrationGraph(cpStore compose.CheckPointStore) (compose.Runnable[
 		return nil, fmt.Errorf("edge guard->END: %w", err)
 	}
 
-	compileOpts := []compose.GraphCompileOption{
-		compose.WithGraphName("orchestration"),
-	}
-	if cpStore != nil {
-		compileOpts = append(compileOpts,
-			compose.WithCheckPointStore(cpStore),
-			compose.WithInterruptBeforeNodes([]string{"agent"}),
-		)
-	}
-	return g.Compile(context.Background(), compileOpts...)
+	return g.Compile(context.Background(), compose.WithGraphName("orchestration"))
 }

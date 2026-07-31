@@ -107,8 +107,8 @@ func TestExecutor_RunExecutionPlan_BlocksWhenRequiredArtifactMissing(t *testing.
 			PrimaryDomain: "qimen",
 			TaskIntent:    "fortune_followup",
 		},
-		Domains:           []string{"qimen"},
-		RequiredArtifacts: []string{artifactQimenChart},
+		Domains:      []string{"qimen"},
+		Requirements: selectArtifactRequirements(st, []string{"qimen"}),
 	}
 
 	_, err := executor.runExecutionPlan(context.Background(), nil, st, plan, "check current situation")
@@ -196,7 +196,7 @@ func TestExecutor_RunExecutionPlan_ProvidesSharedEventSinkWithoutLegacyDeps(t *t
 	st := state.NewSession("s-sink")
 	st.BaziResult = map[string]any{"calendar_rule_version": "zi_zheng_v1"}
 	plan := ExecutionPlan{
-		Route: policy.ApprovedRoute{PrimaryDomain: "bazi"},
+		Route:   policy.ApprovedRoute{PrimaryDomain: "bazi"},
 		Domains: []string{"bazi"},
 	}
 
@@ -211,6 +211,10 @@ func TestExecutor_RunExecutionPlan_ProvidesSharedEventSinkWithoutLegacyDeps(t *t
 
 func TestStoreFollowupArtifact_PersistsSingleDomainInterpretation(t *testing.T) {
 	st := state.NewSession("s-followup-artifact")
+	st.MergeProfile(map[string]any{
+		"year": 1991.0, "month": 5.0, "day": 20.0, "hour": 8.0, "gender": "男",
+	})
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": "zi_zheng_v1"}, "test")
 	result := specialists.Result{
 		Domain:          "bazi",
 		DirectAnswer:    "整体以稳步推进为主。",
