@@ -1,9 +1,11 @@
 package ziwei
 
 import (
+	"context"
 	"testing"
 
 	"github.com/6tail/lunar-go/calendar"
+	bazitool "github.com/observer-mimiron/suanming-agent/internal/tools/bazi"
 )
 
 // referenceCase holds iztro-generated expected values for a test case.
@@ -430,5 +432,35 @@ func TestTimeToIndex(t *testing.T) {
 		if got := TimeToIndex(tt.hour); got != tt.want {
 			t.Errorf("TimeToIndex(%d) = %d, want %d", tt.hour, got, tt.want)
 		}
+	}
+}
+
+func TestZiWeiCalc_TrueSolarTimeCrossesMidnightInShanghai(t *testing.T) {
+	tool := &ZiWeiCalcTool{}
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"year":      float64(2025),
+		"month":     float64(11),
+		"day":       float64(10),
+		"hour":      float64(23),
+		"minute":    float64(53),
+		"longitude": 121.4737,
+		"gender":    "男",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	data := result.(map[string]any)
+	if got := data["solar_time_version"]; got != bazitool.TrueSolarTimeVersion {
+		t.Fatalf("solar_time_version=%v, want %s", got, bazitool.TrueSolarTimeVersion)
+	}
+	if got := data["birthday"]; got != "2025-11-11 00:15:00" {
+		t.Fatalf("birthday=%v, want 2025-11-11 00:15:00", got)
+	}
+	pillars := data["four_pillars"].(map[string]string)
+	if got := pillars["日柱"]; got != "甲申" {
+		t.Fatalf("day pillar=%s, want 甲申 after true-solar midnight crossing", got)
+	}
+	if got := pillars["时柱"]; got != "甲子" {
+		t.Fatalf("time pillar=%s, want 甲子 after true-solar midnight crossing", got)
 	}
 }

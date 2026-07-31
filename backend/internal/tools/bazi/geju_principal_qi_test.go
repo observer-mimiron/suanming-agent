@@ -14,8 +14,8 @@ func TestYongShen_UsesPrincipalQiForGuiHaiMonthGeju(t *testing.T) {
 	if got := m["day_master"]; got != "癸" {
 		t.Fatalf("expected day_master=癸, got %v", got)
 	}
-	if got := m["geju"]; got != "月劫格" {
-		t.Fatalf("expected geju=月劫格, got %v", got)
+	if got := m["geju_candidate"]; got != "月劫格" {
+		t.Fatalf("expected geju candidate=月劫格, got %v", got)
 	}
 
 	basis, ok := m["geju_basis"].(string)

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -11,8 +12,9 @@ func (e *Executor) runStaticSynthesisWithFeedback(chartState baziCharterState, r
 	if err != nil {
 		return baziStaticSynthesis{}, err
 	}
-	output = normalizeStaticSynthesis(output)
+	output = ensureStaticAssertions(chartState, projectStaticAssertionsToLegacy(normalizeStaticSynthesis(output)))
 	if err := validateStaticSynthesisResult(chartState, output); err == nil {
+		output.Source = "model"
 		return output, nil
 	} else {
 		payload["static_feedback"] = buildStaticSynthesisFeedback(output, err)
@@ -22,7 +24,7 @@ func (e *Executor) runStaticSynthesisWithFeedback(chartState baziCharterState, r
 	if err != nil {
 		return baziStaticSynthesis{}, err
 	}
-	output = normalizeStaticSynthesis(output)
+	output = ensureStaticAssertions(chartState, projectStaticAssertionsToLegacy(normalizeStaticSynthesis(output)))
 	if err := validateStaticSynthesisResult(chartState, output); err != nil {
 		recovered := recoverStaticSynthesis(chartState, output, err)
 		if recoverErr := validateStaticSynthesisResult(chartState, recovered); recoverErr != nil {
@@ -30,16 +32,52 @@ func (e *Executor) runStaticSynthesisWithFeedback(chartState baziCharterState, r
 		}
 		return recovered, nil
 	}
+	output.Source = "model"
 	return output, nil
 }
 
 func validateStaticSynthesisResult(chartState baziCharterState, output baziStaticSynthesis) error {
 	checkState := chartState
 	checkState.StaticSynthesis = normalizeStaticSynthesis(output)
+	if isFactsOnlyStaticSynthesis(checkState.StaticSynthesis) {
+		return validateStaticStage(checkState)
+	}
+	checkState.StaticSynthesis = ensureStaticAssertions(checkState, projectStaticAssertionsToLegacy(checkState.StaticSynthesis))
 	if err := validateStaticStage(checkState); err != nil {
 		return err
 	}
+	if err := validateStaticAssertions(checkState); err != nil {
+		return err
+	}
+	if err := validateStaticStrengthAgainstEvidence(checkState); err != nil {
+		return err
+	}
 	return validateCharterConsistency(checkState)
+}
+
+// validateStaticStrengthAgainstEvidence prevents a model from reversing a
+// decisive runtime-owned balance result. The middle band remains open to
+// synthesis; only explicit "偏强" versus "偏弱" reversals are rejected.
+func validateStaticStrengthAgainstEvidence(state baziCharterState) error {
+	strength := strings.TrimSpace(stringValue(state.Input.Yongshen["strength"]))
+	reading := strings.Join([]string{
+		strings.TrimSpace(state.StaticSynthesis.Strength.Conclusion),
+		strings.TrimSpace(state.StaticSynthesis.StrengthBalance),
+	}, "\n")
+	if strength == "" || reading == "" {
+		return nil
+	}
+	switch strength {
+	case "偏弱":
+		if strings.Contains(reading, "偏强") || strings.Contains(reading, "身强") {
+			return fmt.Errorf("static strength reverses balance evidence: %s", strength)
+		}
+	case "偏强":
+		if strings.Contains(reading, "偏弱") || strings.Contains(reading, "身弱") {
+			return fmt.Errorf("static strength reverses balance evidence: %s", strength)
+		}
+	}
+	return nil
 }
 
 func buildStaticSynthesisFeedback(output baziStaticSynthesis, cause error) string {
@@ -53,6 +91,11 @@ func buildStaticSynthesisFeedback(output baziStaticSynthesis, cause error) strin
 	}
 	if errText := strings.TrimSpace(cause.Error()); errText != "" {
 		lines = append(lines, "本次校验失败原因："+errText)
+	}
+	if violation, ok := baziViolationFromError(cause); ok {
+		if raw, err := json.Marshal(violation); err == nil {
+			lines = append(lines, "机器可读 violation："+string(raw))
+		}
 	}
 	return strings.Join(lines, "\n")
 }

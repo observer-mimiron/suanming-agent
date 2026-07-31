@@ -39,17 +39,17 @@
 ### AC-2.1 八字 runner 排盘
 - **Given** 会话中有完整出生信息
 - **When** manager-owned runtime dispatch 到八字 specialist runner
-- **Then** 自动调用 `bazi_calc` 排盘，结果写回 `SessionState.BaziResult`
+- **Then** 自动调用 `bazi_calc` 排盘，结果写入当前 `Subject + ProfileRevision` 的八字资产；`SessionState.BaziResult` 只作为活动资产兼容投影
 
 ### AC-2.2 八字 runner 复用命盘
-- **Given** `SessionState.BaziResult` 已存在
+- **Given** 当前对象与当前资料版本已有兼容的八字资产
 - **When** manager-owned runtime 再次 dispatch 到八字 specialist runner
-- **Then** 不重新调用 `bazi_calc`，直接复用现有命盘
+- **Then** 不重新调用 `bazi_calc`，直接复用该精确资产；其他对象或旧资料版本的盘不得满足该条件
 
 ### AC-2.3 奇门 runner 排盘
-- **Given** `QimenMode=primary` 且 `SessionState.QimenResult` 为空
+- **Given** `QimenMode=primary` 且当前 `Case` 没有兼容的 `qimen_chart`
 - **When** manager-owned runtime dispatch 到奇门 specialist runner
-- **Then** 调用 `qimen_dunjia`，结果写回 `SessionState.QimenResult`
+- **Then** 调用 `qimen_dunjia`，结果写入该 Case 的 `DomainAsset`；`SessionState.QimenResult` 只作为活动资产兼容投影
 
 ### AC-2.4 manager-owned 受控调度
 - **Given** `ApprovedRoute` 只批准八字域
@@ -62,14 +62,34 @@
 - **Then** specialist 结果先聚合，再由 manager 统一 compose 最终回复
 
 ### AC-2.6 RequiredArtifacts 前置校验
-- **Given** `ExecutionPlan.RequiredArtifacts` 包含 `qimen_chart`
-- **When** prefill 结束后 `SessionState.QimenResult` 仍为空
+- **Given** `ExecutionPlan.Requirements` 包含归属指定 Case 的 `qimen_chart`
+- **When** prefill 结束后没有该 Case 的兼容资产，或仅存在其他对象 / Case 的盘
 - **Then** dispatch 在进入 `qimen` runner 前直接报错，不等待 final guard 才发现缺盘
 
 ### AC-2.7 排盘结果自动推送卡片
 - **Given** `bazi_calc` 返回排盘结果
 - **When** runtime specialist event bridge 处理工具事件
 - **Then** SSE 推送 `{type: "component", data: {type: "bazi-chart", payload: {...}}}`
+
+### AC-2.8 多对象与资料修订不覆盖
+- **Given** 同一会话先后为自己和孩子排盘，或用户修正出生时刻
+- **When** Manager 解析本轮目标
+- **Then** 只切换 `ActiveFocus` 到对应 Subject / ProfileRevision；旧盘仍可追溯，不能静默被覆盖或复用
+
+### AC-2.9 大运确定性合同
+- **Given** 完整出生时分和性别
+- **When** `bazi_calc` 生成命盘、`bazi_liunian` 判断当前大运
+- **Then** 输出出生分钟、顺逆、顺逆依据、起运时刻、每步日期边界；流年在交运日之前不得仅因虚岁跨年就提前切运
+- **And** `dayun_analyzed` 必须保留每步日期边界；`current_dayun` 缺失时仅可按日期边界回补，无法定位则明确显示未识别，不能猜测或重复“当前”前缀
+
+### AC-2.10 八字规则治理
+- **Given** 八字工具输出四柱、藏干、旺衰、格局和大运
+- **When** runtime 构建静态或动态综合输入
+- **Then** 排盘、藏干层级、透干和标准冲合刑害作为 `chart_facts`；旺衰、用忌、格局成败与调候必须携带 method/profile，不能被当作同一层确定事实
+- **And** `official_visibility.hidden` 非空时不得写成“无官星”；组合检测只能输出候选或受阻事实，不得直接授予“富格/贵格/成立”
+- **And** `balance_status=待选定流派裁断` 时，大运仍输出十神、顺逆、交运边界和关系事实，但 `quality` / `quality_base` 必须为“待裁定”
+- **And** 动态综合不得使用未在关系事实中声明的暗合、相破，也不得从命理关系推导官非或具体疾病
+- **And** 冲、刑、害、合、会只能作为关系触发面；不得按固定权重自动汇总成“偏吉 / 偏压 / 承压明显”大运结论
 
 ## AC-3：知识检索
 
@@ -164,6 +184,16 @@
 - **When** 下一轮只问纯八字问题
 - **Then** 不自动触发奇门，也不弹出奇门盘
 
+### AC-6.4 对象歧义只在必要时澄清
+- **Given** 会话中已有自己和孩子两个 Subject
+- **When** 用户说“他今年怎么样”且 RouteAdvisor 无法提供唯一对象
+- **Then** Manager 返回对象澄清，不进入 specialist；单一 Subject 会话中的代词继续复用当前对象
+
+### AC-6.5 follow-up 解读按命盘来源复用
+- **Given** 自己的八字已有完成解读，之后切换到孩子的八字
+- **When** 用户继续追问孩子
+- **Then** 不得复用自己的 `InterpretationAsset`；切回自己的同一命盘才可复用其解读摘要
+
 ## Smoke Regression Coverage
 
 官方 smoke suite 当前先覆盖本地可稳定运行的最小主链行为：
@@ -172,12 +202,14 @@
 - route-decision emission
 - degraded follow-up / explanation / retrieval / qimen prompts do not crash
 - successful stream completion
+- 多对象、资料修订、解读来源与奇门 Case 隔离：`TestExecutionPlan_SubjectAssetConversationRegression`
 
 ## 验证命令
 
 ```bash
 go test ./backend/... -v
 go build ./backend/cmd/server/
+python3 -m unittest eval/runner/test_run_langfuse_eval.py -v
 cd web && npm run test:unit
 cd web && npx vue-tsc --noEmit
 cd web && npm run build

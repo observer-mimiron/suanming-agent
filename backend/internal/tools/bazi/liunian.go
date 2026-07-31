@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/6tail/lunar-go/calendar"
 )
@@ -40,12 +41,29 @@ func (t *BaziLiuNianTool) Execute(_ context.Context, params map[string]any) (any
 	allGan, allZhi := extractGanZhiFromPillars(baziResult["pillars"])
 	dayunList := extractDayunList(baziResult["dayun"])
 	birthYear := extractBirthYear(baziResult["birthday"])
+	targetAt := time.Date(
+		int(targetYear),
+		time.Month(monthOrDefault(params["target_month"], 6)),
+		monthOrDefault(params["target_day"], 15),
+		monthOrDefault(params["target_hour"], 12),
+		monthOrDefault(params["target_minute"], 0),
+		0,
+		0,
+		time.UTC,
+	)
 
-	return computeLiuNian(dayGan, allGan, allZhi, dayunList, int(targetYear), birthYear), nil
+	return computeLiuNianAt(dayGan, allGan, allZhi, dayunList, targetAt, birthYear), nil
 }
 
 // computeLiuNian 计算流年证据字段。
 func computeLiuNian(dayGan string, allGan, allZhi []string, dayunList []map[string]any, targetYear, birthYear int) map[string]any {
+	return computeLiuNianAt(dayGan, allGan, allZhi, dayunList, time.Date(targetYear, 6, 15, 12, 0, 0, 0, time.UTC), birthYear)
+}
+
+// computeLiuNianAt selects the current luck period using exact chart boundaries
+// when present. The virtual-age fallback keeps historical chart payloads valid.
+func computeLiuNianAt(dayGan string, allGan, allZhi []string, dayunList []map[string]any, targetAt time.Time, birthYear int) map[string]any {
+	targetYear := targetAt.Year()
 	// 1. 流年干支：年中某日取年干支（参考 ziwei/liunian.go:32）
 	solar := calendar.NewSolar(targetYear, 6, 15, 12, 0, 0)
 	lunar := solar.GetLunar()
@@ -60,9 +78,9 @@ func computeLiuNian(dayGan string, allGan, allZhi []string, dayunList []map[stri
 		}
 	}
 
-	// 3. 当前大运：根据虚岁找 startAge<=age<=endAge 的步
+	// 3. 当前大运：优先按排盘时写入的起止日期选择，旧资产才回退虚岁。
 	currentAge := targetYear - birthYear + 1
-	currentDayun := findCurrentDayun(dayunList, currentAge)
+	currentDayun, dayunSelection := findCurrentDayunAt(dayunList, targetAt, currentAge)
 
 	// 4. 流年冲合：流年地支 vs 命局四支 + 当前大运支
 	dayunZhi := ""
@@ -72,14 +90,24 @@ func computeLiuNian(dayGan string, allGan, allZhi []string, dayunList []map[stri
 	chonghe := computeLiunianChonghe(yearBranch, allZhi, dayunZhi)
 
 	return map[string]any{
-		"liunian_year":     targetYear,
-		"liunian_ganzhi":   yearStem + yearBranch,
-		"liunian_stem":     yearStem,
-		"liunian_branch":   yearBranch,
-		"liunian_shi_shen": shiShen,
-		"current_dayun":    currentDayun,
-		"liunian_chonghe":  chonghe,
+		"liunian_year":            targetYear,
+		"liunian_ganzhi":          yearStem + yearBranch,
+		"liunian_stem":            yearStem,
+		"liunian_branch":          yearBranch,
+		"liunian_shi_shen":        shiShen,
+		"liunian_target_at":       targetAt.Format("2006-01-02 15:04:05"),
+		"current_dayun":           currentDayun,
+		"current_dayun_selection": dayunSelection,
+		"liunian_chonghe":         chonghe,
 	}
+}
+
+func monthOrDefault(value any, fallback int) int {
+	parsed := toInt(value)
+	if parsed == 0 {
+		return fallback
+	}
+	return parsed
 }
 
 // findCurrentDayun 遍历 dayun 列表，返回 startAge<=currentAge<=endAge 的元素。
@@ -94,6 +122,32 @@ func findCurrentDayun(dayunList []map[string]any, currentAge int) map[string]any
 		}
 	}
 	return map[string]any{}
+}
+
+func findCurrentDayunAt(dayunList []map[string]any, targetAt time.Time, currentAge int) (map[string]any, string) {
+	for _, dayun := range dayunList {
+		startAt, startOK := parseDayunBoundary(dayun["startAt"])
+		endAt, endOK := parseDayunBoundary(dayun["endAtExclusive"])
+		if !startOK || !endOK {
+			continue
+		}
+		if !targetAt.Before(startAt) && targetAt.Before(endAt) {
+			return dayun, "date_boundary"
+		}
+	}
+	return findCurrentDayun(dayunList, currentAge), "virtual_age_fallback"
+}
+
+func parseDayunBoundary(value any) (time.Time, bool) {
+	text, ok := value.(string)
+	if !ok || text == "" {
+		return time.Time{}, false
+	}
+	parsed, err := time.ParseInLocation("2006-01-02 15:04:05", text, time.UTC)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return parsed, true
 }
 
 // toInt 将 any 类型的数值转为 int，兼容 int/int64/float64。

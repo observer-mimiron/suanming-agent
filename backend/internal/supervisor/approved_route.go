@@ -3,6 +3,8 @@ package supervisor
 import (
 	"context"
 	"log"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/observer-mimiron/suanming-agent/internal/contracts"
@@ -11,6 +13,8 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
+
+var explicitBirthClockPattern = regexp.MustCompile(`(?:^|[^0-9])([01]?\d|2[0-3])\s*(?:点|时|:|：)\s*([0-5]?\d)\s*分?`)
 
 // Approve 是 supervisor 的外部入口：决策 → 策略应用 → 规范化，返回可直接执行的路由。
 //
@@ -56,27 +60,15 @@ func (c *Client) Approve(ctx context.Context, msg string, st *state.SessionState
 //
 // supervisor 只保留前置准入层应该拥有的硬规则：
 //   - 显式术数方法偏好纠偏
-//   - subject 切换时清空旧盘，强制重新采集
+//   - 不在审批层处理对象切换；对象、资料版本和资产由 runtime resolver 绑定
 //   - 消息包含出生信息但模型漏提取时，回填 profile 并强制 collect_profile
 //
 // 依赖完整会话连续性的 task reinterpretation（如 collect_profile → amend_profile /
 // fortune_followup）已经下沉到 manager 侧，由 runtime conversation owner 统一处理。
 func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *state.SessionState, route policy.ApprovedRoute) policy.ApprovedRoute {
 	c.applyExplicitMethodPreference(ctx, msg, &route)
-
-	// subject 切换检测：TargetSubject 非空且与当前盘归属不同 → 清旧盘，强制重新采集
-	if newSubject := route.Slots.TargetSubject; newSubject != "" && st.Subject != "" && newSubject != st.Subject {
-		log.Printf("[supervisor] subject change: %q → %q, clearing old chart data", st.Subject, newSubject)
-		st.BaziResult = nil
-		st.ZiWeiResult = nil
-		st.QimenResult = nil
-		st.Profile = make(map[string]any)
-		st.Subject = newSubject
-		route.TaskIntent = "collect_profile"
-		route.NeedsClarification = false
-		route.ClarificationQuestion = ""
-		route.PolicyHints.CanReuseCachedResult = false
-		route.PolicyHints.CanReuseSessionProfile = false
+	if intent.ContainsBirthInfo(msg) {
+		normalizeExplicitBirthClock(msg, &route)
 	}
 
 	profileReady := st.IsProfileComplete() || st.HasBaziResult()
@@ -91,6 +83,31 @@ func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *sta
 	}
 
 	return route
+}
+
+// normalizeExplicitBirthClock lets the raw user message repair an LLM slot
+// omission. Minutes are part of a birth instant and cannot be silently dropped
+// near a calendar boundary such as late Zi hour.
+func normalizeExplicitBirthClock(msg string, route *policy.ApprovedRoute) {
+	if route == nil {
+		return
+	}
+	matches := explicitBirthClockPattern.FindStringSubmatch(msg)
+	if len(matches) != 3 {
+		return
+	}
+	hour, hourErr := strconv.Atoi(matches[1])
+	minute, minuteErr := strconv.Atoi(matches[2])
+	if hourErr != nil || minuteErr != nil {
+		return
+	}
+	if route.Slots.Profile == nil {
+		route.Slots.Profile = map[string]any{}
+	}
+	// The user-supplied clock value is a chart fact, so it wins over a route
+	// model that only retained the hour field.
+	route.Slots.Profile["hour"] = float64(hour)
+	route.Slots.Profile["minute"] = float64(minute)
 }
 
 // applyExplicitMethodPreference 在用户明确指定术数方法时做硬性纠偏。

@@ -3,6 +3,7 @@ package runtime
 import (
 	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
+	"github.com/observer-mimiron/suanming-agent/internal/state"
 )
 
 const (
@@ -18,10 +19,18 @@ const (
 type ExecutionPlan struct {
 	Route                policy.ApprovedRoute
 	Domains              []string
-	RequiredArtifacts    []string
+	Requirements         []ArtifactRequirement
 	FollowupMode         string
 	FollowupDirectAnswer string
 	Snapshot             contracts.ExecutionSnapshot
+}
+
+// ArtifactRequirement names one exact owner and subject set that prefill must satisfy.
+type ArtifactRequirement struct {
+	Kind         string
+	OwnerRef     state.AssetRef
+	SubjectIDs   []string
+	CalendarRule string
 }
 
 func selectDomains(route policy.ApprovedRoute) []string {
@@ -60,22 +69,57 @@ func dedupeDomains(domains []string) []string {
 	return out
 }
 
-func selectRequiredArtifacts(domains []string) []string {
-	if len(domains) == 0 {
+func artifactKinds(requirements []ArtifactRequirement) []string {
+	if len(requirements) == 0 {
 		return nil
 	}
-	artifacts := make([]string, 0, len(domains))
-	for _, domain := range domains {
-		switch domain {
-		case "qimen":
-			artifacts = append(artifacts, artifactQimenChart)
-		case "ziwei":
-			artifacts = append(artifacts, artifactZiweiChart)
-		case "bazi":
-			artifacts = append(artifacts, artifactBaziChart)
-		}
+	kinds := make([]string, 0, len(requirements))
+	for _, requirement := range requirements {
+		kinds = append(kinds, requirement.Kind)
 	}
-	return dedupeStrings(artifacts)
+	return dedupeStrings(kinds)
+}
+
+func selectArtifactRequirements(st *state.SessionState, domains []string) []ArtifactRequirement {
+	if st == nil {
+		return nil
+	}
+	subject := st.ActiveSubject()
+	profileID := st.ActiveFocus.ProfileRevisionID
+	requirements := make([]ArtifactRequirement, 0, len(domains))
+	for _, domain := range domains {
+		kind := ""
+		switch domain {
+		case "bazi":
+			kind = artifactBaziChart
+		case "qimen":
+			kind = artifactQimenChart
+		case "ziwei":
+			kind = artifactZiweiChart
+		}
+		if kind == "" {
+			continue
+		}
+		owner := state.AssetRef{Kind: state.AssetKindProfileRevision, ID: profileID}
+		if kind == artifactQimenChart {
+			item := st.StartCase("qimen", "", false)
+			owner = state.AssetRef{Kind: "case", ID: item.ID}
+		}
+		requirements = append(requirements, ArtifactRequirement{
+			Kind:         kind,
+			OwnerRef:     owner,
+			SubjectIDs:   []string{subject.ID},
+			CalendarRule: calendarRuleForArtifact(kind),
+		})
+	}
+	return requirements
+}
+
+func calendarRuleForArtifact(kind string) string {
+	if kind == artifactBaziChart {
+		return "zi_zheng_v1"
+	}
+	return ""
 }
 
 func dedupeStrings(values []string) []string {

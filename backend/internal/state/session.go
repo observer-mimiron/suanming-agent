@@ -66,11 +66,20 @@ type GuidanceState struct {
 
 // SessionState 表示一个会话的完整状态，包含用户资料、命盘结果、路由快照、对话历史等。
 type SessionState struct {
-	SessionID           string
-	Profile             map[string]any // {year,month,day,hour,gender,...}
-	BaziResult          map[string]any // bazi_calc 输出
-	QimenResult         map[string]any // qimen_dunjia 输出（首次后缓存，不再重复 emit UI 组件）
-	ZiWeiResult         map[string]any // ziwei chart 输出
+	SessionID string
+	// Subjects, ProfileRevisions, Cases and Assets are the authoritative domain
+	// state. The four legacy fields below are active-focus projections kept only
+	// while runtime consumers are migrated to the typed asset API.
+	Subjects         []Subject         `json:"subjects,omitempty"`
+	ProfileRevisions []ProfileRevision `json:"profile_revisions,omitempty"`
+	Cases            []Case            `json:"cases,omitempty"`
+	Assets           []DomainAsset     `json:"assets,omitempty"`
+	ActiveFocus      ActiveFocus       `json:"active_focus,omitempty"`
+
+	Profile             map[string]any // legacy active profile projection
+	BaziResult          map[string]any // legacy active bazi chart projection
+	QimenResult         map[string]any // legacy active qimen chart projection
+	ZiWeiResult         map[string]any // legacy active ziwei chart projection
 	ConversationStage   string         // "collecting" | "ready" | "completed"
 	ConversationSummary string
 	LastUserQuestion    string
@@ -91,6 +100,10 @@ type SessionState struct {
 
 	// Guidance 只持久化对话引导状态，不承载迁移规则。
 	Guidance *GuidanceState `json:"guidance,omitempty"`
+
+	assetsMigrated         bool
+	assetsMigrating        bool
+	legacyProjectionHashes map[string]string
 }
 
 // NewSession 创建一个新的会话状态实例，初始化空资料和收集阶段。
@@ -106,9 +119,11 @@ func NewSession(id string) *SessionState {
 var requiredFields = []string{"year", "month", "day", "hour", "gender", "birthplace"}
 
 func (s *SessionState) MissingFields() []string {
+	s.MigrateLegacyAssets()
+	profile := s.ActiveProfile()
 	var missing []string
 	for _, f := range requiredFields {
-		if _, ok := s.Profile[f]; !ok {
+		if _, ok := profile[f]; !ok {
 			missing = append(missing, f)
 		}
 	}
@@ -121,29 +136,17 @@ func (s *SessionState) IsProfileComplete() bool {
 
 // HasBaziResult 判断会话是否已有可复用的命盘上下文。
 func (s *SessionState) HasBaziResult() bool {
-	return s != nil && len(s.BaziResult) > 0
+	return s != nil && len(s.ActiveChart(AssetKindBaziChart)) > 0
 }
 
 // HasQimenResult 判断会话中是否已发出过奇门数据。
 func (s *SessionState) HasQimenResult() bool {
-	return s != nil && len(s.QimenResult) > 0
+	return s != nil && len(s.ActiveChart(AssetKindQimenChart)) > 0
 }
 
 // HasZiWeiResult 判断会话中是否存在紫微斗数命盘结果。
 func (s *SessionState) HasZiWeiResult() bool {
-	return s != nil && s.ZiWeiResult != nil && len(s.ZiWeiResult) > 0
-}
-
-// MergeProfile 将 patch 中的字段合并到当前 Profile 中，返回是否有变更。
-func (s *SessionState) MergeProfile(patch map[string]any) bool {
-	changed := false
-	for k, v := range patch {
-		if old, ok := s.Profile[k]; !ok || old != v {
-			s.Profile[k] = v
-			changed = true
-		}
-	}
-	return changed
+	return s != nil && len(s.ActiveChart(AssetKindZiweiChart)) > 0
 }
 
 // RecordTurn 将一条新消息追加到最近对话历史中。
@@ -203,6 +206,19 @@ func (s *SessionState) Clone() *SessionState {
 		DomainStates:        s.DomainStates,
 		ManagerContext:      s.ManagerContext,
 		DomainContexts:      cloneLayeredDomainContexts(s.DomainContexts),
+		Subjects:            append([]Subject(nil), s.Subjects...),
+		ProfileRevisions:    cloneProfileRevisions(s.ProfileRevisions),
+		Cases:               cloneCases(s.Cases),
+		Assets:              cloneDomainAssets(s.Assets),
+		ActiveFocus:         cloneActiveFocus(s.ActiveFocus),
+		assetsMigrated:      s.assetsMigrated,
+		assetsMigrating:     false,
+	}
+	if len(s.legacyProjectionHashes) > 0 {
+		clone.legacyProjectionHashes = make(map[string]string, len(s.legacyProjectionHashes))
+		for kind, hash := range s.legacyProjectionHashes {
+			clone.legacyProjectionHashes[kind] = hash
+		}
 	}
 	if len(s.LastInput.SecondaryDomains) > 0 {
 		clone.LastInput.SecondaryDomains = append([]string(nil), s.LastInput.SecondaryDomains...)

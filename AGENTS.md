@@ -4,7 +4,7 @@
 
 ## 进度维护规则
 
-**PROGRESS.md 是本项目的上下文恢复文件。** 其作用是：在新对话中，将 PROGRESS.md 的内容作为上下文输入给任何 AI 编码助手，即可独立继续开发。
+**PROGRESS.md 是本项目的当前事实快照。** 新对话先用它恢复当前状态；它不是变更日志、实施日记或历史方案合集。
 
 **必须更新 PROGRESS.md 的时机：**
 - 完成一个验收用例节点
@@ -12,7 +12,9 @@
 - 新增或修改环境变量/启动方式
 - 遇到并解决了一个阻塞性问题（记录原因和解决方案）
 
-**更新内容：** 更新进度总览表的状态、完成日期；如果正在进行的任务变了，更新「正在进行的任务」；如果做出了新决策，追加到「关键决策记录」。
+**更新方式：** 先替换过期项，不追加同义历史。只保留当前阶段、已验证事实、未解决阻塞、下一步、最小入口/验证命令和仍有效的关键决策。历史过程查 Git、`eval/reports/` 或专项设计文档。
+
+**长度约束：** 通常控制在 80-120 行；超过时先合并或删除历史性描述。架构事实仍以 `docs/architecture.md` 为准。
 
 **会话开始时：** 先读取 PROGRESS.md 了解当前进度，再读对应模块的实施文档。
 
@@ -25,7 +27,7 @@
 **全 Go 原生，两层 "supervisor" 各司其职：**
 
 1. **RouteAdvisor**（`backend/internal/supervisor/`，Go ADK RouteEngine）— 路由决策。三层防御（ADK structured → textDecide → safeFallback），产出 `SupervisorDecision`（L0 对话意图 → L1 领域 → L2 任务 → L3 槽位）。
-2. **Supervisor Agent**（Go ADK ChatModelAgent，每轮动态构建）— 执行分发。将本轮允许的 AgentTool specialists 挂载后分发给领域专家执行。
+2. **Manager**（`backend/internal/runtime/`）— 执行主控。将 `ApprovedRoute` 转为 `ExecutionPlan`，绑定精确资产并调度受限领域 runner；它是 runtime 内唯一的对话 owner。
 
 ```
 Vue 3 → SSE → Gin (:8080)
@@ -119,7 +121,7 @@ npm run build                   # 构建
 ## 关键设计决策
 1. 八字引擎用 `lunar-go`（开源成熟方案），不自研
 2. 路由层用 Go ADK RouteEngine（三层防御：ADK structured → textDecide → safeFallback），不做 Python 推理层
-3. 执行层用 ADK ChatModelAgent + AgentAsTool + Specialist Agent，Eino 承载路由和 Agent 运行时
+3. 执行层由 Manager 生成 `ExecutionPlan` 并调度 bounded specialist runners；Eino 承载路由和 Agent 运行时
 4. RAG 通过 MCP 调本地知识库服务，不内嵌
 5. SSE 6 种结构化事件（thinking/tool_call/component/text/error/done），前端按类型渲染
 6. 后续统一入口采用 `LLM Supervisor + Go Runtime + bounded specialists`
@@ -129,11 +131,12 @@ npm run build                   # 构建
 ```
 Orchestrator → RouteAdvisor（Go ADK，路由决策）
   → Policy Gate（策略门控）
-  → Preflight（确定性硬判断，可能短路返回澄清/缺资料）
-  → Supervisor Agent（Go ADK，每轮动态构建）+ AgentTool specialists
+  → Manager（对象/资产解析、ExecutionPlan、最终 compose）
+  → Preflight / Prefill / ToolRunner（确定性准备与硬判断）
+  → bounded specialist runners（领域执行）
+  → final guard（最终合同保护）
   → AgentEventBridge → SSE 推送
-
-Specialists: bazi / qimen / ziwei（各自挂载领域工具）
+Specialists: bazi / qimen / ziwei（各自挂载领域工具，不拥有最终答复权）
 降级链: ADK structured → textDecide → fallbackExtract → safeFallback
 ```
 
@@ -156,11 +159,47 @@ Specialists: bazi / qimen / ziwei（各自挂载领域工具）
 
 **目标驱动。** 把任务变成可验证的目标。多步骤任务先列步骤 + 每步的验证方式。弱标准（"让它工作"）不如强标准（"测试通过"）。
 
+**禁止专项 case 补丁。** 不得为单个命盘、trace、用户样例追加专用分支或不断扩张自然语言禁词表。命理输出问题优先按合同修复：事实可复算、关系已声明、profile 有来源、renderer 只展示结构化字段。单 case 只能进入回归测试，不能成为业务逻辑。
+
 ## 注释
+
+### 目标
+
+注释要同时服务人类维护者和 AI 编码助手：读文件先知道职责，读函数先知道合同，读核心逻辑能知道为什么这样做。能被 `go doc` 抽取的注释，本身就是项目文档的一部分。
+
+### 分层规则
+
+1. **文件头职责注释：** 每个非平凡源码文件顶部必须写 2-5 行职责说明，说明该文件属于哪一层、负责什么、不负责什么；架构约束文件要写成“宪法级”规则，明确不可破坏的边界。
+2. **类型与接口注释：** 说明它表达的领域概念、生命周期、所有权或并发约定；不要只复述字段名。
+3. **函数注释：** 每个函数都写一句简单注释；导出函数必须用 Go doc comment（Go 文档注释）格式，以函数名开头，并说明输入语义、返回结果和主要 error 条件。
+4. **核心逻辑注释：** 对状态机、路由决策、合同校验、降级策略、缓存/并发、外部依赖特殊处理，必须解释“为什么这么做”和“改坏会发生什么”。
+5. **局部注释：** 只在代码本身无法说明意图时写，优先解释业务约束、边界条件、历史兼容原因和安全原因。
+
+### 文件头模板
+
+```go
+// Package runtime contains the manager-owned execution flow.
+//
+// This file owns ExecutionPlan construction after route approval. It must not
+// call specialist LLMs directly; specialists are scheduled through bounded runners.
+```
+
+文件头不是作者、日期、变更流水，也不是整份设计文档。设计背景超过 5 行时，写到 `docs/architecture.md`，文件头只保留职责和边界。
+
+### 函数即文档
+
+函数注释要让读者不展开实现也能知道能不能调用：
+
+- 做什么：函数完成的业务动作或合同判断。
+- 何时用：调用前置条件、所属阶段、是否只用于 fallback / migration。
+- 返回什么：关键返回值含义，特别是 nil、空集合、degraded、retryable。
+- 失败怎样：主要 error 条件、是否可重试、是否会产生用户可见错误。
+
+非导出的小函数也要有一句短注释；如果一句话写不清，优先拆函数或重命名，再补注释。
 
 ### 导出的必须写
 
-每个导出标识符（函数、类型、常量）必须有 doc comment，以标识符名开头。写清楚做什么、什么情况下用、返回什么 error。
+每个导出标识符（函数、类型、常量）必须有 doc comment，以标识符名开头。写清楚做什么、什么情况下用、返回什么 error。导出结构体字段如果不是自解释字段，也要在类型注释或字段旁说明含义。
 
 ### 关键决策必须留痕迹
 
@@ -170,10 +209,14 @@ Specialists: bazi / qimen / ziwei（各自挂载领域工具）
 - 不直观的算法或性能优化（直接读代码猜不到意图）
 - 边界处理（会 panic 的条件、并发约定、重试策略、超时原因）
 - 对外部依赖的特殊处理（为什么这个 MCP 调用有 3 次重试上限）
+- 合同保护（为什么拒绝某类输出、为什么只能降级不能猜测）
+- AI 协作边界（哪些语义只能在 planner / manager / renderer 的某一层处理）
 
 ### 不写
 
 - 代码本身说得清的（命名已表达含义的）
+- 逐行翻译实现的注释（例如“遍历数组”“设置变量”）
+- 过期背景、TODO 感叹、临时猜测和没有 owner 的承诺
 - 注释掉的代码（用 git，代码库里不留尸体）
 - `/* */` 做文档（go doc 不解析，写了白写）
 

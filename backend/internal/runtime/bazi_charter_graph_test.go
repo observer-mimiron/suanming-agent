@@ -169,7 +169,7 @@ func TestBaziCharterPrompts_ContainMethodologyOrder(t *testing.T) {
 	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "先看当前大运是在承托、放大、压制还是扭转静态主轴") {
 		t.Fatalf("dynamic synthesis prompt must define the dynamic evaluation order")
 	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "先把系统字段") {
+	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "先把 `chart_facts`") {
 		t.Fatalf("static synthesis prompt must define the synthesis order")
 	}
 	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "`reasoning_summary`") {
@@ -612,17 +612,12 @@ func TestRunFinalWriter_RendersFullTemplateWithoutModel(t *testing.T) {
 		"## 格局视角",
 		"## 大运验证",
 		"## 综合判定",
-		"### 证据矩阵",
-		"### 古法验盘",
 		"◎ 主轴",
 		"▲ 限制",
 		"◇ 读法",
-		"古法提要",
-		"#### 格局主轴",
-		"#### 调候边界",
-		"#### 扶抑受力",
-		"#### 反证与限制",
-		"**原局定级**",
+		"**规则口径**",
+		"**依据**",
+		"**解释**",
 		"**岁运兑现**",
 	} {
 		if !strings.Contains(output, want) {
@@ -858,7 +853,71 @@ func TestValidateDynamicStage_RequiresDecisionStrengthFields(t *testing.T) {
 	}
 }
 
-func TestValidateCharterConsistency_RejectsOverPositiveTrendAgainstMixedDayun(t *testing.T) {
+func TestValidateDynamicStage_SoftAuditsRelationsButRejectsHighRiskPredictions(t *testing.T) {
+	valid := baziDynamicSynthesis{
+		ClaimStrength:   "保守判断",
+		SupportLevel:    "出现",
+		LimitationLevel: "明显",
+		WordingCap:      "保守",
+		WindowLevel:     "扰动年",
+	}
+	valid.LiunianFocus = "流年午与大运午、时柱午构成自刑，属于已声明关系。"
+	if err := validateDynamicDecisionConsistency(valid); err != nil {
+		t.Fatalf("expected declared 午午自刑 to pass, got %v", err)
+	}
+
+	for _, text := range []string{
+		"流年午酉相破，变化明显。", "申午暗合，关系有变化。",
+		"丙火合月干丁火，印星汇聚。", "羊刃逢刑，只作结构观察。",
+	} {
+		candidate := valid
+		candidate.LiunianFocus = text
+		candidate.CurrentTrend = "当前运势有扰动。"
+		candidate.DayunPath = []string{"甲午运：关系有扰动。"}
+		candidate.ReasoningSummary = "按已计算关系观察。"
+		candidate.ReasoningSteps = []string{"逐项核对。"}
+		state := baziCharterState{DynamicSynthesis: candidate}
+		if err := validateDynamicStage(state); err != nil {
+			t.Fatalf("interpretive relation language must be soft-audited, got %v for %s", err, text)
+		}
+	}
+
+	for _, text := range []string{"注意高血压风险。", "易有官非。", "羊刃逢刑，需防血光。"} {
+		invalid := valid
+		invalid.LiunianFocus = text
+		invalid.CurrentTrend = "当前运势有扰动。"
+		invalid.DayunPath = []string{"甲午运：关系有扰动。"}
+		invalid.ReasoningSummary = "按已计算关系观察。"
+		invalid.ReasoningSteps = []string{"逐项核对。"}
+		if err := validateDynamicStage(baziCharterState{DynamicSynthesis: invalid}); err == nil {
+			t.Fatalf("expected unsupported dynamic claim to fail: %s", text)
+		}
+	}
+}
+
+func TestValidateDynamicStage_RejectsClaimsOutsideDefaultProfileAcrossAllFields(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{},
+		DynamicSynthesis: baziDynamicSynthesis{
+			CurrentTrend:     "当前只陈述已计算关系。",
+			ClaimStrength:    "保守判断",
+			SupportLevel:     "出现",
+			LimitationLevel:  "明显",
+			WordingCap:       "保守",
+			DayunPath:        []string{"当前大运的具体吉凶待模型综合。"},
+			LiunianFocus:     "流年仅呈现已计算关系的触发。",
+			WindowLevel:      "扰动年",
+			Risks:            []string{"注意心血管风险。"},
+			ReasoningSummary: "本轮不作具体应事。",
+			ReasoningSteps:   []string{"先保留已计算关系。"},
+		},
+	}
+	if err := validateDynamicStage(state); err == nil {
+		t.Fatal("default profile must reject unsupported outcome in risks")
+	}
+}
+
+func TestValidateCharterConsistency_AllowsMixedTrendWording(t *testing.T) {
 	state := baziCharterState{
 		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
 		DynamicSynthesis: baziDynamicSynthesis{
@@ -879,8 +938,8 @@ func TestValidateCharterConsistency_RejectsOverPositiveTrendAgainstMixedDayun(t 
 		},
 	}
 
-	if err := validateCharterConsistency(state); err == nil {
-		t.Fatalf("expected over-positive current trend to conflict with mixed dayun path")
+	if err := validateCharterConsistency(state); err != nil {
+		t.Fatalf("mixed explanatory wording must remain a soft-audit concern, got %v", err)
 	}
 }
 
@@ -895,7 +954,7 @@ func TestValidateStaticDecisionConsistency_AcceptsEquivalentLimitationWording(t 
 	}
 }
 
-func TestValidateCharterConsistency_RejectsMainAxisThatAmplifiesJiShenDirection(t *testing.T) {
+func TestValidateCharterConsistency_DoesNotInferJiShenVerdictWithoutProfileRule(t *testing.T) {
 	state := baziCharterState{
 		Input: baziCharterInput{
 			Yongshen: map[string]any{
@@ -932,8 +991,8 @@ func TestValidateCharterConsistency_RejectsMainAxisThatAmplifiesJiShenDirection(
 		},
 	}
 
-	if err := validateCharterConsistency(state); err == nil {
-		t.Fatalf("expected main axis that amplifies jishen direction to fail consistency validation")
+	if err := validateCharterConsistency(state); err != nil {
+		t.Fatalf("legacy yongshen fields must not become an implicit profile verdict: %v", err)
 	}
 }
 
@@ -962,7 +1021,7 @@ func TestValidateCharterConsistency_AcceptsEquivalentVolatilityWording(t *testin
 	}
 }
 
-func TestValidateCharterConsistency_RejectsCurrentDayunDirectionSplit(t *testing.T) {
+func TestValidateCharterConsistency_AllowsCurrentDayunDirectionSplitAsSoftAudit(t *testing.T) {
 	state := baziCharterState{
 		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
 		DynamicSynthesis: baziDynamicSynthesis{
@@ -983,8 +1042,8 @@ func TestValidateCharterConsistency_RejectsCurrentDayunDirectionSplit(t *testing
 		},
 	}
 
-	if err := validateCharterConsistency(state); err == nil {
-		t.Fatalf("expected current dayun summary/path split to fail consistency validation")
+	if err := validateCharterConsistency(state); err != nil {
+		t.Fatalf("current-dayun wording split must remain a soft-audit concern, got %v", err)
 	}
 }
 
@@ -1084,12 +1143,12 @@ func TestRunStaticSynthesisWithFeedback_RetriesAfterRestrictedRouteEscalation(t 
 	if !strings.Contains(gotFeedback, "受限路线") {
 		t.Fatalf("expected retry feedback to mention restricted route ceiling, got %q", gotFeedback)
 	}
-	if !strings.Contains(out.PatternOutcome, "力度受限") {
-		t.Fatalf("expected retried static synthesis to preserve downgrade wording, got %q", out.PatternOutcome)
+	if !strings.Contains(out.PatternOutcome, "受限") {
+		t.Fatalf("expected recovered static synthesis to retain a local limitation, got %q", out.PatternOutcome)
 	}
 }
 
-func TestValidateCharterConsistency_RejectsOverstatedWindowYear(t *testing.T) {
+func TestValidateCharterConsistency_AllowsOverstatedWindowYearAsSoftAudit(t *testing.T) {
 	state := baziCharterState{
 		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
 		DynamicSynthesis: baziDynamicSynthesis{
@@ -1107,8 +1166,8 @@ func TestValidateCharterConsistency_RejectsOverstatedWindowYear(t *testing.T) {
 		},
 	}
 
-	if err := validateCharterConsistency(state); err == nil {
-		t.Fatalf("expected window-year wording cap to block overstatement")
+	if err := validateCharterConsistency(state); err != nil {
+		t.Fatalf("window-year wording must remain a soft-audit concern, got %v", err)
 	}
 }
 
@@ -1131,7 +1190,7 @@ func TestValidateFinalWriterOutput_RejectsMissingSummarySection(t *testing.T) {
 	}
 }
 
-func TestValidateFinalWriterOutput_RejectsUnsupportedFlourishClaims(t *testing.T) {
+func TestValidateFinalWriterOutput_AllowsFlourishClaimsForSoftAudit(t *testing.T) {
 	state := baziCharterState{
 		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
 	}
@@ -1139,15 +1198,15 @@ func TestValidateFinalWriterOutput_RejectsUnsupportedFlourishClaims(t *testing.T
 	output := strings.Join([]string{
 		"## 直接回答",
 		"**结论：整体可期。**",
-		"命局贵人众多，福泽深厚。",
+		"命局贵人众多，福泽深厚，但仍有受限处。",
 		"## 命盘依据",
 		"**结论：主轴明确。**",
 		"## 建议",
 		"**结论：稳中求进。**",
 	}, "\n")
 
-	if err := validateFinalWriterOutput(plan, state, output); err == nil {
-		t.Fatalf("expected unsupported flourish claims to fail validation")
+	if err := validateFinalWriterOutput(plan, state, output); err != nil {
+		t.Fatalf("flourish wording must not fail the final structure contract, got %v", err)
 	}
 }
 
@@ -1172,6 +1231,26 @@ func TestValidateFinalWriterOutput_AllowsMeasuredFlourishWhenWordingCapExplicit(
 
 	if err := validateFinalWriterOutput(plan, state, output); err != nil {
 		t.Fatalf("expected explicit wording cap to allow measured flourish, got %v", err)
+	}
+}
+
+func TestValidateFinalWriterOutput_DoesNotOwnUnsupportedDynamicBoundaryTerms(t *testing.T) {
+	state := baziCharterState{
+		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
+	}
+	plan := baziAnalysisPlan{WriterTemplate: "topic"}
+	output := strings.Join([]string{
+		"## 直接回答",
+		"**结论：当前阶段宜稳步观察。**",
+		"水火相战，据此直接断为高血压，但原局仍有受限处。",
+		"## 命盘依据",
+		"**结论：只保留已计算关系。**",
+		"## 建议",
+		"**结论：不据此作具体应事判断。**",
+	}, "\n")
+
+	if err := validateFinalWriterOutput(plan, state, output); err != nil {
+		t.Fatalf("final writer should only validate structure and preserved boundaries, got %v", err)
 	}
 }
 
@@ -1232,6 +1311,15 @@ func validStaticSynthesisForConsistencyTests() baziStaticSynthesis {
 			"先看月令印星当令，命局根气偏厚。",
 			"再看财星虽透，但力度受限，不算强救。",
 		},
+	}
+}
+
+func TestRenderBaziFinalReply_DeduplicatesExactLimitationFallback(t *testing.T) {
+	state := baziCharterState{StaticSynthesis: validStaticSynthesisForConsistencyTests()}
+	state.StaticSynthesis.CounterEvidence = "关系触发会增加过程反复，具体应事不作展开。"
+	state.StaticSynthesis.TierBasis = "关系触发会增加过程反复，具体应事不作展开。"
+	if got := buildLimitationText(state); strings.Count(got, "关系触发会增加过程反复，具体应事不作展开。") != 1 {
+		t.Fatalf("expected exact duplicate limitation to be rendered once, got %q", got)
 	}
 }
 

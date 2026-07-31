@@ -7,6 +7,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -70,7 +71,10 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 	})
 
 	if o.supervisor == nil || o.runtime == nil {
-		return fmt.Errorf("orchestrator: supervisor not configured")
+		err := fmt.Errorf("orchestrator: supervisor not configured")
+		emitRuntimeError(ctx, sink, err, "bootstrap")
+		sink.Emit(ctx, Event{Type: "done", Data: map[string]any{}})
+		return err
 	}
 	route, approveErr := o.supervisor.Approve(ctx, message, st)
 	if approveErr != nil {
@@ -94,6 +98,9 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 	tracing.SetTraceAttribute(ctx, "turn_type", turnType)
 	if turnErr != nil {
 		trace.SetStatus("error")
+		if !errors.Is(turnErr, context.Canceled) && turnType != "awaiting_confirm" {
+			emitRuntimeError(ctx, sink, turnErr, turnType)
+		}
 	}
 
 	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
@@ -103,6 +110,13 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 	o.emitTracePanels(ctx, sink, turnType)
 	sink.Emit(ctx, Event{Type: "done", Data: map[string]any{}})
 	return turnErr
+}
+
+func emitRuntimeError(ctx context.Context, sink EventSink, err error, stage string) {
+	if sink == nil || err == nil {
+		return
+	}
+	sink.Emit(ctx, Event{Type: "error", Data: appRuntime.RuntimeFailureEventData(ctx, err, stage)})
 }
 
 // emitTracePanels 发送产品态 process panel 和显式 debug trace。

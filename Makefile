@@ -50,13 +50,28 @@ status:
 	@echo "=== knowledge MCP ==="
 	@$(MAKE) knowledge-status
 
-restart: frontend-stop backend-stop knowledge-stop langfuse-start knowledge-start backend-start frontend-start
-	@echo "=== 全部重启完成 ==="
-	@$(MAKE) status
+restart:
+	@set -e; \
+	$(MAKE) frontend-stop; \
+	$(MAKE) backend-stop; \
+	$(MAKE) knowledge-stop; \
+	$(MAKE) langfuse-start; \
+	$(MAKE) knowledge-start; \
+	$(MAKE) backend-start; \
+	$(MAKE) frontend-start; \
+	echo "=== 全部重启完成 ==="; \
+	$(MAKE) status
 
-restart-core: frontend-stop backend-stop knowledge-stop knowledge-start backend-start frontend-start
-	@echo "=== 核心开发栈重启完成 ==="
-	@$(MAKE) status
+restart-core:
+	@set -e; \
+	$(MAKE) frontend-stop; \
+	$(MAKE) backend-stop; \
+	$(MAKE) knowledge-stop; \
+	$(MAKE) knowledge-start; \
+	$(MAKE) backend-start; \
+	$(MAKE) frontend-start; \
+	echo "=== 核心开发栈重启完成 ==="; \
+	$(MAKE) status
 
 # ===== Langfuse =====
 langfuse-start:

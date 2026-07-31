@@ -1,43 +1,32 @@
 package bazi
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
-func TestAssessDayunQuality_DowngradesFlatBaseWhenCorePillarsAreHit(t *testing.T) {
-	chonghe := []map[string]string{
-		{"type": "六冲", "pillars": "大运日柱亥", "description": "大运巳亥冲日柱亥"},
-		{"type": "相害", "pillars": "大运月柱辰", "description": "大运卯辰害月柱辰"},
+func TestDayunAnalyzer_AlwaysDefersQualityToRuleProfile(t *testing.T) {
+	raw, err := (&DayunAnalyzer{}).Execute(context.Background(), map[string]any{
+		"dayun": []map[string]any{{"startAge": 30, "endAge": 39, "startAt": "2020-10-05 12:00:00", "endAtExclusive": "2030-10-05 12:00:00", "ganZhi": "甲午"}},
+		"bazi_result": map[string]any{
+			"dayGan": "戊",
+			"pillars": []map[string]any{
+				{"stem": "辛", "branch": "未"}, {"stem": "丁", "branch": "酉"},
+				{"stem": "戊", "branch": "申"}, {"stem": "戊", "branch": "午"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	got := assessDayunQuality("平", chonghe)
-	if got != "偏压" && got != "凶" {
-		t.Fatalf("expected downgraded pressure label, got %s", got)
+	items := raw.(map[string]any)["dayun_analyzed"].([]map[string]any)
+	if len(items) != 1 || items[0]["quality"] != "待profile裁断" {
+		t.Fatalf("dayun quality must not be linearly scored: %#v", items)
 	}
-}
-
-func TestAssessDayunQuality_KeepsSupportiveLuckPositive(t *testing.T) {
-	chonghe := []map[string]string{
-		{"type": "三合", "pillars": "年柱大运月柱", "description": "大运参与寅午戌合火局"},
+	if _, ok := items[0]["dayun_chonghe"].([]map[string]string); !ok {
+		t.Fatalf("relation facts must remain available: %#v", items[0])
 	}
-
-	got := assessDayunQuality("大吉", chonghe)
-	if got != "大吉" {
-		t.Fatalf("expected supportive luck to stay positive, got %s", got)
-	}
-}
-
-func TestQualitySummary_ExplainsBaseAndBranchAdjustment(t *testing.T) {
-	chonghe := []map[string]string{
-		{"type": "六冲", "pillars": "大运日柱亥", "description": "大运巳亥冲日柱亥"},
-	}
-
-	got := qualitySummary("平", "偏压", chonghe)
-	if got == "" {
-		t.Fatal("expected non-empty summary")
-	}
-	if !hasNegativeDayunRelation(chonghe) {
-		t.Fatal("expected negative relation detection")
-	}
-	if !touchesCorePillars(chonghe) {
-		t.Fatal("expected core pillar detection")
+	if items[0]["startAt"] != "2020-10-05 12:00:00" || items[0]["endAtExclusive"] != "2030-10-05 12:00:00" {
+		t.Fatalf("annotated dayun must retain date boundaries for current-period recovery: %#v", items[0])
 	}
 }

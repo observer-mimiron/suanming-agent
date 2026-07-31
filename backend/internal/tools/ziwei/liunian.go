@@ -119,13 +119,12 @@ func (t *ZiWeiLiuNianTool) Execute(_ context.Context, params map[string]any) (an
 	targetYear, _ := params["target_year"].(float64)
 	age, _ := params["age"].(float64)
 
-	ln, _, err := GetLiuNianByYear(
-		int(year), int(month), int(day), int(hour), gender,
-		int(targetYear), int(age),
-	)
+	solar, timeIndex := correctedBirthSolar(int(year), int(month), int(day), int(hour), params)
+	chart, err := BuildChart(solar, timeIndex, gender)
 	if err != nil {
 		return nil, fmt.Errorf("流年分析失败: %w", err)
 	}
+	ln := GetLiuNian(chart, int(targetYear), int(age))
 
 	return map[string]any{
 		"year":        ln.Year,

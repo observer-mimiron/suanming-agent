@@ -35,7 +35,7 @@ func emitEventWithTrace(ctx context.Context, sink EventSink, evt Event, attrs ma
 func guardFinalAnswerWithTrace(ctx context.Context, route policy.ApprovedRoute, st *state.SessionState, finalText string) (turnType string, text string) {
 	sp := tracing.SpanFromContext(ctx, "contract_gate", tracing.KindChain)
 	sp.SetAttribute("primary_domain", route.PrimaryDomain)
-	sp.SetAttribute("buffer_final", shouldBufferFinalAnswer())
+	sp.SetAttribute("buffer_final", true)
 	defer sp.End()
 
 	hasArtifact, failureMessage := primaryArtifactGuard(route, st)
@@ -45,6 +45,8 @@ func guardFinalAnswerWithTrace(ctx context.Context, route policy.ApprovedRoute, 
 			Class:       failureClassSpecialistContractViolation,
 			Stage:       failureStageFinalGuard,
 			Domain:      route.PrimaryDomain,
+			Code:        "FINAL_ARTIFACT_MISSING",
+			Retryable:   true,
 			Degraded:    false,
 			UserVisible: true,
 			Message:     failureMessage,
@@ -63,6 +65,8 @@ func guardFinalAnswerWithTrace(ctx context.Context, route policy.ApprovedRoute, 
 			Class:       failureClassSpecialistContractViolation,
 			Stage:       failureStageFinalGuard,
 			Domain:      route.PrimaryDomain,
+			Code:        "OUTPUT_BOUNDARY_BLOCKED",
+			Retryable:   true,
 			Degraded:    false,
 			UserVisible: true,
 			Message:     "最终回答包含内部执行细节，已拦截本轮输出。请重试；若再次出现，请检查 manager compose 或 specialist 输出是否泄漏系统提示、trace 或工具调用细节。",

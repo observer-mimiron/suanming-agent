@@ -30,6 +30,21 @@ func newRouteWithConfidence(primary string, conf float64) policy.ApprovedRoute {
 	}
 }
 
+func TestNormalizeExplicitBirthClock_PreservesUserMinute(t *testing.T) {
+	route := policy.ApprovedRoute{Slots: schemas.DecisionSlots{Profile: map[string]any{
+		"year": float64(2025), "month": float64(11), "day": float64(10), "hour": float64(23),
+	}}}
+
+	normalizeExplicitBirthClock("2025年11月10日23点30分 男 北京", &route)
+
+	if got := route.Slots.Profile["hour"]; got != float64(23) {
+		t.Fatalf("hour = %#v, want 23", got)
+	}
+	if got := route.Slots.Profile["minute"]; got != float64(30) {
+		t.Fatalf("minute = %#v, want 30", got)
+	}
+}
+
 func TestApplyExplicitMethodPreference_EnforcePositiveOverridesLLM(t *testing.T) {
 	router := &stubRouter{result: intent.MatchResult{Decision: intent.DecisionPositive, Method: "ziwei"}}
 	c := &Client{router: router, routerMode: "enforce"}

@@ -56,9 +56,11 @@ func (m *Manager) ReconcileRoute(st *state.SessionState, route policy.ApprovedRo
 
 // BuildExecutionPlan converts an approved route into a manager-owned execution plan.
 func (m *Manager) BuildExecutionPlan(st *state.SessionState, route policy.ApprovedRoute, message string) ExecutionPlan {
+	route = resolveArtifactFocus(st, route, message)
 	route = m.ReconcileRoute(st, route, message)
 	domains := selectDomains(route)
-	requiredArtifacts := selectRequiredArtifacts(domains)
+	requirements := selectArtifactRequirements(st, domains)
+	requiredArtifactKinds := artifactKinds(requirements)
 	followupMode, directAnswer := resolveFollowupPolicy(st, route, message)
 	if followupMode == followupModeRerunSpecialist {
 		if text, ok := maybeReuseFollowupArtifact(m, st, route, domains, message); ok {
@@ -69,7 +71,7 @@ func (m *Manager) BuildExecutionPlan(st *state.SessionState, route policy.Approv
 	return ExecutionPlan{
 		Route:                route,
 		Domains:              domains,
-		RequiredArtifacts:    requiredArtifacts,
+		Requirements:         requirements,
 		FollowupMode:         followupMode,
 		FollowupDirectAnswer: directAnswer,
 		Snapshot: contracts.ExecutionSnapshot{
@@ -78,7 +80,7 @@ func (m *Manager) BuildExecutionPlan(st *state.SessionState, route policy.Approv
 			Domains:            append([]string(nil), domains...),
 			TaskIntent:         route.TaskIntent,
 			ConversationIntent: route.ConversationIntent,
-			RequiredArtifacts:  append([]string(nil), requiredArtifacts...),
+			RequiredArtifacts:  append([]string(nil), requiredArtifactKinds...),
 			FollowupMode:       followupMode,
 			NeedsClarification: route.NeedsClarification,
 			QimenMode:          route.PolicyHints.QimenMode,
@@ -104,31 +106,8 @@ func (m *Manager) BeginTurn(st *state.SessionState, route policy.ApprovedRoute) 
 	)
 }
 
-// RecordInterrupt 在 Graph 中断等待用户确认时持久化 manager/domain 分层上下文。
-// DomainContext 保存 checkpoint、interrupt id 和中断原因，便于后续 resume 时按领域恢复执行。
-func (m *Manager) RecordInterrupt(st *state.SessionState, route policy.ApprovedRoute, checkpointID, interruptID, reason string) {
-	if st == nil {
-		return
-	}
-	m.BeginTurn(st, route)
-	st.ManagerContext.WaitingOn = reason
-	st.ManagerContext.LastReplyOwner = "manager"
-
-	domainCtx := domainContextFor(st, route.PrimaryDomain)
-	domainCtx.Version++
-	domainCtx.CheckpointID = checkpointID
-	domainCtx.InterruptID = interruptID
-	domainCtx.WorkingSummary = reason
-	if domainCtx.RuntimeValues == nil {
-		domainCtx.RuntimeValues = make(map[string]any)
-	}
-	domainCtx.RuntimeValues["interrupt_id"] = interruptID
-	domainCtx.RuntimeValues["interrupt_reason"] = reason
-}
-
 // FinishTurn 在本轮成功结束后同步 manager 侧状态。
-// clarification / ask_missing_profile 这类 manager 直接追问的轮次保留 waiting_on；
-// 正常完成则清理领域级 checkpoint，避免陈旧恢复点污染后续追问。
+// clarification / ask_missing_profile 这类 manager 直接追问的轮次保留 waiting_on。
 func (m *Manager) FinishTurn(st *state.SessionState, route policy.ApprovedRoute, turnType string) {
 	if st == nil {
 		return
@@ -137,24 +116,6 @@ func (m *Manager) FinishTurn(st *state.SessionState, route policy.ApprovedRoute,
 	st.ManagerContext.LastReplyOwner = "manager"
 	st.ManagerContext.WaitingOn = waitingOnForTurnType(turnType)
 
-	if st.ManagerContext.WaitingOn != "" {
-		return
-	}
-
-	domainCtx := domainContextFor(st, route.PrimaryDomain)
-	if domainCtx.CheckpointID != "" || domainCtx.InterruptID != "" || domainCtx.WorkingSummary != "" || len(domainCtx.RuntimeValues) > 0 {
-		domainCtx.Version++
-	}
-	domainCtx.CheckpointID = ""
-	domainCtx.InterruptID = ""
-	domainCtx.WorkingSummary = ""
-	if len(domainCtx.RuntimeValues) > 0 {
-		delete(domainCtx.RuntimeValues, "interrupt_id")
-		delete(domainCtx.RuntimeValues, "interrupt_reason")
-		if len(domainCtx.RuntimeValues) == 0 {
-			domainCtx.RuntimeValues = nil
-		}
-	}
 }
 
 // ComposeFinalReply 根据用户问题和 specialist 结果组合最终回复。
@@ -218,19 +179,6 @@ func (m *Manager) synthesizeFinalReply(userMessage string, result specialists.Re
 	return strings.TrimSpace(reply)
 }
 
-// ResolveResumeInterruptID 优先使用显式 interrupt id；缺失时回退到会话中已落盘的领域中断上下文。
-func (m *Manager) ResolveResumeInterruptID(st *state.SessionState, checkpointID, interruptID string) string {
-	if strings.TrimSpace(interruptID) != "" || st == nil {
-		return interruptID
-	}
-	domain := firstNonEmpty(st.ManagerContext.ActiveDomain, st.Routing.PrimaryDomain, "bazi")
-	domainCtx := domainContextFor(st, domain)
-	if domainCtx.CheckpointID == checkpointID {
-		return domainCtx.InterruptID
-	}
-	return ""
-}
-
 func waitingOnForTurnType(turnType string) string {
 	switch turnType {
 	case "clarification", "ask_missing_profile":
@@ -240,6 +188,7 @@ func waitingOnForTurnType(turnType string) string {
 	}
 }
 
+// domainContextFor returns the state namespace owned by a runtime domain.
 func domainContextFor(st *state.SessionState, domain string) *state.DomainContext {
 	switch domain {
 	case "qimen":

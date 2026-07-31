@@ -98,7 +98,7 @@ func TestDayunAnalyzer_ChongheField(t *testing.T) {
 	}
 }
 
-func TestDayunAnalyzer_StrictZiZhengLuckBaseQuality(t *testing.T) {
+func TestDayunAnalyzer_StrictZiZhengLuckRetainsCalendarAndReasonContract(t *testing.T) {
 	ctx := context.Background()
 
 	ct := &CalcTool{}
@@ -148,21 +148,41 @@ func TestDayunAnalyzer_StrictZiZhengLuckBaseQuality(t *testing.T) {
 		return nil
 	}
 
-	if item := findByGanZhi("丙戌"); item == nil {
-		t.Fatal("expected 丙戌 luck item")
-	} else if got := item["quality_base"]; got != "大吉" {
-		t.Fatalf("expected 丙戌 quality_base=大吉, got %v", got)
-	}
-
 	if item := findByGanZhi("辛巳"); item == nil {
 		t.Fatal("expected 辛巳 luck item")
-	} else if got := item["quality_base"]; got != "凶" {
-		t.Fatalf("expected 辛巳 quality_base=凶 under strict zi-zheng chart, got %v", got)
 	} else if reason, ok := item["quality_reason"].(map[string]any); !ok {
 		t.Fatalf("expected quality_reason map, got %T", item["quality_reason"])
 	} else if signals, ok := reason["signals"].(map[string]any); !ok {
 		t.Fatalf("expected quality_reason.signals map, got %T", reason["signals"])
-	} else if got := signals["base_layer"]; got != "ji_shen" {
-		t.Fatalf("expected base_layer=ji_shen, got %v", got)
+	} else if _, ok := signals["base_layer"].(string); !ok {
+		t.Fatalf("expected quality_reason.signals.base_layer string, got %T", signals["base_layer"])
+	} else if _, ok := item["quality"].(string); !ok {
+		t.Fatalf("expected a profile-qualified quality field, got %T", item["quality"])
+	}
+}
+
+func TestDayunAnalyzer_DoesNotLabelQualityWithoutBalanceVerdict(t *testing.T) {
+	dayun := []map[string]any{{"startAge": 30, "endAge": 39, "ganZhi": "甲午"}}
+	result := map[string]any{
+		"dayGan": "戊",
+		"pillars": []map[string]any{
+			{"stem": "辛", "branch": "未"}, {"stem": "丁", "branch": "酉"},
+			{"stem": "戊", "branch": "申"}, {"stem": "戊", "branch": "午"},
+		},
+		"yongshen": map[string]any{
+			"day_master_wuxing": "土",
+			"balance_status":    "待选定流派裁断",
+		},
+	}
+	raw, err := (&DayunAnalyzer{}).Execute(context.Background(), map[string]any{"dayun": dayun, "bazi_result": result})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := raw.(map[string]any)["dayun_analyzed"].([]map[string]any)
+	if len(items) != 1 || items[0]["quality"] != "待profile裁断" || items[0]["quality_base"] != "待profile裁断" {
+		t.Fatalf("expected no automatic quality label, got %#v", items)
+	}
+	if _, ok := items[0]["dayun_chonghe"].([]map[string]string); !ok {
+		t.Fatalf("relation facts must remain available: %#v", items[0])
 	}
 }

@@ -80,8 +80,7 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 	if cfg.InjectSessionContext && st != nil && (len(st.Profile) > 0 || st.HasBaziResult() || st.QimenResult != nil || st.HasZiWeiResult()) {
 		sessionCtx = "## 会话已有上下文\n\n以下资料已在当前会话中提供，**直接使用，无需再次索要或调用工具获取**：\n"
 		if len(st.Profile) > 0 {
-			pb := NewBuilder() // 只用 buildProfileSection
-			sessionCtx += "\n### 出生资料\n" + pb.buildProfileSection(st) + "\n"
+			sessionCtx += "\n### 出生资料\n" + buildProfileSection(st) + "\n"
 		}
 		if st.HasBaziResult() {
 			sessionCtx += "\n### 命盘结果（已就绪，严禁重新调用排盘/用神/大运工具）\n"
@@ -231,9 +230,9 @@ func knowledgeSearchTruncHandler(_ context.Context, detail *reduction.ToolDetail
 }
 
 // buildBaziDataBlock 从会话状态中的 BaziResult 构建简明命盘数据摘要，注入 specialist instruction。
-// buildYongshenBlock 从 yongshen 结果中提取关键字段，格局判定显式标注为确定性结论。
+// buildYongshenBlock 从 yongshen 结果中提取受力与结构候选；它们不是最终命理结论。
 func buildYongshenBlock(sb *strings.Builder, ys map[string]interface{}) {
-	sb.WriteString("**用神分析**：")
+	sb.WriteString("**八字结构事实与候选**：")
 	if geju, ok := ys["geju"].(string); ok && geju != "" {
 		sb.WriteString(fmt.Sprintf("格局=%s", geju))
 		if status, ok := ys["geju_status"].(string); ok && status != "" {
@@ -272,7 +271,7 @@ func buildYongshenBlock(sb *strings.Builder, ys map[string]interface{}) {
 		if comb, ok := ys["geju_combination"].(string); ok && comb != "" && comb != "无明显组合关系" {
 			sb.WriteString(fmt.Sprintf("。组合关系：%s", comb))
 		}
-		sb.WriteString("。**格局名为系统确定性计算结果。组合关系中的[主/次/辅/忌]为建议优先级（基于位置距离、半合局、身强身弱），你应综合全部事实做最终主次判断。**\n")
+		sb.WriteString("。**格局名、强弱、用忌和组合关系均须读取其 method/profile：排盘与藏干位置可复算，组合标签只表示结构候选或受阻事实，不能直接等同成格。**\n")
 	}
 	// 冲合刑害显式渲染：算法证据字段，LLM 在 interpret.md 命格层次清单中引用
 	if ch, ok := ys["chonghe"].([]map[string]string); ok && len(ch) > 0 {
@@ -320,15 +319,6 @@ func buildYongshenBlock(sb *strings.Builder, ys map[string]interface{}) {
 	}
 }
 
-// buildYongshenBlockAny 是 buildYongshenBlock 的 map[string]any 版本。
-func buildYongshenBlockAny(sb *strings.Builder, ys map[string]any) {
-	m := make(map[string]interface{}, len(ys))
-	for k, v := range ys {
-		m[k] = v
-	}
-	buildYongshenBlock(sb, m)
-}
-
 // buildLiuNianBlock 渲染流年应期数据段。算法证据字段，LLM 在 interpret.md:140 框架下引用。
 func buildLiuNianBlock(sb *strings.Builder, ln map[string]interface{}) {
 	sb.WriteString("**流年应期**：")
@@ -351,15 +341,6 @@ func buildLiuNianBlock(sb *strings.Builder, ln map[string]interface{}) {
 		sb.WriteString(fmt.Sprintf("流年冲合刑害=%s。", strings.Join(parts, "；")))
 	}
 	sb.WriteString("\n")
-}
-
-// buildLiuNianBlockAny 是 buildLiuNianBlock 的 map[string]any 版本。
-func buildLiuNianBlockAny(sb *strings.Builder, ln map[string]any) {
-	m := make(map[string]interface{}, len(ln))
-	for k, v := range ln {
-		m[k] = v
-	}
-	buildLiuNianBlock(sb, m)
 }
 
 func (b *AgentBuilder) buildBaziDataBlock(st *state.SessionState) string {
@@ -411,8 +392,6 @@ func (b *AgentBuilder) buildBaziDataBlock(st *state.SessionState) string {
 	// 用神
 	if ys, ok := br["yongshen"].(map[string]interface{}); ok {
 		buildYongshenBlock(&sb, ys)
-	} else if ys, ok := br["yongshen"].(map[string]any); ok {
-		buildYongshenBlockAny(&sb, ys)
 	}
 
 	// 大运
@@ -445,8 +424,6 @@ func (b *AgentBuilder) buildBaziDataBlock(st *state.SessionState) string {
 	// 流年应期
 	if ln, ok := br["liunian"].(map[string]interface{}); ok {
 		buildLiuNianBlock(&sb, ln)
-	} else if ln, ok := br["liunian"].(map[string]any); ok {
-		buildLiuNianBlockAny(&sb, ln)
 	}
 
 	// 神煞

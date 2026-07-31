@@ -18,7 +18,6 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/intent"
 	"github.com/observer-mimiron/suanming-agent/internal/llm"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
-	"github.com/observer-mimiron/suanming-agent/internal/schemas"
 	"github.com/observer-mimiron/suanming-agent/internal/specialists"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tools"
@@ -38,7 +37,6 @@ type Executor struct {
 	llmModel           string
 	historyLimit       int
 	orchestrationGraph compose.Runnable[string, string] // 预编译 Graph
-	cpStore            compose.CheckPointStore          // nil = Phase 1 模式不启用 Checkpoint
 	router             intent.Router                    // semantic router，供 preflight/guidance_gate 用；nil 走 regex
 }
 
@@ -52,7 +50,7 @@ type ExecutorConfig struct {
 // NewExecutor 创建运行时执行器。
 // summarizerModel 用于 specialist 的 summarization 中间件压缩长对话历史，传 nil 则不启用压缩。
 func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.ToolCallingChatModel, flashChat llm.Chat, summarizerModel einomodel.ToolCallingChatModel, cfg ExecutorConfig) (*Executor, error) {
-	graph, err := buildOrchestrationGraph(nil)
+	graph, err := buildOrchestrationGraph()
 	if err != nil {
 		return nil, fmt.Errorf("compile orchestration graph: %w", err)
 	}
@@ -71,18 +69,6 @@ func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.
 	}, nil
 }
 
-// SetCheckPointStore 注入 Checkpoint 存储并重新编译 Graph，启用中断-恢复能力。
-// 传 nil 回退到 Phase 1 模式（不启用 Checkpoint）。
-func (e *Executor) SetCheckPointStore(cpStore compose.CheckPointStore) error {
-	e.cpStore = cpStore
-	graph, err := buildOrchestrationGraph(cpStore)
-	if err != nil {
-		return fmt.Errorf("recompile orchestration graph with checkpoint: %w", err)
-	}
-	e.orchestrationGraph = graph
-	return nil
-}
-
 // Execute 执行已批准的路由。
 //
 // 流程：
@@ -97,7 +83,7 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 
 	e.syncExecutionRoute(ctx, st, route, plan)
 
-	// 将 supervisor 提取的 Profile 合并到会话状态，支持后续轮次复用
+	// 将 supervisor 提取的 Profile 写入当前对象的新资料版本，支持后续轮次精确复用。
 	if len(route.Slots.Profile) > 0 {
 		st.MergeProfile(route.Slots.Profile)
 	}
@@ -121,30 +107,10 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 	})
 	ctx, result := withOrchestrationResult(ctx)
 
-	// 生成 checkpoint ID（Phase 2 模式启用 Checkpoint 时用，上层调 Resume 时回传）
-	var invokeOpts []compose.Option
-	cpID := ""
-	if e.cpStore != nil {
-		cpID = fmt.Sprintf("%s-%d", st.SessionID, time.Now().UnixNano())
-		invokeOpts = append(invokeOpts, compose.WithCheckPointID(cpID))
-	}
-	finalText, err := e.orchestrationGraph.Invoke(ctx, message, invokeOpts...)
+	finalText, err := e.orchestrationGraph.Invoke(ctx, message)
 	if err != nil {
 		annotateRuntimeFailureTrace(ctx, err)
-		// 检查是否为 InterruptError（Graph 在 agent 节点前中断）
-		if info, ok := compose.ExtractInterruptInfo(err); ok {
-			interruptID := ""
-			if len(info.InterruptContexts) > 0 {
-				interruptID = info.InterruptContexts[0].ID
-			}
-			e.manager.RecordInterrupt(st, route, cpID, interruptID, "solar_time_confirm")
-			return "awaiting_confirm", finalText, &InterruptError{
-				CheckPointID: cpID,
-				InterruptID:  interruptID,
-				Reason:       "solar_time_confirm",
-			}
-		}
-		return "agent_error", finalText, err
+		return "agent_error", finalText, classifyRuntimeFailure(route.PrimaryDomain, failureStageAgent, err)
 	}
 
 	// turnType 由 guardNode / emitShortCircuitNode 写入 result 容器
@@ -172,103 +138,6 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 	}
 	storeFollowupArtifact(st, finalRoute, finalResult, finalText, message, result.TurnType)
 	e.manager.FinishTurn(st, finalRoute, result.TurnType)
-	return result.TurnType, finalText, nil
-}
-
-// InterruptError 表示 Graph 在 agent 节点前中断，等待用户确认后继续。
-type InterruptError struct {
-	CheckPointID string
-	InterruptID  string
-	Reason       string
-}
-
-func (e *InterruptError) Error() string {
-	return fmt.Sprintf("graph interrupted: cpID=%s interruptID=%s reason=%s",
-		e.CheckPointID, e.InterruptID, e.Reason)
-}
-
-// Resume 在 Checkpoint 中断后由用户回复触发，继续执行 Graph。
-// 典型场景: prefill 后追问"出生时间是否为真太阳时"，用户回复后调用此方法。
-//
-// 参数:
-//   - cpID: Execute 返回的 InterruptError.CheckPointID
-//   - interruptID: Execute 返回的 InterruptError.InterruptID
-//   - userMessage: 用户的回复文本（如"是的，真太阳时"）
-func (e *Executor) Resume(ctx context.Context, sink EventSink, st *state.SessionState, cpID, interruptID, userMessage string) (string, string, error) {
-	resumeRoute := policy.ApprovedRoute{
-		PrimaryDomain: st.Routing.PrimaryDomain,
-		TaskIntent:    st.Routing.TaskIntent,
-		Slots: schemas.DecisionSlots{
-			QuestionText:  userMessage,
-			TimeScope:     st.Routing.TimeScope,
-			TargetSubject: st.Routing.TargetSubject,
-		},
-	}
-
-	plan := e.manager.BuildExecutionPlan(st, resumeRoute, userMessage)
-	// 重建 vals（prefill 结果已在 session state，从 st 重建）
-	vals := e.buildSessionValues(st, plan.Route)
-
-	ctx = withOrchestrationInit(ctx, &orchestrationInit{
-		St:      st,
-		Plan:    plan,
-		UserMsg: userMessage,
-		Vals:    vals,
-		// Route 不设——Resume 时 Graph state 从 Checkpoint 恢复，init.Route 被忽略
-	})
-	ctx = withOrchestrationRuntime(ctx, &orchestrationRuntime{
-		Sink:     sink,
-		Executor: e,
-		Router:   e.router,
-	})
-	ctx, result := withOrchestrationResult(ctx)
-
-	// 用 ResumeWithData 包装 ctx，携带 interruptID + 用户回复数据
-	interruptID = e.manager.ResolveResumeInterruptID(st, cpID, interruptID)
-	rCtx := compose.ResumeWithData(ctx, interruptID, userMessage)
-
-	finalText, err := e.orchestrationGraph.Invoke(rCtx, userMessage, compose.WithCheckPointID(cpID))
-	if err != nil {
-		annotateRuntimeFailureTrace(ctx, err)
-		// resume 后仍可能再次中断（多轮确认）
-		if info, ok := compose.ExtractInterruptInfo(err); ok {
-			newInterruptID := ""
-			if len(info.InterruptContexts) > 0 {
-				newInterruptID = info.InterruptContexts[0].ID
-			}
-			e.manager.RecordInterrupt(st, resumeRoute, cpID, newInterruptID, "solar_time_confirm")
-			return "awaiting_confirm", finalText, &InterruptError{
-				CheckPointID: cpID,
-				InterruptID:  newInterruptID,
-				Reason:       "solar_time_confirm",
-			}
-		}
-		return "agent_error", finalText, err
-	}
-
-	if result.PrimaryDomain != "" {
-		resumeRoute.PrimaryDomain = result.PrimaryDomain
-	}
-	finalResult := result.Specialist
-	if strings.TrimSpace(finalResult.Summary) != "" {
-		finalText = finalResult.Summary
-	} else {
-		if finalResult.Domain == "" {
-			finalResult.Domain = firstNonEmpty(result.ReplyDomain, resumeRoute.PrimaryDomain)
-		}
-		if strings.TrimSpace(finalResult.Summary) == "" {
-			finalResult.Summary = finalText
-		}
-		finalText = e.manager.ComposeFinalReply(userMessage, finalResult)
-	}
-	if strings.TrimSpace(finalResult.Domain) == "" {
-		finalResult.Domain = firstNonEmpty(result.ReplyDomain, resumeRoute.PrimaryDomain)
-	}
-	if strings.TrimSpace(finalResult.Summary) == "" {
-		finalResult.Summary = finalText
-	}
-	storeFollowupArtifact(st, resumeRoute, finalResult, finalText, userMessage, result.TurnType)
-	e.manager.FinishTurn(st, resumeRoute, result.TurnType)
 	return result.TurnType, finalText, nil
 }
 
@@ -327,12 +196,8 @@ func (e *Executor) prefill(ctx context.Context, sink EventSink, st *state.Sessio
 		span.End()
 	}()
 
-	artifacts := plan.RequiredArtifacts
-	if len(artifacts) == 0 {
-		artifacts = selectRequiredArtifacts(plan.Domains)
-	}
-	for _, artifact := range artifacts {
-		switch artifact {
+	for _, requirement := range plan.Requirements {
+		switch requirement.Kind {
 		case artifactBaziChart:
 			if e.prefillBazi(ctx, sink, st, vals) {
 				executed = true
@@ -351,8 +216,8 @@ func (e *Executor) prefill(ctx context.Context, sink EventSink, st *state.Sessio
 
 // prefillQimen 确定性执行奇门遁甲排盘，结果注入 vals 和 session state。
 func (e *Executor) prefillQimen(ctx context.Context, sink EventSink, st *state.SessionState, vals map[string]any) bool {
-	if st.QimenResult != nil {
-		vals["qimen_result"] = st.QimenResult
+	if chart := st.ActiveChart(state.AssetKindQimenChart); chart != nil {
+		vals["qimen_result"] = chart
 		return true
 	}
 
@@ -369,7 +234,7 @@ func (e *Executor) prefillQimen(ctx context.Context, sink EventSink, st *state.S
 		}
 	}
 	if result := e.callTool(ctx, "qimen_dunjia", params); result != nil {
-		st.QimenResult = result
+		st.StoreChart(state.AssetKindQimenChart, result, "qimen-go-v1")
 		vals["qimen_result"] = result
 		if bj, err := json.Marshal(result); err == nil && sink != nil {
 			emitChartFromToolResult(ctx, sink, "qimen_dunjia", string(bj))
@@ -381,16 +246,16 @@ func (e *Executor) prefillQimen(ctx context.Context, sink EventSink, st *state.S
 
 // prefillZiWei 确定性执行紫微斗数排盘，结果注入 vals 和 session state。
 func (e *Executor) prefillZiWei(ctx context.Context, sink EventSink, st *state.SessionState, vals map[string]any) bool {
-	profile := st.Profile
+	profile := st.ActiveProfile()
 	params := buildToolParams(profile)
 	if params == nil {
 		return false
 	}
 
-	if st.ZiWeiResult != nil {
-		vals["ziwei_result"] = st.ZiWeiResult
+	if chart := st.ActiveChart(state.AssetKindZiweiChart); chart != nil && isCurrentZiWeiSolarTime(chart) {
+		vals["ziwei_result"] = chart
 	} else if result := e.callTool(ctx, "ziwei_calc", params); result != nil {
-		st.ZiWeiResult = result
+		st.StoreChart(state.AssetKindZiweiChart, result, ziWeiMethodVersion())
 		vals["ziwei_result"] = result
 		if bj, err := json.Marshal(result); err == nil && sink != nil {
 			emitChartFromToolResult(ctx, sink, "ziwei_calc", string(bj))
@@ -411,6 +276,12 @@ func (e *Executor) prefillZiWei(ctx context.Context, sink EventSink, st *state.S
 				"target_year": float64(time.Now().Year()),
 				"age":         float64(time.Now().Year() - int(params["year"].(float64)) + 1),
 			}
+			if minute, ok := params["minute"]; ok {
+				liunianParams["minute"] = minute
+			}
+			if longitude, ok := params["longitude"]; ok {
+				liunianParams["longitude"] = longitude
+			}
 			if result := e.callTool(ctx, "ziwei_liunian", liunianParams); result != nil {
 				st.ZiWeiResult["liunian"] = result
 				vals["ziwei_liunian"] = result
@@ -422,7 +293,7 @@ func (e *Executor) prefillZiWei(ctx context.Context, sink EventSink, st *state.S
 }
 
 func (e *Executor) prefillBazi(ctx context.Context, sink EventSink, st *state.SessionState, vals map[string]any) bool {
-	profile := st.Profile
+	profile := st.ActiveProfile()
 	baziParams := buildToolParams(profile)
 	if baziParams == nil {
 		return false
@@ -432,13 +303,13 @@ func (e *Executor) prefillBazi(ctx context.Context, sink EventSink, st *state.Se
 	// 历史会话里可能缓存着旧的“晚子时整段进次日”命盘。
 	// 一旦发现口径版本不是当前标准，就先丢弃旧盘，再按当前规则重排。
 	if st.HasBaziResult() && !isCurrentBaziCalendarRule(st.BaziResult) {
-		st.BaziResult = nil
+		st.InvalidateActiveChart(state.AssetKindBaziChart)
 		shouldEmitChart = true
 	}
 
 	if !st.HasBaziResult() {
 		if result := e.callTool(ctx, "bazi_calc", baziParams); result != nil {
-			st.BaziResult = result
+			st.StoreChart(state.AssetKindBaziChart, result, "lunar-go")
 			vals["bazi_result"] = result
 			shouldEmitChart = true
 		}
@@ -465,14 +336,19 @@ func (e *Executor) prefillBazi(ctx context.Context, sink EventSink, st *state.Se
 		}
 	}
 
-	// 预排当前流年（bazi_liunian）：注入 target_year=time.Now().Year()，
-	// 复用已就绪的 bazi_result（含 dayGan/pillars/dayun/birthday）。
-	// 仿 prefillZiWei:322-341 模式，已有结果则跳过避免重复计算。
+	// 预排当前流年（bazi_liunian）：缓存只在同一自然日且结构完整时复用。
+	// 空 map、旧日期或缺当前运选择信息都必须重算，否则动态报告会拿到
+	// 已有九步大运但没有“当前大运”的自相矛盾输入。
 	if st.BaziResult != nil {
-		if _, ok := st.BaziResult["liunian"].(map[string]any); !ok {
+		now := time.Now()
+		if !hasCurrentBaziLiuNian(st.BaziResult["liunian"], now) {
 			liunianParams := map[string]any{
-				"target_year": float64(time.Now().Year()),
-				"bazi_result": st.BaziResult,
+				"target_year":   float64(now.Year()),
+				"target_month":  float64(int(now.Month())),
+				"target_day":    float64(now.Day()),
+				"target_hour":   float64(now.Hour()),
+				"target_minute": float64(now.Minute()),
+				"bazi_result":   st.BaziResult,
 			}
 			if result := e.callTool(ctx, "bazi_liunian", liunianParams); result != nil {
 				st.BaziResult["liunian"] = result
@@ -495,6 +371,26 @@ func (e *Executor) prefillBazi(ctx context.Context, sink EventSink, st *state.Se
 	}
 
 	return true
+}
+
+// hasCurrentBaziLiuNian accepts only a same-day, structurally complete cache.
+// The selected current luck period may legitimately be empty before the first
+// luck boundary, so selection metadata rather than a non-empty ganZhi marks it
+// as a valid calculation.
+func hasCurrentBaziLiuNian(raw any, now time.Time) bool {
+	liunian, ok := raw.(map[string]any)
+	if !ok || len(liunian) == 0 {
+		return false
+	}
+	targetAt := strings.TrimSpace(stringValue(liunian["liunian_target_at"]))
+	if !strings.HasPrefix(targetAt, now.Format("2006-01-02")) {
+		return false
+	}
+	if strings.TrimSpace(stringValue(liunian["liunian_ganzhi"])) == "" {
+		return false
+	}
+	_, hasSelection := liunian["current_dayun_selection"]
+	return hasSelection
 }
 
 func (e *Executor) callTool(ctx context.Context, name string, params map[string]any) map[string]any {
@@ -532,7 +428,33 @@ func buildToolParams(profile map[string]any) map[string]any {
 	if minute, ok := profile["minute"]; ok {
 		params["minute"] = toFloat(minute)
 	}
+	if longitude, ok := profile["longitude"]; ok {
+		params["longitude"] = toFloat(longitude)
+	} else if longitude, ok := longitudeForBirthplace(stringValue(profile["birthplace"])); ok {
+		params["longitude"] = longitude
+	}
 	return params
+}
+
+func longitudeForBirthplace(birthplace string) (float64, bool) {
+	// 城市级出生地只能给出近似经度；显式 longitude 总是优先，避免用城市中心点
+	// 覆盖用户的精确地点。表只覆盖当前产品收集的常见城市，其他地点保持不修正。
+	longitudes := map[string]float64{
+		"北京": 116.4074,
+		"上海": 121.4737,
+		"广州": 113.2644,
+		"深圳": 114.0579,
+		"成都": 104.0665,
+		"重庆": 106.5516,
+		"武汉": 114.3054,
+		"西安": 108.9398,
+		"杭州": 120.1551,
+		"南京": 118.7969,
+		"天津": 117.2000,
+		"香港": 114.1694,
+	}
+	longitude, ok := longitudes[strings.TrimSpace(birthplace)]
+	return longitude, ok
 }
 
 func toFloat(v any) float64 {
@@ -568,17 +490,17 @@ func (e *Executor) saveToolResult(st *state.SessionState, toolName, resultJSON s
 	}
 	switch toolName {
 	case "bazi_calc":
-		st.BaziResult = payload
+		st.StoreChart(state.AssetKindBaziChart, payload, "lunar-go")
 	case "qimen_dunjia":
-		st.QimenResult = payload
+		st.StoreChart(state.AssetKindQimenChart, payload, "qimen-go-v1")
 	case "ziwei_calc":
-		st.ZiWeiResult = payload
+		st.StoreChart(state.AssetKindZiweiChart, payload, ziWeiMethodVersion())
 	}
 }
 
 func (e *Executor) buildSessionValues(st *state.SessionState, route policy.ApprovedRoute) map[string]any {
 	vals := map[string]any{
-		"profile": st.Profile,
+		"profile": st.ActiveProfile(),
 		"domain":  route.PrimaryDomain,
 	}
 	if st.BaziResult != nil {

@@ -6,8 +6,10 @@ package ziwei
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/6tail/lunar-go/calendar"
+	bazitool "github.com/observer-mimiron/suanming-agent/internal/tools/bazi"
 )
 
 // ZiWeiCalcTool 紫微斗数排盘工具。根据出生年月日时和性别，排布紫微斗数十二宫命盘，
@@ -44,15 +46,28 @@ func (t *ZiWeiCalcTool) Execute(_ context.Context, params map[string]any) (any, 
 		return nil, fmt.Errorf("gender must be 男/女")
 	}
 
-	y, m, d, h := int(year), int(month), int(day), int(hour)
-
-	solar := calendar.NewSolar(y, m, d, h, 0, 0)
-	timeIndex := TimeToIndex(h)
+	solar, timeIndex := correctedBirthSolar(int(year), int(month), int(day), int(hour), params)
 
 	chart, err := BuildChart(solar, timeIndex, gender)
 	if err != nil {
 		return nil, fmt.Errorf("紫微斗数排盘失败: %w", err)
 	}
 
-	return chart.ToMap(), nil
+	result := chart.ToMap()
+	result["solar_time_version"] = bazitool.TrueSolarTimeVersion
+	result["birthday"] = solar.ToYmdHms()
+	return result, nil
+}
+
+func correctedBirthSolar(year, month, day, hour int, params map[string]any) (*calendar.Solar, int) {
+	minute := 0
+	if value, ok := params["minute"].(float64); ok {
+		minute = int(value)
+	}
+	instant := time.Date(year, time.Month(month), day, hour, minute, 0, 0, time.UTC)
+	if longitude, ok := params["longitude"].(float64); ok && longitude >= -180 && longitude <= 180 {
+		instant = instant.Add(time.Duration(bazitool.TrueSolarOffsetMinutes(year, month, day, longitude)) * time.Minute)
+	}
+	solar := calendar.NewSolar(instant.Year(), int(instant.Month()), instant.Day(), instant.Hour(), instant.Minute(), 0)
+	return solar, TimeToIndex(instant.Hour())
 }

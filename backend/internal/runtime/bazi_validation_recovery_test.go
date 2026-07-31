@@ -19,29 +19,198 @@ func TestNormalizeStaticSynthesis_CanonicalizesSynonymEnums(t *testing.T) {
 
 	got := normalizeStaticSynthesis(static)
 
-	if got.ClaimStrength != "倾向成立" {
-		t.Fatalf("claim_strength = %q, want 倾向成立", got.ClaimStrength)
+	if got.ClaimStrength != "倾向成立" || got.SupportLevel != "得力" || got.WordingCap != "保守" {
+		t.Fatalf("static enum normalization failed: %+v", got)
 	}
-	if got.SupportLevel != "得力" {
-		t.Fatalf("support_level = %q, want 得力", got.SupportLevel)
+	if got.AxisLevel != "结构可见" || got.EffectOnTiaohou != "冲突" || got.EffectOnCoreDisease != "缓解" || got.EffectOnJiShenDirection != "缓解" || got.AxisCeiling != "可作主轴" {
+		t.Fatalf("static axis normalization failed: %+v", got)
 	}
-	if got.WordingCap != "保守" {
-		t.Fatalf("wording_cap = %q, want 保守", got.WordingCap)
+}
+
+func TestValidateStaticStrengthAgainstEvidence_RejectsOppositeDirection(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{Yongshen: map[string]any{
+			"strength":          "偏弱",
+			"strength_evidence": map[string]any{"support_score": float64(6), "pressure_score": float64(10)},
+		}},
+		StaticSynthesis: baziStaticSynthesis{StrengthBalance: "日主偏强，喜克泄耗。"},
 	}
-	if got.AxisLevel != "结构可见" {
-		t.Fatalf("axis_level = %q, want 结构可见", got.AxisLevel)
+	if err := validateStaticStrengthAgainstEvidence(state); err == nil {
+		t.Fatal("expected an opposite strength direction to be rejected")
 	}
-	if got.EffectOnTiaohou != "冲突" {
-		t.Fatalf("effect_on_tiaohou = %q, want 冲突", got.EffectOnTiaohou)
+
+	recovered := recoverStaticSynthesis(state, state.StaticSynthesis, fmt.Errorf("static strength reverses balance evidence: 偏弱"))
+	if recovered.Source != baziSynthesisSourceFactsOnlyDegraded {
+		t.Fatalf("recovery source = %q, want facts-only degraded", recovered.Source)
 	}
-	if got.EffectOnCoreDisease != "缓解" {
-		t.Fatalf("effect_on_core_disease = %q, want 缓解", got.EffectOnCoreDisease)
+	if got, want := recovered.StrengthBalance, "日主偏弱；扶身证据 6、泄耗克证据 10。"; got != want {
+		t.Fatalf("recovered facts = %q, want %q", got, want)
 	}
-	if got.EffectOnJiShenDirection != "缓解" {
-		t.Fatalf("effect_on_jishen_direction = %q, want 缓解", got.EffectOnJiShenDirection)
+}
+
+func TestValidateStaticAxisAgainstChartFacts_DoesNotHardCodeMethodologyDisputes(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{
+			Yongshen: map[string]any{"shi_shen_power": map[string]map[string]float64{
+				"七杀": {"gan_count": 0, "zhi_count": 1},
+			}},
+		},
+		StaticSynthesis: baziStaticSynthesis{
+			MainAxis: "月劫格，以食神制杀为用。",
+		},
 	}
-	if got.AxisCeiling != "可作主轴" {
-		t.Fatalf("axis_ceiling = %q, want 可作主轴", got.AxisCeiling)
+	if err := validateStaticAxisAgainstChartFacts(state); err != nil {
+		t.Fatalf("methodology disputes must be handled by synthesis/eval, not runtime hard branches: %v", err)
+	}
+}
+
+func TestRecoverStaticSynthesis_DropsCandidateTextAndReturnsFactsOnly(t *testing.T) {
+	state := baziCharterState{Input: baziCharterInput{
+		Yongshen: map[string]any{
+			"geju_candidate": "月劫格",
+			"strength":       "偏弱",
+			"strength_evidence": map[string]any{
+				"support_score":  float64(6),
+				"pressure_score": float64(10),
+			},
+			"shi_shen_power": map[string]map[string]float64{"七杀": {"gan_count": 0, "zhi_count": 1}},
+		},
+	}}
+	candidate := validStaticSynthesisForConsistencyTests()
+	candidate.MainAxis = "月劫格，以食神制杀为用。"
+	candidate.PatternOutcome = "丁火坐酉死地，食神制杀主轴成立。"
+	candidate.TiaohouAnchor = "先丙后癸。"
+
+	out := recoverStaticSynthesis(state, candidate, fmt.Errorf("static synthesis promotes food-god-controls-killing without visible seven-killing"))
+	if out.Source != baziSynthesisSourceFactsOnlyDegraded {
+		t.Fatalf("recovery source = %q, want facts-only degraded", out.Source)
+	}
+	text := strings.Join([]string{out.MainAxis, out.PatternOutcome, out.TiaohouAnchor, out.ReasoningSummary}, "\n")
+	if containsAnyText([]string{text}, []string{"食神制杀", "丁火坐酉死地", "先丙后癸"}) {
+		t.Fatalf("facts-only recovery must drop candidate judgment text, got %+v", out)
+	}
+	if !strings.Contains(out.PatternBasis, "月令取格候选：月劫格") {
+		t.Fatalf("facts-only recovery must retain tool facts, got %q", out.PatternBasis)
+	}
+}
+
+func TestValidateDynamicFireBureauFacts_RejectsUndeclaredDayunClaim(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{Dayun: map[string]any{"dayun_analyzed": []map[string]any{{
+			"ganZhi": "丙戌", "dayun_chonghe": []map[string]any{},
+		}}}},
+		DynamicSynthesis: baziDynamicSynthesis{DayunPath: []string{
+			"丙戌运与巳、未会成火局，财星极旺。",
+		}},
+	}
+	if err := validateDynamicFireBureauFacts(state); err == nil {
+		t.Fatal("expected undeclared fire bureau to fail")
+	}
+
+	state.Input.Dayun["dayun_analyzed"] = []map[string]any{{
+		"ganZhi": "壬午", "dayun_chonghe": []map[string]any{{"description": "大运参与巳午未会火局"}},
+	}}
+	state.DynamicSynthesis.DayunPath = []string{"壬午运参与巳午未会火局，关系已计算。"}
+	if err := validateDynamicFireBureauFacts(state); err != nil {
+		t.Fatalf("expected declared fire bureau to pass, got %v", err)
+	}
+}
+
+func TestValidateDynamicRelationFacts_DetectsUndeclaredPeriodRelationForSoftAudit(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{Dayun: map[string]any{"dayun_analyzed": []map[string]any{{
+			"ganZhi": "丙戌", "dayun_chonghe": []map[string]any{},
+		}}}},
+		DynamicSynthesis: baziDynamicSynthesis{DayunPath: []string{
+			"丙戌运与日支未构成戌未相刑。",
+		}},
+	}
+	if err := validateDynamicRelationFacts(state); err == nil {
+		t.Fatal("expected undeclared period relation to fail")
+	}
+
+	state.Input.Dayun["dayun_analyzed"] = []map[string]any{{
+		"ganZhi": "甲申", "dayun_chonghe": []map[string]any{{"description": "大运申亥害月柱亥"}},
+	}}
+	state.DynamicSynthesis.DayunPath = []string{"甲申运申亥相害，关系已计算。"}
+	if err := validateDynamicRelationFacts(state); err != nil {
+		t.Fatalf("expected declared relation to pass, got %v", err)
+	}
+}
+
+func TestSanitizeDynamicPresentationBoundaries_DoesNotRewriteUnsupportedOutcomeLanguage(t *testing.T) {
+	input := baziDynamicSynthesis{
+		DayunPath:      []string{"辛巳运称为冲开财库，并说可破财。", "壬午运写成关系触发，易有财务纠纷。"},
+		Risks:          []string{"关系触发可能带来意外。", "关系触发仍需核对。"},
+		LiunianFocus:   "这一年可能一飞冲天。",
+		ReasoningSteps: []string{"该运存在明确破财风险。", "扶抑上大吉。"},
+		CurrentTrend:   "当前仅作结构观察。",
+	}
+	out := sanitizeDynamicPresentationBoundaries(input)
+	text := strings.Join(append([]string{out.LiunianFocus}, append(append(out.DayunPath, out.Risks...), out.ReasoningSteps...)...), "\n")
+	if !containsAnyText([]string{text}, []string{"冲开财库", "破财", "财务纠纷", "一飞冲天", "大吉"}) {
+		t.Fatalf("sanitizer must not rewrite unsupported outcomes; validator owns rejection, got %+v", out)
+	}
+}
+
+func TestSanitizeDynamicPresentationBoundaries_NormalizesConsistencyFlags(t *testing.T) {
+	out := sanitizeDynamicPresentationBoundaries(baziDynamicSynthesis{ConsistencyFlags: []string{"财务纠纷", "承接与扰动并存", "吉中带阻"}})
+	if containsAnyText(out.ConsistencyFlags, []string{"财务纠纷", "承接与扰动并存", "吉中带阻"}) {
+		t.Fatalf("unsupported consistency flags must be normalized, got %+v", out.ConsistencyFlags)
+	}
+	for _, want := range []string{dynamicFlagStructureOnly, dynamicFlagMixedConstraint} {
+		if !containsString(out.ConsistencyFlags, want) {
+			t.Fatalf("expected normalized flag %q, got %+v", want, out.ConsistencyFlags)
+		}
+	}
+	if !containsString(out.FieldAudit, "dynamic_consistency_flags") {
+		t.Fatalf("expected field audit to record enum normalization, got %+v", out.FieldAudit)
+	}
+}
+
+func TestValidateDynamicConsistencyFlags_RejectsUnsupportedFlag(t *testing.T) {
+	err := validateDynamicConsistencyFlags([]string{"承接与扰动并存"})
+	if err == nil {
+		t.Fatal("expected unsupported dynamic consistency flag to fail")
+	}
+	if !strings.Contains(err.Error(), dynamicFlagStructureOnly) {
+		t.Fatalf("error should include allowed flags, got %v", err)
+	}
+}
+
+func TestValidateDynamicStage_RejectsUnsupportedBoundaryTerms(t *testing.T) {
+	state := baziCharterState{DynamicSynthesis: baziDynamicSynthesis{
+		CurrentTrend:     "当前承接与扰动并存。",
+		ClaimStrength:    "倾向成立",
+		SupportLevel:     "有气",
+		LimitationLevel:  "明显",
+		WordingCap:       "中性",
+		DayunPath:        []string{"壬午运：关系触发较强，据此直接断为官非。"},
+		LiunianFocus:     "这一年有承接也有扰动。",
+		WindowLevel:      "窗口年",
+		ReasoningSummary: "只按结构观察。",
+		ReasoningSteps:   []string{"先看大运和流年关系。"},
+	}}
+	if err := validateDynamicStage(state); err == nil {
+		t.Fatal("expected unsupported dynamic boundary wording to fail validation")
+	}
+}
+
+func TestValidateDynamicStage_AllowsOrdinaryBaziInterpretiveLanguage(t *testing.T) {
+	state := baziCharterState{DynamicSynthesis: baziDynamicSynthesis{
+		CurrentTrend:     "当前承接与扰动并存。",
+		ClaimStrength:    "倾向成立",
+		SupportLevel:     "有气",
+		LimitationLevel:  "明显",
+		WordingCap:       "中性",
+		DayunPath:        []string{"丙戌运：戌为火库，燥土可调候暖局，才华初显但根基未稳。"},
+		LiunianFocus:     "这一年有承接也有扰动。",
+		WindowLevel:      "窗口年",
+		ReasoningSummary: "只按结构观察。",
+		ReasoningSteps:   []string{"先看大运和流年关系。"},
+	}}
+	if err := validateDynamicStage(state); err != nil {
+		t.Fatalf("ordinary bazi interpretive language must not be blocked by lexical patching: %v", err)
 	}
 }
 
@@ -65,20 +234,20 @@ func TestRunStaticSynthesisWithFeedback_DegradesAfterRepeatedValidationFailure(t
 	if calls != 2 {
 		t.Fatalf("static synthesis calls = %d, want 2", calls)
 	}
-	if err := validateStaticSynthesisResult(chartState, out); err != nil {
-		t.Fatalf("expected degraded static synthesis to validate, got %v", err)
+	if out.Source != baziSynthesisSourceFactsOnlyDegraded {
+		t.Fatalf("source = %q, want facts-only degraded", out.Source)
 	}
-	if strings.Contains(out.PatternOutcome, "贵格已成") {
-		t.Fatalf("degraded pattern_outcome should drop escalation wording, got %q", out.PatternOutcome)
-	}
-	if !containsAnyText([]string{out.PatternOutcome, out.CounterEvidence, out.TierBasis}, []string{"受限", "不宜拔高", "力度受限"}) {
-		t.Fatalf("degraded static synthesis must preserve limitation wording, got %+v", out)
+	if strings.Contains(out.PatternOutcome, "贵格已成") || strings.Contains(out.TierBasis, "上等") {
+		t.Fatalf("facts-only degraded output must drop candidate judgment text, got %+v", out)
 	}
 }
 
-func TestRecoverDynamicSynthesis_DegradesInvalidOutputWithoutError(t *testing.T) {
+func TestRecoverDynamicSynthesis_ReturnsFactsOnlyAndDropsCandidateText(t *testing.T) {
 	state := baziCharterState{
 		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
+		Input: baziCharterInput{Dayun: map[string]any{"dayun_analyzed": []map[string]any{{
+			"ganZhi": "甲午", "tenGod": "七杀", "dayun_chonghe": []map[string]any{{"description": "大运午午自刑时柱午"}},
+		}}}},
 	}
 	candidate := baziDynamicSynthesis{
 		CurrentTrend:     "从这里开始会一路顺行，明显起飞。",
@@ -87,62 +256,27 @@ func TestRecoverDynamicSynthesis_DegradesInvalidOutputWithoutError(t *testing.T)
 		LimitationLevel:  "明显",
 		WordingCap:       "明确",
 		ConsistencyFlags: []string{"机会伴随强变动"},
-		DayunPath: []string{
-			"当前运势其实仍有明显限制。",
-		},
+		DayunPath:        []string{"当前运势可能引发官非。"},
 		LiunianFocus:     "这是关键翻身年，可以一飞冲天。",
 		WindowLevel:      "机会年",
 		ReasoningSummary: "整体会彻底起势。",
 		ReasoningSteps:   []string{"先看机会，再直接下拔高结论。"},
 	}
 
-	out := recoverDynamicSynthesis(state, candidate, fmt.Errorf("dynamic validation failed"))
+	out := recoverDynamicSynthesis(state, candidate, fmt.Errorf("dynamic synthesis overstates unsupported legal or medical outcome"))
 	state.DynamicSynthesis = out
 
+	if out.Source != baziSynthesisSourceFactsOnlyDegraded {
+		t.Fatalf("dynamic recovery source = %q, want facts-only degraded", out.Source)
+	}
 	if err := validateDynamicStage(state); err != nil {
-		t.Fatalf("expected degraded dynamic synthesis to pass stage validation, got %v", err)
+		t.Fatalf("expected facts-only dynamic synthesis to pass stage validation, got %v", err)
 	}
-	if err := validateCharterConsistency(state); err != nil {
-		t.Fatalf("expected degraded dynamic synthesis to pass consistency validation, got %v", err)
+	text := strings.Join(append([]string{out.CurrentTrend, out.LiunianFocus, out.ReasoningSummary}, out.DayunPath...), "\n")
+	if containsAnyText([]string{text}, []string{"一路顺", "明显起飞", "官非", "一飞冲天", "彻底起势"}) {
+		t.Fatalf("facts-only dynamic recovery must drop candidate judgment text, got %+v", out)
 	}
-	if out.WindowLevel != "窗口年" {
-		t.Fatalf("window_level = %q, want 窗口年", out.WindowLevel)
-	}
-	if strings.Contains(out.LiunianFocus, "一飞冲天") {
-		t.Fatalf("degraded liunian_focus should drop escalation wording, got %q", out.LiunianFocus)
-	}
-}
-
-func TestRecoverDynamicSynthesis_HealsCurrentDayunDirectionSplit(t *testing.T) {
-	state := baziCharterState{
-		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
-	}
-	candidate := baziDynamicSynthesis{
-		CurrentTrend:     "当前甲午大运承托静态主轴，但同时放大病点，整体属于吉中有阻。",
-		ClaimStrength:    "倾向成立",
-		SupportLevel:     "有气",
-		LimitationLevel:  "明显",
-		WordingCap:       "明确",
-		ConsistencyFlags: []string{"吉中有阻"},
-		DayunPath: []string{
-			"甲午运（30-39岁）：天干甲木七杀为用神，地支午火印星为忌神。此运为偏压，但并非全凶，是承压中求发展的阶段。",
-		},
-		LiunianFocus:     "这一年有推进窗口，但仍会同步触发内耗与反复。",
-		WindowLevel:      "窗口年",
-		ReasoningSummary: "先看甲午运对主轴有承托，再看午火把原局病点一并放大，所以只能按吉中有阻落判。",
-		ReasoningSteps:   []string{"先看当前甲午大运承托主轴，但不能把放大病点这一层忽略。"},
-	}
-
-	out := recoverDynamicSynthesis(state, candidate, fmt.Errorf("current dayun path contradicts current trend direction"))
-	state.DynamicSynthesis = out
-
-	if err := validateDynamicStage(state); err != nil {
-		t.Fatalf("expected recovered dynamic synthesis to pass stage validation, got %v", err)
-	}
-	if err := validateCharterConsistency(state); err != nil {
-		t.Fatalf("expected recovered dynamic synthesis to pass consistency validation, got %v", err)
-	}
-	if !containsAnyText([]string{out.DayunPath[0], out.LiunianFocus, out.ReasoningSummary}, []string{"吉中有阻", "限制", "并存"}) {
-		t.Fatalf("expected recovered output to preserve mixed-direction wording, got %+v", out)
+	if !strings.Contains(text, "甲午") || !strings.Contains(text, "午午自刑") {
+		t.Fatalf("facts-only dynamic recovery must retain computed dayun facts, got %+v", out)
 	}
 }

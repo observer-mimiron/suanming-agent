@@ -5,7 +5,8 @@ import (
 	"strings"
 )
 
-// DayunAnalyzer 大运分析工具。根据日主和用神喜忌，对每步大运标注十神类型和吉凶评价。
+// DayunAnalyzer 大运分析工具。它只计算大运的十神与已声明的干支关系。
+// 大运吉凶必须由带版本的 rule profile 结合静态裁断给出，不能由本工具线性评分。
 type DayunAnalyzer struct{}
 
 func (t *DayunAnalyzer) Name() string        { return "dayun_analyzer" }
@@ -32,65 +33,12 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 		}
 	}
 	baziResult, _ := params["bazi_result"].(map[string]any)
-	yongshen, _ := baziResult["yongshen"].(map[string]any)
-
 	dayGan, _ := baziResult["dayGan"].(string)
-	yongList := toStringSlice(yongshen["yong_shen"])
-	jiList := toStringSlice(yongshen["ji_shen"])
-	balanceList := toStringSlice(yongshen["balance_yong_shen"])
-	tiaohouList := toStringSlice(yongshen["tiaohou_yong_shen"])
-	conditionalList := toStringSlice(yongshen["conditional_yong_shen"])
 
 	// 命局四柱地支，用于大运-命局冲合应期分析（复用 liunian.go 的提取 helper）
 	_, allZhi := extractGanZhiFromPillars(baziResult["pillars"])
 
 	// shiShenTable 引用 tables.go 包级十神速查表（与 liunian.go 共享）
-
-	// 五行相生：key 生 value（木生火 等）
-	generates := map[string]string{"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
-	elementToGodType := func(dayWx, element string) string {
-		switch {
-		case element == dayWx:
-			return "同我"
-		case generates[dayWx] == element:
-			return "泄"
-		case generates[element] == dayWx:
-			return "生"
-		case ke[dayWx] == element:
-			return "耗"
-		case ke[element] == dayWx:
-			return "克"
-		default:
-			return ""
-		}
-	}
-
-	// 将日主的五行用神映射到十神类别，并区分“稳定主用 / 条件辅助 / 忌神”三层。
-	dayWx, _ := yongshen["day_master_wuxing"].(string)
-	if dayWx == "" {
-		dayWx = stemWx[dayGan]
-	}
-	stableYongCategories := map[string]bool{}
-	conditionalCategories := map[string]bool{}
-	jiCategories := map[string]bool{}
-	if len(balanceList) == 0 && len(tiaohouList) == 0 {
-		balanceList = yongList
-	}
-	for _, y := range append(append([]string{}, balanceList...), tiaohouList...) {
-		if godType := elementToGodType(dayWx, y); godType != "" {
-			stableYongCategories[godType] = true
-		}
-	}
-	for _, y := range conditionalList {
-		if godType := elementToGodType(dayWx, y); godType != "" {
-			conditionalCategories[godType] = true
-		}
-	}
-	for _, j := range jiList {
-		if godType := elementToGodType(dayWx, j); godType != "" {
-			jiCategories[godType] = true
-		}
-	}
 
 	tenGodWuxing := map[string]string{"比肩": "同我", "劫财": "同我", "食神": "泄", "伤官": "泄", "偏财": "耗", "正财": "耗", "七杀": "克", "正官": "克", "偏印": "生", "正印": "生"}
 
@@ -116,40 +64,25 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 		}
 		godType := tenGodWuxing[tenGod]
 
-		var baseQuality string
-		baseLayer := "neutral"
-		switch {
-		case stableYongCategories[godType]:
-			baseQuality = "大吉"
-			baseLayer = "stable_yong"
-		case conditionalCategories[godType]:
-			baseQuality = "平"
-			baseLayer = "conditional_yong"
-		case jiCategories[godType]:
-			baseQuality = "凶"
-			baseLayer = "ji_shen"
-		default:
-			baseQuality = "平"
-		}
-
 		// 大运地支——冲合刑害应期分析（大运为客，命局为主）
 		dyZhi := ""
 		if len(runes) >= 2 {
 			dyZhi = string(runes[1])
 		}
 		chonghe := computeDayunChonghe(dyZhi, allZhi)
-		quality := assessDayunQuality(baseQuality, chonghe)
-
 		annotated = append(annotated, map[string]any{
 			"startAge": dy["startAge"], "endAge": dy["endAge"],
+			// 日期边界属于大运事实。保留它们使动态层在流年缓存缺失时
+			// 仍能按真实交运时刻定位当前大运，而不是退回到任意一条运。
+			"startAt": dy["startAt"], "endAtExclusive": dy["endAtExclusive"],
 			"ganZhi": gz, "tenGod": tenGod, "tenGodType": godType,
-			"quality":      quality,
-			"quality_base": baseQuality,
+			"quality":      "待profile裁断",
+			"quality_base": "待profile裁断",
 			"quality_reason": map[string]any{
-				"summary": qualitySummary(baseQuality, quality, chonghe),
+				"summary": "仅报告大运十神与已声明的地支关系；吉凶待 rule profile 结合原局裁断。",
 				"signals": map[string]any{
-					"base_quality":         baseQuality,
-					"base_layer":           baseLayer,
+					"base_quality":         "待profile裁断",
+					"base_layer":           "unclassified",
 					"has_branch_conflict":  hasNegativeDayunRelation(chonghe),
 					"has_branch_support":   hasPositiveDayunRelation(chonghe),
 					"touches_core_pillars": touchesCorePillars(chonghe),
@@ -160,91 +93,6 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 	}
 
 	return map[string]any{"dayun_analyzed": annotated}, nil
-}
-
-func toStringSlice(v any) []string {
-	if v == nil {
-		return nil
-	}
-	arr, ok := v.([]string)
-	if !ok {
-		if arr2, ok2 := v.([]interface{}); ok2 {
-			for _, x := range arr2 {
-				if s, ok3 := x.(string); ok3 {
-					arr = append(arr, s)
-				}
-			}
-		}
-	}
-	return arr
-}
-
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
-func assessDayunQuality(baseQuality string, chonghe []map[string]string) string {
-	score := 0
-	switch baseQuality {
-	case "大吉":
-		score = 2
-	case "凶":
-		score = -2
-	}
-
-	for _, item := range chonghe {
-		relationType := item["type"]
-		pillars := item["pillars"]
-		touchesCore := strings.Contains(pillars, "月柱") || strings.Contains(pillars, "日柱")
-
-		switch relationType {
-		case "六冲", "相刑":
-			if touchesCore {
-				score -= 2
-			} else {
-				score--
-			}
-		case "相害":
-			if touchesCore {
-				score--
-			}
-		case "三合", "三会":
-			score++
-			if touchesCore {
-				score++
-			}
-		}
-	}
-
-	switch {
-	case score >= 3:
-		return "大吉"
-	case score >= 1:
-		return "偏吉"
-	case score == 0:
-		return "平"
-	case score <= -3:
-		return "凶"
-	default:
-		return "偏压"
-	}
-}
-
-func qualitySummary(baseQuality, finalQuality string, chonghe []map[string]string) string {
-	parts := []string{"天干基础倾向=" + baseQuality}
-	if hasNegativeDayunRelation(chonghe) {
-		parts = append(parts, "地支有冲刑害引动")
-	}
-	if hasPositiveDayunRelation(chonghe) {
-		parts = append(parts, "地支亦见合会承接")
-	}
-	parts = append(parts, "综合判断="+finalQuality)
-	return strings.Join(parts, "；")
 }
 
 func hasNegativeDayunRelation(chonghe []map[string]string) bool {

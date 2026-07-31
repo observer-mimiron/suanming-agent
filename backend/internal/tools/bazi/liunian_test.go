@@ -92,8 +92,13 @@ func TestBaziLiuNian_KnownHits_2026(t *testing.T) {
 	}
 	startAge := toInt(cd["startAge"])
 	endAge := toInt(cd["endAge"])
-	if startAge > 53 || endAge < 53 {
-		t.Errorf("current_dayun 区间 %v-%v 不包含 53 岁", startAge, endAge)
+	if got := m["current_dayun_selection"]; got != "date_boundary" {
+		t.Errorf("current_dayun_selection = %v, want date_boundary", got)
+	}
+	// 该命盘的下一步大运在 2026-11 才交接，因此默认年中取样仍在上一运；
+	// 虚岁 53 不再被用作整年切换条件。
+	if startAge != 43 || endAge != 52 {
+		t.Errorf("current_dayun 区间 = %v-%v, want 43-52 before the 2026-11 boundary", startAge, endAge)
 	}
 	t.Logf("2026 流年：%s，十神：%s，当前大运：%v-%v %v",
 		m["liunian_ganzhi"], m["liunian_shi_shen"], startAge, endAge, cd["ganZhi"])

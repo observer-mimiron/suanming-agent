@@ -53,7 +53,7 @@ func (r *ADKSpecialistRunner) Run(ctx context.Context, req specialists.Request) 
 
 	finalText, err := specialistEventBridge(ctx, sink, iter, func(toolName, resultJSON string) {
 		r.Executor.saveToolResult(req.Session, toolName, resultJSON)
-	}, r.Executor.reg.DisplayName, shouldBufferFinalAnswer())
+	}, r.Executor.reg.DisplayName, true)
 	if err != nil {
 		return specialists.Result{}, err
 	}
@@ -65,39 +65,69 @@ func (r *ADKSpecialistRunner) Run(ctx context.Context, req specialists.Request) 
 }
 
 func validatePlanArtifacts(st *state.SessionState, plan ExecutionPlan) error {
-	artifacts := plan.RequiredArtifacts
-	if len(artifacts) == 0 {
-		artifacts = selectRequiredArtifacts(plan.Domains)
-	}
-	domain := firstNonEmpty(plan.Route.PrimaryDomain, firstNonEmpty(plan.Domains...), "bazi")
-	for _, artifact := range artifacts {
-		if hasArtifact(st, artifact) {
+	for _, requirement := range plan.Requirements {
+		if hasRequiredAsset(st, requirement) {
 			continue
 		}
-		return &RuntimeFailure{
-			Class:       failureClassArtifactMissing,
-			Stage:       failureStagePrefill,
-			Domain:      domain,
-			Degraded:    false,
-			UserVisible: true,
-			Message:     fmt.Sprintf("required artifact %s missing before specialist dispatch", artifact),
-		}
+		return artifactMissingFailure(plan, requirement.Kind)
 	}
 	return nil
 }
 
-func hasArtifact(st *state.SessionState, artifact string) bool {
+func hasRequiredAsset(st *state.SessionState, requirement ArtifactRequirement) bool {
 	if st == nil {
 		return false
 	}
-	switch artifact {
-	case artifactBaziChart:
-		return st.HasBaziResult()
-	case artifactQimenChart:
-		return st.HasQimenResult()
-	case artifactZiweiChart:
-		return st.HasZiWeiResult()
-	default:
+	for _, ref := range st.ActiveFocus.PrimaryAssetRefs {
+		if ref.Kind != requirement.Kind {
+			continue
+		}
+		for _, asset := range st.Assets {
+			if asset.Ref != ref || !assetMatchesRequirement(asset, requirement) {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func assetMatchesRequirement(asset state.DomainAsset, requirement ArtifactRequirement) bool {
+	if asset.OwnerKind != requirement.OwnerRef.Kind || asset.OwnerID != requirement.OwnerRef.ID {
 		return false
+	}
+	if rule := requirement.CalendarRule; rule != "" && asset.CalendarRule != rule {
+		return false
+	}
+	for _, requiredSubjectID := range requirement.SubjectIDs {
+		found := false
+		for _, assetSubjectID := range asset.SubjectIDs {
+			if assetSubjectID == requiredSubjectID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func artifactMissingFailure(plan ExecutionPlan, artifact string) error {
+	domain := firstNonEmpty(plan.Route.PrimaryDomain, firstNonEmpty(plan.Domains...), "bazi")
+	return artifactMissingFailureForDomain(domain, artifact)
+}
+
+func artifactMissingFailureForDomain(domain, artifact string) error {
+	return &RuntimeFailure{
+		Class:       failureClassArtifactMissing,
+		Stage:       failureStagePrefill,
+		Domain:      domain,
+		Code:        "REQUIRED_ARTIFACT_UNAVAILABLE",
+		Retryable:   true,
+		Degraded:    false,
+		UserVisible: true,
+		Message:     fmt.Sprintf("required artifact %s missing before specialist dispatch", artifact),
 	}
 }

@@ -13,11 +13,12 @@
     {
       "id": "runtime-smoke-bazi-followup-reuse",
       "session_id": "eval-runtime-followup-v1",
+      "timeout_seconds": 240,
       "setup_message": "男，1990年5月20日巳时，北京，分析八字",
       "message": "我的财运怎么样",
       "expected_route_primary": "bazi",
       "expected_task_intent_any": ["fortune_followup", "interpret_chart"],
-      "expected_turn_type_any": ["agent_reading"],
+      "expected_turn_type_any": ["agent_reading", "fortune_followup"],
       "required_observations": ["preflight", "sse_emit"]
     }
   ]

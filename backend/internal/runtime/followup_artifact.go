@@ -12,14 +12,13 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 )
 
-const followupArtifactKey = "last_interpretation"
-
 // followupArtifact 是 manager 复用上一轮解读时依赖的最小结构化资产。
 // 它不是新的命盘事实，而是“上轮已经说过什么”的可编程快照，
 // 让 follow-up 能基于既有解读继续回答，而不是每次都重跑领域链。
 type followupArtifact struct {
 	Domain          string   `json:"domain,omitempty"`
 	Summary         string   `json:"summary,omitempty"`
+	ProfileBoundary bool     `json:"profile_boundary,omitempty"`
 	DirectAnswer    string   `json:"direct_answer,omitempty"`
 	KeyPoints       []string `json:"key_points,omitempty"`
 	EvidenceSummary string   `json:"evidence_summary,omitempty"`
@@ -51,6 +50,7 @@ func buildFollowupArtifact(route policy.ApprovedRoute, result specialists.Result
 	return followupArtifact{
 		Domain:          domain,
 		Summary:         summary,
+		ProfileBoundary: isBaziProfileBoundaryText(domain, summary),
 		DirectAnswer:    strings.TrimSpace(result.DirectAnswer),
 		KeyPoints:       keyPoints,
 		EvidenceSummary: strings.TrimSpace(result.EvidenceSummary),
@@ -65,28 +65,17 @@ func loadFollowupArtifact(st *state.SessionState, domain string) (followupArtifa
 	if st == nil {
 		return followupArtifact{}, false
 	}
-	domainCtx := domainContextFor(st, domain)
-	if domainCtx == nil || len(domainCtx.RuntimeValues) == 0 {
-		return followupArtifact{}, false
+	if payload := st.ActiveInterpretation(domain); len(payload) > 0 {
+		return followupArtifactFromMap(payload)
 	}
-	raw, ok := domainCtx.RuntimeValues[followupArtifactKey]
-	if !ok || raw == nil {
-		return followupArtifact{}, false
-	}
-	switch typed := raw.(type) {
-	case followupArtifact:
-		return normalizeFollowupArtifact(typed)
-	case map[string]any:
-		return followupArtifactFromMap(typed)
-	default:
-		return followupArtifact{}, false
-	}
+	return followupArtifact{}, false
 }
 
 func followupArtifactFromMap(values map[string]any) (followupArtifact, bool) {
 	artifact := followupArtifact{
 		Domain:          anyToOptionalString(values["domain"]),
 		Summary:         anyToOptionalString(values["summary"]),
+		ProfileBoundary: anyToOptionalBool(values["profile_boundary"]),
 		DirectAnswer:    anyToOptionalString(values["direct_answer"]),
 		EvidenceSummary: anyToOptionalString(values["evidence_summary"]),
 		ManagerBrief:    anyToOptionalString(values["manager_brief"]),
@@ -120,13 +109,30 @@ func anyToOptionalString(value any) string {
 	return strings.TrimSpace(anyToString(value))
 }
 
+func anyToOptionalBool(value any) bool {
+	flag, _ := value.(bool)
+	return flag
+}
+
 func normalizeFollowupArtifact(artifact followupArtifact) (followupArtifact, bool) {
 	artifact.Domain = strings.TrimSpace(artifact.Domain)
 	artifact.Summary = strings.TrimSpace(artifact.Summary)
 	if artifact.Domain == "" || artifact.Summary == "" {
 		return followupArtifact{}, false
 	}
+	// Older sessions do not contain the explicit flag. Infer it from the
+	// deterministic boundary template before deciding whether an LLM may extend it.
+	artifact.ProfileBoundary = artifact.ProfileBoundary || isBaziProfileBoundaryText(artifact.Domain, artifact.Summary)
 	return artifact, true
+}
+
+func isBaziProfileBoundaryText(domain, text string) bool {
+	if strings.TrimSpace(domain) != "bazi" {
+		return false
+	}
+	legacyBoundary := strings.Contains(text, "## 本轮结果") && strings.Contains(text, "### 本轮不作裁断")
+	partialReading := strings.Contains(text, "## 命盘结构") && strings.Contains(text, "## 结论边界")
+	return legacyBoundary || partialReading
 }
 
 func storeFollowupArtifact(st *state.SessionState, route policy.ApprovedRoute, result specialists.Result, finalText, question, turnType string) {
@@ -137,13 +143,10 @@ func storeFollowupArtifact(st *state.SessionState, route policy.ApprovedRoute, r
 	if !ok {
 		return
 	}
-	domainCtx := domainContextFor(st, artifact.Domain)
-	if domainCtx.RuntimeValues == nil {
-		domainCtx.RuntimeValues = make(map[string]any)
-	}
-	domainCtx.RuntimeValues[followupArtifactKey] = map[string]any{
+	payload := map[string]any{
 		"domain":           artifact.Domain,
 		"summary":          artifact.Summary,
+		"profile_boundary": artifact.ProfileBoundary,
 		"direct_answer":    artifact.DirectAnswer,
 		"key_points":       append([]string(nil), artifact.KeyPoints...),
 		"evidence_summary": artifact.EvidenceSummary,
@@ -151,6 +154,9 @@ func storeFollowupArtifact(st *state.SessionState, route policy.ApprovedRoute, r
 		"source_question":  artifact.SourceQuestion,
 		"turn_type":        artifact.TurnType,
 		"updated_at":       artifact.UpdatedAt,
+	}
+	if _, stored := st.StoreInterpretation(artifact.Domain, payload); stored {
+		return
 	}
 }
 
@@ -164,6 +170,12 @@ func maybeReuseFollowupArtifact(m *Manager, st *state.SessionState, route policy
 	artifact, ok := loadFollowupArtifact(st, route.PrimaryDomain)
 	if !ok {
 		return "", false
+	}
+	// A profile-boundary result is deliberately evidence-only. Letting the
+	// generic follow-up LLM expand it would bypass the selected profile's
+	// validation contract and fabricate an interpretation from missing rules.
+	if artifact.ProfileBoundary {
+		return artifact.Summary, true
 	}
 	if strings.TrimSpace(message) == "" {
 		return artifact.Summary, true

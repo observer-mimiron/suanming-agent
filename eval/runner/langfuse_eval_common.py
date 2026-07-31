@@ -112,11 +112,12 @@ def get_route_primary(trace):
     return get_trace_field(trace, "approved_route.primary_domain")
 
 
-def list_traces_by_session(base_url, headers, expected_session_id, limit=20):
+def list_traces_by_session(base_url, headers, expected_session_id, limit=20, excluded_trace_ids=None):
+    excluded_trace_ids = set(excluded_trace_ids or [])
     payload = api_request(base_url, "GET", f"/api/public/traces?limit={limit}", headers)
     for item in payload.get("data", []):
         session_id = item.get("sessionId") or get_trace_field(item, "session_id") or get_trace_field(item, "langfuse.session.id")
-        if session_id == expected_session_id:
+        if session_id == expected_session_id and item.get("id") not in excluded_trace_ids:
             return item
     return None
 
@@ -206,10 +207,10 @@ def write_score(base_url, headers, trace_id, name, value, comment=""):
     )
 
 
-def poll_trace_detail(base_url, headers, session_id, timeout_seconds=120, poll_interval_seconds=3, max_limit=20):
+def poll_trace_detail(base_url, headers, session_id, timeout_seconds=120, poll_interval_seconds=3, max_limit=20, excluded_trace_ids=None):
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
-        summary = list_traces_by_session(base_url, headers, session_id, max_limit)
+        summary = list_traces_by_session(base_url, headers, session_id, max_limit, excluded_trace_ids)
         if summary:
             trace_id = summary["id"]
             detail = get_trace_detail(base_url, headers, trace_id)

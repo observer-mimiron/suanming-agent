@@ -3,6 +3,7 @@ package bazi
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestFindCurrentDayun_OutOfRange(t *testing.T) {
@@ -35,6 +36,28 @@ func TestFindCurrentDayun_OutOfRange(t *testing.T) {
 	// 情况 4：空列表
 	if got := findCurrentDayun([]map[string]any{}, 10); len(got) != 0 {
 		t.Errorf("findCurrentDayun(empty list) = %v, want empty map", got)
+	}
+}
+
+func TestFindCurrentDayunAt_UsesExactBoundaryBeforeVirtualAge(t *testing.T) {
+	dayunList := []map[string]any{
+		{
+			"startAge": 43, "endAge": 52, "ganZhi": "癸酉",
+			"startAt": "2016-11-07 16:00:00", "endAtExclusive": "2026-11-07 16:00:00",
+		},
+		{
+			"startAge": 53, "endAge": 62, "ganZhi": "甲戌",
+			"startAt": "2026-11-07 16:00:00", "endAtExclusive": "2036-11-07 16:00:00",
+		},
+	}
+
+	before, source := findCurrentDayunAt(dayunList, time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC), 53)
+	if source != "date_boundary" || before["ganZhi"] != "癸酉" {
+		t.Fatalf("before boundary = %v (%s), want 癸酉/date_boundary", before, source)
+	}
+	after, source := findCurrentDayunAt(dayunList, time.Date(2026, 12, 1, 12, 0, 0, 0, time.UTC), 53)
+	if source != "date_boundary" || after["ganZhi"] != "甲戌" {
+		t.Fatalf("after boundary = %v (%s), want 甲戌/date_boundary", after, source)
 	}
 }
 

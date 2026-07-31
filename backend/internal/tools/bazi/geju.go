@@ -204,8 +204,8 @@ func determineGeju(monthZhi, dayGan, dayWx string, allGan []string,
 	return mainGeju, fmt.Sprintf("月令%s本气%s未透，先以本气十神%s定主格为%s", monthZhi, mainHidden, mainTenGod, mainGeju), "浊"
 }
 
-// refineShangGuan 细分伤官格为伤尽或见官。
-// 子平真诠：伤官最忌见官，四柱无官星则伤尽为贵；有官星透出则伤官见官，破格风险大。
+// refineShangGuan 仅记录官星是否透干，避免把“官未透”误写成“命盘无官星”。
+// 藏官是否影响伤尽属于流派裁断，必须保留给上游 rule profile。
 func refineShangGuan(gejuName, gejuBasis, dayGan string, allGan []string, stemWx map[string]string, generates map[string]string) (string, string) {
 	dayWx := stemWx[dayGan]
 	for _, g := range allGan {
@@ -216,7 +216,7 @@ func refineShangGuan(gejuName, gejuBasis, dayGan string, allGan []string, stemWx
 			return "伤官格(见官)", gejuBasis + "；命盘有官星透出，伤官见官，需注意破格风险"
 		}
 	}
-	return "伤官格(伤尽)", gejuBasis + "；命盘无官星，伤官伤尽为贵"
+	return "伤官格(官未透)", gejuBasis + "；官星未透干，伤尽与否仍须结合藏官与所选流派裁断"
 }
 
 // checkBianGe 检测变格（从格、专旺格、两神成象格）。

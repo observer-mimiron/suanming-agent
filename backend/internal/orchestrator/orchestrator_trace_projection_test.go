@@ -4,6 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/observer-mimiron/suanming-agent/internal/policy"
+	appRuntime "github.com/observer-mimiron/suanming-agent/internal/runtime"
+	"github.com/observer-mimiron/suanming-agent/internal/specialists"
+	"github.com/observer-mimiron/suanming-agent/internal/state"
+	"github.com/observer-mimiron/suanming-agent/internal/tools"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
 
@@ -14,6 +19,14 @@ type recordingSink struct {
 func (s *recordingSink) Emit(_ context.Context, evt Event) error {
 	s.events = append(s.events, evt)
 	return nil
+}
+
+type staticRouteAdvisor struct {
+	route policy.ApprovedRoute
+}
+
+func (a staticRouteAdvisor) Approve(_ context.Context, _ string, _ *state.SessionState) (policy.ApprovedRoute, error) {
+	return a.route, nil
 }
 
 func TestEmitTracePanels_SendsProcessAndDebugComponents(t *testing.T) {
@@ -64,6 +77,53 @@ func TestEmitTracePanels_SendsProcessAndDebugComponents(t *testing.T) {
 	}
 	if data2["type"] != "execution-tree" {
 		t.Fatalf("event 2 component type = %v, want execution-tree", data2["type"])
+	}
+}
+
+func TestRun_EmitsErrorAndDoneOnRuntimeFailure(t *testing.T) {
+	exec, err := appRuntime.NewExecutor(tools.NewRegistry(), specialists.NewRegistry(), nil, nil, nil, appRuntime.ExecutorConfig{})
+	if err != nil {
+		t.Fatalf("NewExecutor() error = %v", err)
+	}
+	orc := New(exec, nil, state.NewPersistentStore(""), state.NewMemoryLocker(), tracing.NewRealTracer(nil))
+	orc.SetSupervisor(staticRouteAdvisor{route: policy.ApprovedRoute{
+		PrimaryDomain: "qimen",
+		TaskIntent:    "fortune_followup",
+	}})
+	sink := &recordingSink{}
+
+	err = orc.Run(context.Background(), sink, "sess-runtime-error", "今天运气怎么样")
+	if err == nil {
+		t.Fatal("Run() error = nil, want runtime failure")
+	}
+
+	var errorIndex, doneIndex = -1, -1
+	for i, evt := range sink.events {
+		switch evt.Type {
+		case "error":
+			errorIndex = i
+			data, ok := evt.Data.(map[string]any)
+			if !ok {
+				t.Fatalf("error event data = %T, want map", evt.Data)
+			}
+			if got := data["code"]; got != "REQUIRED_ARTIFACT_UNAVAILABLE" {
+				t.Fatalf("error code = %v, want REQUIRED_ARTIFACT_UNAVAILABLE", got)
+			}
+			if got := data["message"]; got == "" {
+				t.Fatalf("error message must be user-visible, got %v", got)
+			}
+		case "done":
+			doneIndex = i
+		}
+	}
+	if errorIndex < 0 {
+		t.Fatalf("events missing error: %+v", sink.events)
+	}
+	if doneIndex < 0 {
+		t.Fatalf("events missing done: %+v", sink.events)
+	}
+	if errorIndex > doneIndex {
+		t.Fatalf("error event must be emitted before done, error=%d done=%d", errorIndex, doneIndex)
 	}
 }
 

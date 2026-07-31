@@ -199,6 +199,35 @@ func TestBaziCalc_DayGanWuxingUsesDayStemOnly(t *testing.T) {
 	}
 }
 
+func TestBaziCalc_ExportsDeterministicDayunContract(t *testing.T) {
+	tool := &CalcTool{}
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"year": float64(1991), "month": float64(10), "day": float64(5),
+		"hour": float64(12), "minute": float64(34), "gender": "男",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	data := result.(map[string]any)
+	if got := data["birthday"]; got != "1991-10-05 12:34" {
+		t.Fatalf("birthday = %v, want minute-preserving timestamp", got)
+	}
+	metadata, ok := data["dayun_metadata"].(map[string]any)
+	if !ok {
+		t.Fatal("dayun_metadata missing")
+	}
+	if got := metadata["direction"]; got != "reverse" {
+		t.Fatalf("direction = %v, want reverse for 辛年男命", got)
+	}
+	if _, ok := metadata["start_at"].(string); !ok {
+		t.Fatalf("start_at = %v, want exact timestamp", metadata["start_at"])
+	}
+	dayun := data["dayun"].([]map[string]any)
+	if len(dayun) < 2 || dayun[1]["startAt"] == "" || dayun[1]["endAtExclusive"] == "" {
+		t.Fatalf("dayun boundary fields missing: %v", dayun)
+	}
+}
+
 func TestBaziCalc_LateZiHourLunarDateUsesSameSectAsDayPillar(t *testing.T) {
 	tool := &CalcTool{}
 	result, err := tool.Execute(context.Background(), map[string]any{
@@ -269,6 +298,37 @@ func TestBaziCalc_ZiZhengBoundaryAtMidnight(t *testing.T) {
 	timePillar := pillars[3]["stem"].(string) + pillars[3]["branch"].(string)
 	if timePillar != "甲子" {
 		t.Fatalf("time pillar=%s, want 甲子", timePillar)
+	}
+}
+
+func TestBaziCalc_TrueSolarTimeCrossesMidnightInShanghai(t *testing.T) {
+	tool := &CalcTool{}
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"year":      float64(2025),
+		"month":     float64(11),
+		"day":       float64(10),
+		"hour":      float64(23),
+		"minute":    float64(53),
+		"longitude": 121.4737,
+		"gender":    "男",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	data := result.(map[string]any)
+	if got := data["birthday"]; got != "2025-11-11 00:15" {
+		t.Fatalf("true-solar birthday=%v, want 2025-11-11 00:15", got)
+	}
+
+	pillars := data["pillars"].([]map[string]any)
+	dayPillar := pillars[2]["stem"].(string) + pillars[2]["branch"].(string)
+	if dayPillar != "甲申" {
+		t.Fatalf("day pillar=%s, want 甲申 after true-solar midnight crossing", dayPillar)
+	}
+	timePillar := pillars[3]["stem"].(string) + pillars[3]["branch"].(string)
+	if timePillar != "甲子" {
+		t.Fatalf("time pillar=%s, want 甲子 after true-solar midnight crossing", timePillar)
 	}
 }
 

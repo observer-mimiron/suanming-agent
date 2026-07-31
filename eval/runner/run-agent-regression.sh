@@ -3,6 +3,16 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
+# A smoke run drives real LLM calls against shared local services. Concurrent
+# invocations can mix sessions and make a failed run look like a runtime fault.
+run_dir="/tmp/suanming-agent"
+mkdir -p "$run_dir"
+exec 9>"$run_dir/agent-regression.lock"
+if ! flock -n 9; then
+  echo "agent regression is already running; wait for it to finish before starting another run" >&2
+  exit 1
+fi
+
 if [[ -z "${AGENT_REGRESSION_SERVER:-}" ]]; then
   server_url="http://localhost:8080"
 else
@@ -49,5 +59,7 @@ if ! curl -fsS "$server_url/api/health" >/dev/null 2>&1; then
 fi
 
 go test ./backend/internal/runtime -run 'ExecutionPlan|Manager|GuardFinalAnswer|Prefill|RuntimeFailure' -v
+go test ./backend/internal/state ./backend/internal/tools/bazi -run 'SessionAssets|ExportsDeterministicDayunContract|FindCurrentDayunAt' -v
 go test ./backend/internal/supervisor ./backend/internal/policy -v
-./eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/runtime-smoke-v1.json --server-url "$server_url" --langfuse-url "$langfuse_url"
+report_path="${AGENT_REGRESSION_REPORT:-$run_dir/runtime-smoke-report.json}"
+./eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/runtime-smoke-v1.json --server-url "$server_url" --langfuse-url "$langfuse_url" --report-path "$report_path"

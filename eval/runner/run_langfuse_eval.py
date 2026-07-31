@@ -11,6 +11,7 @@ from typing import Any
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from langfuse_eval_common import (  # noqa: E402
     backend_request,
+    get_trace_detail,
     get_observation_names,
     get_route_primary,
     get_trace_field,
@@ -49,6 +50,26 @@ def invoke_chat(server_url: str, session_id: str, message: str, timeout_seconds:
     return body
 
 
+def remaining_timeout_seconds(deadline: float) -> int:
+    """Return a positive request timeout without exceeding one case deadline."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("evaluation case exceeded its total time budget")
+    return max(1, int(remaining + 0.999))
+
+
+def case_timeout_seconds(case: dict[str, Any], default_timeout_seconds: int) -> int:
+    """Return a positive case-specific budget, falling back to the suite default."""
+    value = case.get("timeout_seconds", default_timeout_seconds)
+    try:
+        timeout_seconds = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid timeout_seconds for case {case.get('id', '')}: {value!r}") from exc
+    if timeout_seconds <= 0:
+        raise ValueError(f"timeout_seconds for case {case.get('id', '')} must be positive")
+    return timeout_seconds
+
+
 def smoke_case(
     case: dict[str, Any],
     server_url: str,
@@ -61,12 +82,28 @@ def smoke_case(
 ) -> dict[str, Any]:
     session_base = str(case.get("session_id") or f"eval-{case['id']}")
     session_id = f"{session_base}-{uuid.uuid4().hex}"
+    deadline = time.monotonic() + case_timeout_seconds(case, timeout_seconds)
 
     setup_message = str(case.get("setup_message") or "").strip()
+    excluded_trace_ids: set[str] = set()
     if setup_message:
-        invoke_chat(server_url, session_id, setup_message, timeout_seconds)
+        invoke_chat(server_url, session_id, setup_message, remaining_timeout_seconds(deadline))
+        setup_trace_id, _ = poll_trace_detail(
+            langfuse_url,
+            headers,
+            session_id,
+            timeout_seconds=remaining_timeout_seconds(deadline),
+            poll_interval_seconds=max(1, poll_interval_seconds),
+            max_limit=max_polls,
+        )
+        excluded_trace_ids.add(setup_trace_id)
 
-    chat_content = invoke_chat(server_url, session_id, str(case.get("message") or ""), timeout_seconds)
+    chat_content = invoke_chat(
+        server_url,
+        session_id,
+        str(case.get("message") or ""),
+        remaining_timeout_seconds(deadline),
+    )
     if "event: done" not in chat_content:
         raise RuntimeError("missing SSE done event")
 
@@ -85,16 +122,17 @@ def smoke_case(
     turn_type = ""
     service_name = ""
     observation_names: list[str] = []
-    deadline = time.time() + max(1, timeout_seconds)
-    while time.time() < deadline:
-        trace_id, trace_detail = poll_trace_detail(
-            langfuse_url,
-            headers,
-            session_id,
-            timeout_seconds=max(1, timeout_seconds),
-            poll_interval_seconds=max(1, poll_interval_seconds),
-            max_limit=max_polls,
-        )
+    trace_id, trace_detail = poll_trace_detail(
+        langfuse_url,
+        headers,
+        session_id,
+        timeout_seconds=remaining_timeout_seconds(deadline),
+        poll_interval_seconds=max(1, poll_interval_seconds),
+        max_limit=max_polls,
+        excluded_trace_ids=excluded_trace_ids,
+    )
+    while time.monotonic() < deadline:
+        trace_detail = get_trace_detail(langfuse_url, headers, trace_id)
         route_primary = get_route_primary(trace_detail)
         task_intent = get_trace_field(trace_detail, "task_intent")
         turn_type = get_trace_field(trace_detail, "turn_type")
@@ -105,16 +143,16 @@ def smoke_case(
             raise RuntimeError(f"service.name mismatch: {service_name}")
 
         if expected_route_primary and route_primary != expected_route_primary:
-            time.sleep(max(1, poll_interval_seconds))
+            time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
             continue
         if expected_task_intents and task_intent not in expected_task_intents:
-            time.sleep(max(1, poll_interval_seconds))
+            time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
             continue
         if expected_turn_types and turn_type not in expected_turn_types:
-            time.sleep(max(1, poll_interval_seconds))
+            time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
             continue
         if any(name not in observation_names for name in required_observations):
-            time.sleep(max(1, poll_interval_seconds))
+            time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
             continue
         break
 

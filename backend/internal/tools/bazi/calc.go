@@ -5,6 +5,8 @@ package bazi
 import (
 	"context"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/6tail/lunar-go/calendar"
 )
@@ -45,34 +47,25 @@ func (t *CalcTool) Execute(_ context.Context, params map[string]any) (any, error
 	y, m, d, h := int(year), int(month), int(day), int(hour)
 
 	// ---- 真太阳时校正 ----
-	// 中国标准时间基于 120°E。如果用户提供出生地经度，做太阳时校正。
-	// 每差 1° 经度，太阳时差约 4 分钟。>120°E 加时间，<120°E 减时间。
-	// 校正可能跨越日界（如新疆 23:30 钟表时间 → 太阳时次日 00:xx）。
-	origHour := h
+	// 中国标准时间基于 120°E。真太阳时除了经度地方时，还必须叠加
+	// 当天均时差；只做经度修正会漏掉约 16 分钟的季节性差异，并在子正边界
+	// 错过实际跨日。先统一修正出生时刻，再交由子正换日口径计算四柱。
 	minute := 0
 	if mv, hasMin := params["minute"].(float64); hasMin {
 		minute = int(mv)
 	}
 	if lng, hasLng := params["longitude"].(float64); hasLng && lng >= -180 && lng <= 180 {
-		offsetMinutes := int((lng - 120.0) * 4)
-		solarMinutes := h*60 + minute + offsetMinutes
-		for solarMinutes < 0 {
-			solarMinutes += 24 * 60
-			d--
-		}
-		for solarMinutes >= 24*60 {
-			solarMinutes -= 24 * 60
-			d++
-		}
-		h = solarMinutes / 60
-		minute = solarMinutes % 60
-		if h != origHour {
-			// 已校正 — 下方生日字符串使用修正后的日期时辰
-		}
+		corrected := time.Date(y, time.Month(m), d, h, minute, 0, 0, time.UTC).
+			Add(time.Duration(TrueSolarOffsetMinutes(y, m, d, lng)) * time.Minute)
+		correctedYear, correctedMonth, correctedDay := corrected.Date()
+		y, m, d = correctedYear, int(correctedMonth), correctedDay
+		h, minute, _ = corrected.Clock()
 	}
 	// ---- 太阳时校正结束 ----
 
-	solar := calendar.NewSolar(y, m, d, h, 0, 0)
+	// The minute is part of the birth instant. It affects true-solar-time
+	// correction and must remain available to lunar-go's start-luck boundary.
+	solar := calendar.NewSolar(y, m, d, h, minute, 0)
 	lunar := solar.GetLunar()
 	ec := lunar.GetEightChar()
 	// sect=3 启用项目采用的“子正换日”口径：
@@ -151,12 +144,28 @@ func (t *CalcTool) Execute(_ context.Context, params map[string]any) (any, error
 		genderInt = 1
 	}
 	yun := ec.GetYun(genderInt)
+	startSolar := yun.GetStartSolar()
 	dayun := make([]map[string]any, 0)
 	for _, dy := range yun.GetDaYun() {
+		startAt := startSolar
+		if dy.GetIndex() > 0 {
+			startAt = startSolar.NextYear((dy.GetIndex() - 1) * 10)
+		}
+		endAtExclusive := startSolar.NextYear(dy.GetIndex() * 10)
+		if dy.GetIndex() == 0 {
+			startAt = solar
+			endAtExclusive = startSolar
+		}
 		dayun = append(dayun, map[string]any{
-			"startAge": dy.GetStartAge(),
-			"endAge":   dy.GetEndAge(),
-			"ganZhi":   dy.GetGanZhi(),
+			"sequence":       dy.GetIndex(),
+			"phase":          dayunPhase(dy.GetIndex()),
+			"startAge":       dy.GetStartAge(),
+			"endAge":         dy.GetEndAge(),
+			"startYear":      dy.GetStartYear(),
+			"endYear":        dy.GetEndYear(),
+			"startAt":        startAt.ToYmdHms(),
+			"endAtExclusive": endAtExclusive.ToYmdHms(),
+			"ganZhi":         dy.GetGanZhi(),
 		})
 	}
 
@@ -167,9 +176,21 @@ func (t *CalcTool) Execute(_ context.Context, params map[string]any) (any, error
 		"pillars":               pillars,
 		"dayGan":                ec.GetDayGan(),
 		// 这里展示的是“日主五行”，应只取日干五行，不取日柱复合五行。
-		"dayGanWuxing":    stemWx[ec.GetDayGan()],
-		"wuxing":          wuxing,
-		"dayun":           dayun,
+		"dayGanWuxing": stemWx[ec.GetDayGan()],
+		"wuxing":       wuxing,
+		"dayun":        dayun,
+		"dayun_metadata": map[string]any{
+			"direction":          dayunDirection(yun.IsForward()),
+			"direction_basis":    dayunDirectionBasis(ec.GetYearGan(), gender, yun.IsForward()),
+			"calculation_method": "lunar_go_yun_sect1",
+			"start_offset": map[string]any{
+				"years":  yun.GetStartYear(),
+				"months": yun.GetStartMonth(),
+				"days":   yun.GetStartDay(),
+				"hours":  yun.GetStartHour(),
+			},
+			"start_at": startSolar.ToYmdHms(),
+		},
 		"gender":          gender,
 		"birthday":        fmt.Sprintf("%d-%02d-%02d %02d:%02d", y, m, d, h, minute),
 		"mingGong":        ec.GetMingGong(),
@@ -181,4 +202,42 @@ func (t *CalcTool) Execute(_ context.Context, params map[string]any) (any, error
 		"lunarDate":       fmt.Sprintf("%s年%s月%s日", lunar.GetYearInGanZhi(), lunar.GetMonthInGanZhi(), ec.GetDay()),
 		"shensha_summary": shenshaSummary,
 	}, nil
+}
+
+// TrueSolarOffsetMinutes returns the total minute offset from China Standard
+// Time to apparent solar time for a date and longitude.
+func TrueSolarOffsetMinutes(year, month, day int, longitude float64) int {
+	// NOAA 的均时差近似式以分钟返回“视太阳时 - 平太阳时”。日期粒度下
+	// 误差远小于当前排盘输入的分钟精度，且避免为单一排盘工具引入外部天文依赖。
+	dayOfYear := time.Date(year, time.Month(month), day, 12, 0, 0, 0, time.UTC).YearDay()
+	gamma := 2 * math.Pi / 365 * (float64(dayOfYear) - 1)
+	equationOfTime := 229.18 * (0.000075 + 0.001868*math.Cos(gamma) - 0.032077*math.Sin(gamma) - 0.014615*math.Cos(2*gamma) - 0.040849*math.Sin(2*gamma))
+	longitudeCorrection := (longitude - 120.0) * 4
+	return int(math.Round(longitudeCorrection + equationOfTime))
+}
+
+func dayunPhase(index int) string {
+	if index == 0 {
+		return "childhood"
+	}
+	return "dayun"
+}
+
+func dayunDirection(forward bool) string {
+	if forward {
+		return "forward"
+	}
+	return "reverse"
+}
+
+func dayunDirectionBasis(yearStem, gender string, forward bool) string {
+	yinYang := "阳"
+	if yearStem == "乙" || yearStem == "丁" || yearStem == "己" || yearStem == "辛" || yearStem == "癸" {
+		yinYang = "阴"
+	}
+	direction := "顺行"
+	if !forward {
+		direction = "逆行"
+	}
+	return "年干" + yearStem + "为" + yinYang + "；" + gender + "命，按" + yinYang + "年" + gender + "命" + direction
 }
