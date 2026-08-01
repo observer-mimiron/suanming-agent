@@ -156,25 +156,25 @@ func renderFullTemplate(state baziCharterState) string {
 	writeHeading(&b, "强弱视角")
 	writeConclusion(&b, buildStrengthConclusion(state))
 	writeBullets(&b, []string{
-		"**依据**：" + fallbackText(state.StaticSynthesis.Strength.Reasoning, fallbackText(state.StaticSynthesis.StrengthBalance, "未取得足够的扶抑证据。")),
-		"**扶抑喜忌**：" + fallbackText(state.StaticSynthesis.Usage.Fuyi, "上游未提供扶抑喜忌。"),
-		"**解释**：" + fallbackText(state.StaticSynthesis.Strength.Boundary, "扶抑只处理日主受力；格局取用与调候另行判断。"),
+		labeledBullet("依据", firstDisplayText(state.StaticSynthesis.Strength.Reasoning, state.StaticSynthesis.StrengthBalance)),
+		labeledBullet("扶抑喜忌", state.StaticSynthesis.Usage.Fuyi),
+		labeledBullet("解释", state.StaticSynthesis.Strength.Boundary),
 	})
 
 	writeHeading(&b, "调候视角")
 	writeConclusion(&b, buildTiaohouConclusion(state))
 	writeBullets(&b, []string{
-		"**依据**：" + fallbackText(state.StaticSynthesis.TiaohouAnchor, "未命中逐月调候规则。"),
-		"**解释**：" + fallbackText(state.StaticSynthesis.TiaohouConstraint, "调候与扶抑、格局用神分层处理。"),
+		labeledBullet("依据", state.StaticSynthesis.TiaohouAnchor),
+		labeledBullet("解释", state.StaticSynthesis.TiaohouConstraint),
 	})
 
 	writeHeading(&b, "格局视角")
 	writeConclusion(&b, buildPatternConclusion(state))
 	writeBullets(&b, []string{
 		"**规则口径**：" + ruleProfileLabel(state),
-		"**依据**：" + fallbackText(state.StaticSynthesis.PatternBasis, "未取得格局主证。"),
-		"**取用分层**：" + buildUseGodSummary(state),
-		"**限制**：" + buildLimitationText(state),
+		labeledBullet("依据", state.StaticSynthesis.PatternBasis),
+		labeledBullet("取用分层", buildUseGodSummary(state)),
+		labeledBullet("限制", buildLimitationText(state)),
 	})
 
 	writeHeading(&b, "大运验证")
@@ -193,25 +193,25 @@ func renderFullTemplate(state baziCharterState) string {
 	} else {
 		writeConclusion(&b, buildLiunianConclusion(state))
 		writeBullets(&b, []string{
-			"**年性**：" + fallbackText(renderWindowLevel(state.DynamicSynthesis.WindowLevel), "上游未提供流年等级。"),
-			"**依据**：" + joinOrDefault(state.DynamicSynthesis.TriggerSignals, "上游未提供触发点。"),
-			"**限制**：" + buildDynamicConstraintText(state),
+			labeledBullet("年性", renderWindowLevel(state.DynamicSynthesis.WindowLevel)),
+			labeledBullet("依据", joinOrDefault(state.DynamicSynthesis.TriggerSignals, "")),
+			labeledBullet("限制", buildDynamicConstraintText(state)),
 		})
 	}
 
 	writeHeading(&b, "综合判定")
-	writeConclusion(&b, fallbackText(state.StaticSynthesis.TierJudgment, "上游未提供层次裁断。"))
+	writeConclusion(&b, state.StaticSynthesis.TierJudgment)
 	writeBullets(&b, []string{
-		"**解释**：" + fallbackText(state.StaticSynthesis.TierBasis, "尚无足够的层次依据。"),
-		"**岁运兑现**：" + buildTierRealizationText(state),
+		labeledBullet("解释", state.StaticSynthesis.TierBasis),
+		labeledBullet("岁运兑现", buildTierRealizationText(state)),
 	})
 
 	writeHeading(&b, "命格总结")
 	writeBullets(&b, []string{
-		"**最大优点**：" + joinOrDefault(state.StaticSynthesis.Advantages, "上游未提供优势裁断。"),
-		"**最大风险**：" + joinOrDefault(state.StaticSynthesis.Risks, buildLimitationText(state)),
-		"**用力方向**：" + buildProfileActionDirection(state),
-		"**务实建议**：" + buildProfilePracticalAdvice(state),
+		labeledBullet("最大优点", joinOrDefault(state.StaticSynthesis.Advantages, "")),
+		labeledBullet("最大风险", joinOrDefault(state.StaticSynthesis.Risks, buildLimitationText(state))),
+		labeledBullet("用力方向", buildProfileActionDirection(state)),
+		labeledBullet("务实建议", buildProfilePracticalAdvice(state)),
 	})
 	return strings.TrimSpace(b.String())
 }
@@ -228,7 +228,7 @@ func buildUseGodSummary(state baziCharterState) string {
 		parts = append(parts, usage)
 	}
 	if len(parts) == 0 {
-		return "上游未提供取用分层。"
+		return ""
 	}
 	for i := range parts {
 		parts[i] = strings.TrimRight(strings.TrimSpace(parts[i]), "。；")
@@ -251,21 +251,29 @@ func buildOverviewConclusion(state baziCharterState) string {
 }
 
 func buildProfileActionDirection(state baziCharterState) string {
-	_ = state
-	return "上游未提供行动方向。"
+	parts := []string{}
+	if usage := strings.TrimSpace(state.StaticSynthesis.Usage.Pattern); usage != "" {
+		parts = append(parts, "围绕格局取用："+usage)
+	}
+	if usage := strings.TrimSpace(state.StaticSynthesis.Usage.Tiaohou); usage != "" {
+		parts = append(parts, "兼顾调候约束："+usage)
+	}
+	return strings.Join(filterNonEmpty(parts), "；")
 }
 
 func buildProfilePracticalAdvice(state baziCharterState) string {
-	_ = state
-	return "上游未提供务实建议。"
+	if context := buildBaziSubjectContext(state.Input); context.AgeBand == "infant" || context.AgeBand == "child" {
+		return "只按结构观察成长节奏，不把命理信号转成成人现实领域判断。"
+	}
+	return ""
 }
 
 func buildOverviewAxisSummary(state baziCharterState) string {
-	return fallbackText(state.StaticSynthesis.MainAxis, "上游未提供主轴裁断")
+	return firstDisplayText(state.StaticSynthesis.MainAxis, "本轮未形成主轴裁断")
 }
 
 func buildOverviewLimitationSummary(state baziCharterState) string {
-	return fallbackText(state.StaticSynthesis.CounterEvidence, "上游未提供限制裁断")
+	return firstDisplayText(state.StaticSynthesis.CounterEvidence, "本轮未形成限制裁断")
 }
 
 func renderTopicTemplate(plan baziAnalysisPlan, state baziCharterState, question string) string {
@@ -289,28 +297,28 @@ func renderTopicTemplate(plan baziAnalysisPlan, state baziCharterState, question
 		writeConclusion(&b, "本节仅展示上游对该术语或句子的结构化说明。")
 		writeBullets(&b, []string{
 			"**结构落点**：" + buildTopicExplainPosition(state),
-			"**命盘依据**：" + fallbackText(state.StaticSynthesis.AxisConsistency, fallbackText(state.StaticSynthesis.PatternOutcome, "上游未提供命盘依据。")),
+			"**命盘依据**：" + firstDisplayText(state.StaticSynthesis.AxisConsistency, state.StaticSynthesis.PatternOutcome, "本轮未形成命盘依据。"),
 			"**边界**：" + buildTopicExplainBoundary(state),
 		})
 	case "timing_reason":
 		writeConclusion(&b, "本节仅展示上游提供的动态裁断。")
 		writeBullets(&b, []string{
-			"**原局裁断**：" + fallbackText(state.StaticSynthesis.MainAxis, "上游未提供原局裁断。"),
+			"**原局裁断**：" + firstDisplayText(state.StaticSynthesis.MainAxis, "本轮未形成原局裁断。"),
 			"**岁运机制**：" + buildTierRealizationText(state),
 			"**限制**：" + buildDynamicConstraintText(state),
 		})
 	case "conservative_reason":
 		writeConclusion(&b, "本节仅展示上游提供的裁断与反证。")
 		writeBullets(&b, []string{
-			"**上游裁断**：" + fallbackText(state.StaticSynthesis.PatternOutcome, "上游未提供格局裁断。"),
+			labeledBullet("裁断", firstDisplayText(state.StaticSynthesis.PatternOutcome, "本轮未形成格局裁断。")),
 			"**限制面**：" + buildLimitationText(state),
-			"**层次依据**：" + fallbackText(state.StaticSynthesis.TierBasis, "上游未提供层次依据。"),
+			"**层次依据**：" + firstDisplayText(state.StaticSynthesis.TierBasis, "本轮未形成层次依据。"),
 		})
 	default:
 		writeConclusion(&b, "本节仅展示上游提供的命盘裁断。")
 		writeBullets(&b, []string{
-			"**主轴**：" + fallbackText(state.StaticSynthesis.MainAxis, "上游未提供主轴裁断。"),
-			"**上游裁断**：" + fallbackText(state.StaticSynthesis.PatternOutcome, "上游未提供格局裁断。"),
+			"**主轴**：" + firstDisplayText(state.StaticSynthesis.MainAxis, "本轮未形成主轴裁断。"),
+			labeledBullet("裁断", firstDisplayText(state.StaticSynthesis.PatternOutcome, "本轮未形成格局裁断。")),
 			"**限制**：" + buildTopicConstraintText(state),
 		})
 	}
@@ -318,11 +326,11 @@ func renderTopicTemplate(plan baziAnalysisPlan, state baziCharterState, question
 	writeHeading(&b, "建议")
 	switch topicMode {
 	case "explain_term":
-		writeConclusion(&b, "上游未提供行动建议。")
+		writeConclusion(&b, "这类术语解释只回答结构含义，不额外生成行动建议。")
 	case "timing_reason":
-		writeConclusion(&b, "上游未提供行动建议。")
+		writeConclusion(&b, "本轮只解释岁运机制，现实行动仍需结合当下条件判断。")
 	case "conservative_reason":
-		writeConclusion(&b, "上游未提供行动建议。")
+		writeConclusion(&b, "本轮以保守解释为主，不把命理结构转成具体行动指令。")
 	default:
 		writeConclusion(&b, buildTopicAdviceConclusion(state))
 	}
@@ -348,7 +356,7 @@ func renderYearTemplate(state baziCharterState, question string) string {
 		return strings.TrimSpace(b.String())
 	}
 	writeHeading(&b, "年度判断")
-	writeConclusion(&b, conclusionOrDefault("上游未提供年度裁断。", buildLiunianConclusion(state)))
+	writeConclusion(&b, conclusionOrDefault("本轮未形成年度裁断。", buildLiunianConclusion(state)))
 	writeParagraphs(&b, []string{
 		buildTopicDirectParagraph(state),
 	})
@@ -356,15 +364,15 @@ func renderYearTemplate(state baziCharterState, question string) string {
 	writeHeading(&b, "作用机制")
 	writeConclusion(&b, "本节仅展示上游提供的动态推盘步骤。")
 	writeSteps(&b, ensureSteps(state.DynamicSynthesis.ReasoningSteps, []string{
-		"上游未提供动态推盘步骤。",
+		"本轮未形成动态推盘步骤。",
 	}))
 
 	writeHeading(&b, "重点应期")
 	writeConclusion(&b, "本节仅展示上游提供的流年信息。")
 	writeBullets(&b, []string{
-		"**年性**：" + fallbackText(renderWindowLevel(state.DynamicSynthesis.WindowLevel), "上游未提供流年等级。"),
+		"**年性**：" + firstDisplayText(renderWindowLevel(state.DynamicSynthesis.WindowLevel), "本轮未形成流年等级。"),
 		"**触发点**：" + joinOrDefault(state.DynamicSynthesis.TriggerSignals, "本轮未给出更细触发点。"),
-		"**应事领域**：" + fallbackText(state.DynamicSynthesis.LiunianFocus, "上游未提供应事领域。"),
+		"**应事领域**：" + firstDisplayText(state.DynamicSynthesis.LiunianFocus, "本轮未形成应事领域。"),
 		"**限制**：" + buildDynamicConstraintText(state),
 	})
 
@@ -532,12 +540,12 @@ func buildTopicDirectConclusion(plan baziAnalysisPlan, state baziCharterState, q
 	}
 	switch normalizedTopicMode(plan.TopicMode) {
 	case "timing_reason":
-		return fallbackText(state.DynamicSynthesis.CurrentTrend, "上游未提供动态裁断。")
+		return firstDisplayText(state.DynamicSynthesis.CurrentTrend, "本轮未形成动态裁断。")
 	}
 	if text := strings.TrimSpace(state.DynamicSynthesis.CurrentTrend); text != "" {
 		return text
 	}
-	return "上游未提供本次追问的直接裁断。"
+	return "本轮未形成这次追问的直接裁断。"
 }
 
 func buildTopicDirectParagraph(state baziCharterState) string {
@@ -552,7 +560,7 @@ func buildTopicDirectParagraph(state baziCharterState) string {
 		parts = append(parts, text)
 	}
 	if len(parts) == 0 {
-		return "上游未提供补充说明。"
+		return ""
 	}
 	return strings.Join(parts, " ")
 }
@@ -575,11 +583,11 @@ func normalizedTopicMode(mode string) string {
 }
 
 func buildTopicFrameText(state baziCharterState) string {
-	return fallbackText(state.StaticSynthesis.MainAxis, "上游未提供结构框架裁断。")
+	return firstDisplayText(state.StaticSynthesis.MainAxis, "本轮未形成结构框架裁断。")
 }
 
 func buildTopicRouteText(state baziCharterState) string {
-	return fallbackText(state.StaticSynthesis.PatternOutcome, "上游未提供结构路线裁断。")
+	return firstDisplayText(state.StaticSynthesis.PatternOutcome, "本轮未形成结构路线裁断。")
 }
 
 func buildTopicExplainPosition(state baziCharterState) string {
@@ -588,7 +596,7 @@ func buildTopicExplainPosition(state baziCharterState) string {
 		buildTopicRouteText(state),
 	})
 	if len(parts) == 0 {
-		return "上游未提供术语位置说明。"
+		return "本轮未形成术语位置说明。"
 	}
 	return strings.Join(parts, " ")
 }
@@ -596,19 +604,22 @@ func buildTopicExplainPosition(state baziCharterState) string {
 func buildTopicExplainBoundary(state baziCharterState) string {
 	return firstNonEmptyTrim(
 		state.StaticSynthesis.CounterEvidence,
-		"上游未提供术语解释边界。",
+		"本轮未形成术语解释边界。",
 	)
 }
 
 func buildTopicAdviceConclusion(state baziCharterState) string {
-	return "上游未提供行动建议。"
+	if context := buildBaziSubjectContext(state.Input); context.AgeBand == "infant" || context.AgeBand == "child" {
+		return "本轮只解释命理结构和成长节奏，不给出成人现实领域建议。"
+	}
+	return "本轮只解释命理结构，不替代现实决策。"
 }
 
 func buildTierRealizationText(state baziCharterState) string {
 	if isFactsOnlyDynamicSynthesis(state.DynamicSynthesis) {
 		return "动态综合未通过，本轮不作岁运趋势裁断。"
 	}
-	return fallbackText(state.DynamicSynthesis.CurrentTrend, "上游未提供岁运兑现裁断。")
+	return firstDisplayText(state.DynamicSynthesis.CurrentTrend, "本轮未形成岁运兑现裁断。")
 }
 
 // factsOnlyDayunPeriods renders deterministic period facts for a mixed result.
@@ -652,7 +663,7 @@ func buildLimitationText(state baziCharterState) string {
 		parts = append(parts, text)
 	}
 	if len(parts) == 0 {
-		return "上游未提供反证或限制。"
+		return "本轮未形成反证或限制。"
 	}
 	return strings.Join(uniqueText(parts), " ")
 }
@@ -693,9 +704,9 @@ func filterNonEmpty(items []string) []string {
 func joinOrDefault(items []string, fallback string) string {
 	items = uniqueText(items)
 	if len(items) == 0 {
-		return sanitizeUnsupportedFlourish(fallback)
+		return cleanUserVisibleText(fallback)
 	}
-	return sanitizeUnsupportedFlourish(strings.Join(items, "；"))
+	return cleanUserVisibleText(strings.Join(items, "；"))
 }
 
 // uniqueText removes exact repeated fallback and risk lines while preserving
@@ -715,9 +726,26 @@ func uniqueText(items []string) []string {
 
 func fallbackText(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
-		return sanitizeUnsupportedFlourish(fallback)
+		return cleanUserVisibleText(fallback)
 	}
-	return sanitizeUnsupportedFlourish(strings.TrimSpace(value))
+	return cleanUserVisibleText(strings.TrimSpace(value))
+}
+
+func firstDisplayText(values ...string) string {
+	for _, value := range values {
+		if text := cleanUserVisibleText(value); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func labeledBullet(label, value string) string {
+	value = cleanUserVisibleText(value)
+	if value == "" {
+		return ""
+	}
+	return "**" + strings.TrimSpace(label) + "**：" + value
 }
 
 func conclusionOrDefault(fallback string, values ...string) string {
@@ -803,4 +831,12 @@ func sanitizeUnsupportedFlourish(text string) string {
 		"可享清福", "后程较稳",
 	)
 	return replacer.Replace(strings.TrimSpace(text))
+}
+
+func cleanUserVisibleText(text string) string {
+	text = sanitizeUnsupportedFlourish(text)
+	if text == "" || strings.Contains(text, "上游未提供") {
+		return ""
+	}
+	return text
 }

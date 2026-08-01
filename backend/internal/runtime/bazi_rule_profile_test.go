@@ -64,8 +64,8 @@ func TestRenderer_OnlyFormatsUpstreamVerdicts(t *testing.T) {
 	if !strings.Contains(topic, state.StaticSynthesis.MainAxis) {
 		t.Fatalf("renderer must display the upstream verdict verbatim:\n%s", topic)
 	}
-	if !strings.Contains(full, "上游未提供行动方向。") {
-		t.Fatalf("renderer must report missing upstream fields instead of inventing advice:\n%s", full)
+	if strings.Contains(full, "上游未提供") || strings.Contains(topic, "上游未提供") {
+		t.Fatalf("renderer must not leak internal missing-field placeholders:\nfull=%s\ntopic=%s", full, topic)
 	}
 }
 
@@ -75,16 +75,16 @@ func TestRenderer_RendersEachDayunAsAnIndependentAnalysisBlock(t *testing.T) {
 			MainAxis: "上游给出静态主轴。",
 		},
 		DynamicSynthesis: baziDynamicSynthesis{
-			CurrentTrend: "当前甲午运（30-39岁）：承托与压力并见。",
+			CurrentTrend: "当前甲午运（30-39岁）：有转机，也有牵制。",
 			DayunPath: []string{
-				"### 丙申运（10-19岁）：承托与压力并见\n**解读**：扶抑两侧同时出现作用，不能按单边顺逆理解。\n- 扶抑面：丙火为承托；申金为压力",
+				"### 丙申运（10-19岁）：有助力但不纯顺\n**解读**：扶抑两侧同时出现作用，不能按单边顺逆理解。\n- 扶抑面：丙火为承托；申金为牵制",
 				"### 甲午运（30-39岁）：承托与扰动并见\n**解读**：承托条件存在，同时关系触发提示过程会有变化与反复。\n- 扶抑面：甲木为压力；午火为承托",
 			},
 		},
 	}
 
 	out := renderBaziFinalReply(baziAnalysisPlan{WriterTemplate: "full"}, state, "")
-	for _, required := range []string{"### 丙申运（10-19岁）：承托与压力并见", "### 甲午运（30-39岁）：承托与扰动并见", "**解读**"} {
+	for _, required := range []string{"### 丙申运（10-19岁）：有助力但不纯顺", "### 甲午运（30-39岁）：承托与扰动并见", "**解读**"} {
 		if !strings.Contains(out, required) {
 			t.Fatalf("dayun analysis missing %q:\n%s", required, out)
 		}

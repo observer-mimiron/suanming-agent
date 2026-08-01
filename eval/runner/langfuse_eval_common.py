@@ -1,6 +1,7 @@
 import base64
 import json
 import pathlib
+import signal
 import time
 import urllib.error
 import urllib.parse
@@ -77,6 +78,10 @@ def api_request(base_url, method, path, headers, body=None, timeout=30):
         raise RuntimeError(f"{method} {path} -> HTTP {exc.code}: {body_text}") from exc
 
 
+def _raise_request_timeout(signum, frame):
+    raise TimeoutError("backend request exceeded its total time budget")
+
+
 def backend_request(base_url, body, timeout=120):
     url = base_url.rstrip("/") + "/api/chat"
     payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -86,8 +91,27 @@ def backend_request(base_url, body, timeout=120):
         method="POST",
         headers={"Content-Type": "application/json; charset=utf-8"},
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.status, resp.read().decode("utf-8", errors="replace")
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, max(1, int(timeout)))
+    signal.signal(signal.SIGALRM, _raise_request_timeout)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body_lines = []
+            saw_done = False
+            while True:
+                raw = resp.readline()
+                if not raw:
+                    break
+                line = raw.decode("utf-8", errors="replace")
+                body_lines.append(line)
+                if line.strip() == "event: done":
+                    saw_done = True
+                elif saw_done and line.strip() == "":
+                    break
+            return resp.status, "".join(body_lines)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+        signal.signal(signal.SIGALRM, previous_handler)
 
 
 def get_trace_field(trace, key):
@@ -192,19 +216,61 @@ def create_dataset_run_item(base_url, headers, run_name, dataset_item_id, trace_
     )
 
 
-def write_score(base_url, headers, trace_id, name, value, comment=""):
+def list_score_configs(base_url, headers):
+    """Return the project's Langfuse score configurations."""
+    return api_request(base_url, "GET", "/api/public/score-configs", headers).get("data", [])
+
+
+def require_score_config_ids(base_url, headers, expected_types):
+    """Resolve required score-config ids and reject missing or incompatible platform state."""
+    configs = {item.get("name"): item for item in list_score_configs(base_url, headers)}
+    resolved = {}
+    for name, expected_type in expected_types.items():
+        config = configs.get(name)
+        if not config:
+            raise RuntimeError(f"missing Langfuse ScoreConfig: {name}")
+        if config.get("dataType") != expected_type:
+            raise RuntimeError(
+                f"Langfuse ScoreConfig {name} type mismatch: {config.get('dataType')} != {expected_type}"
+            )
+        resolved[name] = config["id"]
+    return resolved
+
+
+def write_score(base_url, headers, trace_id, name, value, comment="", config_id="", data_type=""):
+    """Write one score and optionally enforce its Langfuse ScoreConfig contract."""
+    body = {
+        "traceId": trace_id,
+        "name": name,
+        "value": value,
+        "comment": comment,
+    }
+    if config_id:
+        body["configId"] = config_id
+    if data_type:
+        body["dataType"] = data_type
     return api_request(
         base_url,
         "POST",
         "/api/public/scores",
         headers,
-        {
-            "traceId": trace_id,
-            "name": name,
-            "value": value,
-            "comment": comment,
-        },
+        body,
     )
+
+
+def list_scores_v3(base_url, headers, trace_ids=None, names=None, limit=100):
+    """Read typed scores from Langfuse v3 Scores API for duplicate checks and audits."""
+    params = {
+        "limit": str(limit),
+        "fields": "details,subject",
+    }
+    if trace_ids:
+        params["traceId"] = ",".join(trace_ids)
+    if names:
+        params["name"] = ",".join(names)
+    query = urllib.parse.urlencode(params)
+    payload = api_request(base_url, "GET", f"/api/public/v3/scores?{query}", headers)
+    return payload.get("data", [])
 
 
 def poll_trace_detail(base_url, headers, session_id, timeout_seconds=120, poll_interval_seconds=3, max_limit=20, excluded_trace_ids=None):

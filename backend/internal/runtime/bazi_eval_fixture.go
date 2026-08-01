@@ -20,6 +20,7 @@ type baziEvalFixture struct {
 		Month      int    `json:"month"`
 		Day        int    `json:"day"`
 		Hour       int    `json:"hour"`
+		Minute     int    `json:"minute"`
 		Gender     string `json:"gender"`
 		Birthplace string `json:"birthplace"`
 	} `json:"input_profile"`

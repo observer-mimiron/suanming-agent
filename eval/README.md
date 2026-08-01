@@ -22,7 +22,8 @@ Langfuse 页面不是唯一验收信号；UI 没有显示正文，不等于运�
 | 本地 smoke | 已接入 | 真实 `/api/chat`、SSE done、route/task/turn 与 observation 断言 |
 | Langfuse trace/session/dataset/dataset run/score | 已验证 | 本地 WSL Docker 的 self-hosted v3 |
 | 双回合 follow-up 在线 smoke | 待最新报告确认 | 评测器已修复总预算和 setup trace 排除，需重新跑完整在线样本 |
-| LLM Judge / 文本质量评测 | 未接入 | 当前不能证明回答质量或用户满意度 |
+| 八字质量合同评测 | 已接入 | `bazi-quality-v1` 通过真实 `/api/chat`、SSE、Langfuse trace 与结构化响应/属性断言；仍需人工复核命理质量 |
+| LLM Judge / 文本质量评测 | 未接入 | 运行时独立合同审计是二值语义门，不是离线 LLM-as-Judge；当前不能单独证明回答质量或用户满意度 |
 | Experiments / Evals UI | 非主流程 | 当前 v3 部署不能作为稳定入口 |
 
 ## 常用命令
@@ -36,6 +37,9 @@ make eval-smoke
 
 # 全部本地数据集
 make eval-suite
+
+# 八字质量合同（真实请求，通常约数分钟）
+make eval-bazi-quality
 
 # cheap gate 样本聚合
 make cheap-gate-report
@@ -60,6 +64,7 @@ eval/
   datasets/                         # 可执行案例合同
     runtime-smoke-v1.json           # 首轮、follow-up、资产隔离 smoke
     retrieval-benchmark-v1.json     # 检索链路基准
+    bazi-quality-v1.json            # 八字候选裁定、年龄边界与独立审计质量合同
   runner/
     run-agent-regression.sh         # make regression 底层编排
     run_langfuse_eval.py            # 真实请求、trace 轮询和断言
@@ -121,7 +126,7 @@ python3 eval/runner/run-langfuse-experiment.py \
 - follow-up 轮询 trace 时必须排除 `setup_message` 产生的 trace，否则会把首轮 `collect_profile` 误判为追问结果。
 - 每个 case 使用唯一 `session_id`，避免旧 trace 污染断言。
 - 当前最强的是运行时正确性，不是答案质量。新增质量评测前需定义 rubric、人工复核或稳定 Judge 合同。
-- 不要恢复旧 `testsets` 作为正式入口；新增案例放在 `eval/datasets/`。
+- 不要恢复旧 `testsets` 作为正式入口；`eval/skills` 只作为评测操作说明保留，不能替代 runner、dataset 和 report。新增案例放在 `eval/datasets/`。
 
 ## 后续原则
 

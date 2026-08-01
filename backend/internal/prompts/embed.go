@@ -27,6 +27,9 @@ var BaziStaticSynthesisInstruction string
 //go:embed bazi_dynamic_synthesis.md
 var BaziDynamicSynthesisInstruction string
 
+//go:embed bazi_contract_audit.md
+var BaziContractAuditInstruction string
+
 //go:embed bazi_evidence_planner.md
 var BaziEvidencePlannerInstruction string
 

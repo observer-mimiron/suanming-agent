@@ -7,6 +7,20 @@ import (
 	"strings"
 )
 
+const (
+	baziEvidenceSupported = "supported"
+	baziEvidenceWithheld  = "withheld_missing_evidence"
+)
+
+var requiredPatternComparisonDimensions = []string{
+	"visibility",
+	"hidden_stem_tier",
+	"root_support",
+	"season_support",
+	"structural_closure",
+	"counter_evidence",
+}
+
 type baziValidationError struct {
 	Violation baziValidationViolation
 }
@@ -39,7 +53,7 @@ func baziViolationFromError(err error) (baziValidationViolation, bool) {
 
 func ensureStaticAssertions(state baziCharterState, in baziStaticSynthesis) baziStaticSynthesis {
 	if len(in.Assertions) > 0 {
-		return in
+		return canonicalizeStaticAssertionEvidence(state, in)
 	}
 	profile := state.Input.RuleProfile
 	claim := firstClaimRefByCategory(profile, "main_axis", "pattern_candidate")
@@ -48,59 +62,95 @@ func ensureStaticAssertions(state baziCharterState, in baziStaticSynthesis) bazi
 	tierClaim := firstClaimRefByCategory(profile, "tier")
 	in.Assertions = []baziAssertion{
 		{
-			ID:         "static.main_axis",
-			Kind:       baziAssertionMainAxis,
-			Subject:    "chart",
-			Verdict:    firstNonEmptyTrim(in.MainAxis, in.PatternOutcome),
-			FactRefs:   []baziFactRef{"chart.month_branch", "yongshen.geju_candidate"},
-			ClaimRefs:  claim,
-			Confidence: in.ClaimStrength,
-			Boundary:   firstNonEmptyTrim(in.CounterEvidence, profileBoundaryByRef(profile, claim)),
+			ID:             "static.main_axis",
+			Kind:           baziAssertionMainAxis,
+			Subject:        "chart",
+			Verdict:        firstNonEmptyTrim(in.MainAxis, in.PatternOutcome),
+			FactRefs:       []baziFactRef{"chart.month_branch", "yongshen.geju_candidate"},
+			ClaimRefs:      claim,
+			EvidenceTopics: []string{"geju"},
+			EvidenceStatus: evidenceStatusForTopics(state.EvidenceQuality, []string{"geju"}),
+			Confidence:     in.ClaimStrength,
+			Boundary:       firstNonEmptyTrim(in.CounterEvidence, profileBoundaryByRef(profile, claim)),
 		},
 		{
-			ID:         "static.strength",
-			Kind:       baziAssertionStrength,
-			Subject:    "day_master",
-			Verdict:    firstNonEmptyTrim(in.Strength.Conclusion, in.StrengthBalance),
-			FactRefs:   []baziFactRef{"yongshen.strength", "yongshen.strength_evidence"},
-			ClaimRefs:  strengthClaim,
-			Confidence: in.ClaimStrength,
-			Boundary:   in.Strength.Boundary,
+			ID:             "static.strength",
+			Kind:           baziAssertionStrength,
+			Subject:        "day_master",
+			Verdict:        firstNonEmptyTrim(in.Strength.Conclusion, in.StrengthBalance),
+			FactRefs:       []baziFactRef{"yongshen.strength", "yongshen.strength_evidence"},
+			ClaimRefs:      strengthClaim,
+			EvidenceStatus: baziEvidenceSupported,
+			Confidence:     in.ClaimStrength,
+			Boundary:       in.Strength.Boundary,
 		},
 		{
-			ID:         "static.tiaohou",
-			Kind:       baziAssertionTiaohou,
-			Subject:    "chart",
-			Verdict:    firstNonEmptyTrim(in.TiaohouAnchor, in.TiaohouConstraint),
-			FactRefs:   []baziFactRef{"chart.day_gan", "chart.month_branch"},
-			ClaimRefs:  tiaohouClaim,
-			Confidence: in.ClaimStrength,
-			Boundary:   in.TiaohouConstraint,
+			ID:             "static.tiaohou",
+			Kind:           baziAssertionTiaohou,
+			Subject:        "chart",
+			Verdict:        firstNonEmptyTrim(in.TiaohouAnchor, in.TiaohouConstraint),
+			FactRefs:       []baziFactRef{"chart.day_gan", "chart.month_branch"},
+			ClaimRefs:      tiaohouClaim,
+			EvidenceTopics: []string{"tiaohou"},
+			EvidenceStatus: evidenceStatusForTopics(state.EvidenceQuality, []string{"tiaohou"}),
+			Confidence:     in.ClaimStrength,
+			Boundary:       in.TiaohouConstraint,
 		},
 		{
-			ID:         "static.tier",
-			Kind:       baziAssertionTier,
-			Subject:    "chart",
-			Verdict:    in.TierJudgment,
-			FactRefs:   []baziFactRef{"chart.month_branch", "yongshen.strength_evidence"},
-			ClaimRefs:  tierClaim,
-			Confidence: in.ClaimStrength,
-			Boundary:   in.TierBasis,
+			ID:             "static.tier",
+			Kind:           baziAssertionTier,
+			Subject:        "chart",
+			Verdict:        in.TierJudgment,
+			FactRefs:       []baziFactRef{"chart.month_branch", "yongshen.strength_evidence"},
+			ClaimRefs:      tierClaim,
+			EvidenceTopics: append([]string{}, state.EvidenceQuality.RequiredTopics...),
+			EvidenceStatus: evidenceStatusForTopics(state.EvidenceQuality, state.EvidenceQuality.RequiredTopics),
+			Confidence:     in.ClaimStrength,
+			Boundary:       in.TierBasis,
 		},
 	}
 	if strings.TrimSpace(in.TopicDirectAnswer) != "" {
 		in.Assertions = append(in.Assertions, baziAssertion{
-			ID:         "static.topic_answer",
-			Kind:       baziAssertionTopicAnswer,
-			Subject:    "question",
-			Verdict:    in.TopicDirectAnswer,
-			FactRefs:   []baziFactRef{"chart.month_branch"},
-			ClaimRefs:  claim,
-			Confidence: in.ClaimStrength,
-			Boundary:   firstNonEmptyTrim(in.TopicFocusAnswer, in.CounterEvidence),
+			ID:             "static.topic_answer",
+			Kind:           baziAssertionTopicAnswer,
+			Subject:        "question",
+			Verdict:        in.TopicDirectAnswer,
+			FactRefs:       []baziFactRef{"chart.month_branch"},
+			ClaimRefs:      claim,
+			EvidenceTopics: []string{"geju"},
+			EvidenceStatus: evidenceStatusForTopics(state.EvidenceQuality, []string{"geju"}),
+			Confidence:     in.ClaimStrength,
+			Boundary:       firstNonEmptyTrim(in.TopicFocusAnswer, in.CounterEvidence),
 		})
 	}
+	return canonicalizeStaticAssertionEvidence(state, in)
+}
+
+// canonicalizeStaticAssertionEvidence derives evidence status from the runtime
+// retrieval audit instead of trusting the model to restate a deterministic
+// coverage result. The model still owns the verdict text and cited topics; the
+// runtime owns whether those topics were actually covered.
+func canonicalizeStaticAssertionEvidence(state baziCharterState, in baziStaticSynthesis) baziStaticSynthesis {
+	for i := range in.Assertions {
+		required := requiredTopicsForStaticAssertion(in.Assertions[i].Kind, state.EvidenceQuality.RequiredTopics)
+		if len(required) == 0 {
+			continue
+		}
+		in.Assertions[i].EvidenceTopics = mergeEvidenceTopics(in.Assertions[i].EvidenceTopics, required)
+		in.Assertions[i].EvidenceStatus = evidenceStatusForTopics(state.EvidenceQuality, required)
+	}
 	return in
+}
+
+func mergeEvidenceTopics(existing, required []string) []string {
+	merged := make([]string, 0, len(existing)+len(required))
+	for _, topic := range append(append([]string{}, existing...), required...) {
+		topic = strings.TrimSpace(topic)
+		if topic != "" && !containsString(merged, topic) {
+			merged = append(merged, topic)
+		}
+	}
+	return merged
 }
 
 func ensureDynamicAssertions(state baziCharterState, in baziDynamicSynthesis) baziDynamicSynthesis {
@@ -155,7 +205,250 @@ func dayunAssertionFromParts(index int, ganZhi, trend, interpretation string, cl
 
 func validateStaticAssertions(state baziCharterState) error {
 	static := ensureStaticAssertions(state, projectStaticAssertionsToLegacy(state.StaticSynthesis))
+	if err := validateMainAxisAssertionConsistency(static); err != nil {
+		return err
+	}
+	if err := validatePatternAdjudication(state, static.PatternAdjudication); err != nil {
+		return err
+	}
+	if err := validateStaticAssertionEvidenceTopics(state, static.Assertions); err != nil {
+		return err
+	}
 	return validateBaziAssertions(state, static.Assertions)
+}
+
+// validatePatternAdjudication enforces a complete comparison process without
+// selecting a chart-specific pattern on behalf of the synthesis model.
+func validatePatternAdjudication(state baziCharterState, adjudication baziPatternAdjudication) error {
+	if strings.TrimSpace(stringValue(state.Input.Yongshen["geju_candidate"])) == "" {
+		return nil
+	}
+	if strings.TrimSpace(adjudication.MonthCommandCandidateID) == "" || len(adjudication.Candidates) == 0 {
+		return baziViolationError(baziViolationMethodContract, "static.pattern_adjudication", "", "pattern adjudication must include the month-command candidate", nil, nil)
+	}
+
+	candidates := make(map[string]baziPatternCandidate, len(adjudication.Candidates))
+	for _, candidate := range adjudication.Candidates {
+		id := strings.TrimSpace(candidate.ID)
+		if id == "" || candidates[id].ID != "" {
+			return baziViolationError(baziViolationMethodContract, "static.pattern_adjudication.candidates", id, "pattern candidate ids must be non-empty and unique", nil, nil)
+		}
+		if !containsString([]string{"month_command", "visible_stem", "hidden_combination", "transformation", "other_evidence_backed"}, strings.TrimSpace(candidate.Origin)) {
+			return baziViolationError(baziViolationMethodContract, "static.pattern_adjudication.candidates.origin", id, "pattern candidate origin is outside the closed set", nil, nil)
+		}
+		if !containsString([]string{"pattern_foundation", "selected_axis", "selected_usage", "secondary_signal", "rejected"}, strings.TrimSpace(candidate.Role)) {
+			return baziViolationError(baziViolationMethodContract, "static.pattern_adjudication.candidates.role", id, "pattern candidate role is outside the closed set", nil, nil)
+		}
+		candidates[id] = candidate
+	}
+
+	month, ok := candidates[strings.TrimSpace(adjudication.MonthCommandCandidateID)]
+	if !ok || month.Origin != "month_command" {
+		return baziViolationError(baziViolationMethodContract, "static.pattern_adjudication.month_command_candidate_id", "", "month-command candidate id must reference a month_command candidate", nil, nil)
+	}
+	toolCandidate := normalizePatternCandidateName(stringValue(state.Input.Yongshen["geju_candidate"]))
+	modelCandidate := normalizePatternCandidateName(month.Name)
+	if toolCandidate != "" && modelCandidate != "" && !strings.Contains(toolCandidate, modelCandidate) && !strings.Contains(modelCandidate, toolCandidate) {
+		return baziViolationError(baziViolationFactConflict, "static.pattern_adjudication.month_command_candidate", month.ID, "month-command candidate conflicts with deterministic tool candidate", nil, nil)
+	}
+	if month.Role == "rejected" {
+		if len(month.RejectionReasons) == 0 || onlyContainsString(month.RejectionReasons, "not_transparent") {
+			return baziViolationError(baziViolationMethodContract, "static.pattern_adjudication.month_command_rejection", month.ID, "month-command candidate cannot be rejected solely because its main qi is not transparent", nil, nil)
+		}
+		if err := requirePatternComparisonDimensions(month); err != nil {
+			return err
+		}
+	}
+
+	if len(adjudication.SelectedAxisCandidateIDs) == 0 {
+		return baziViolationError(baziViolationMethodContract, "static.pattern_adjudication.selected_axis_candidate_ids", "", "pattern adjudication must identify the selected axis candidates", nil, nil)
+	}
+	for _, selectedID := range adjudication.SelectedAxisCandidateIDs {
+		candidate, ok := candidates[strings.TrimSpace(selectedID)]
+		if !ok {
+			return baziViolationError(baziViolationMethodContract, "static.pattern_adjudication.selected_axis_candidate_ids", selectedID, "selected axis references an unknown candidate", nil, nil)
+		}
+		if candidate.Role != "selected_axis" && candidate.Role != "selected_usage" && candidate.Role != "pattern_foundation" {
+			return baziViolationError(baziViolationMethodContract, "static.pattern_adjudication.candidates.role", candidate.ID, "selected axis candidate has a non-selected role", nil, nil)
+		}
+		if err := requirePatternComparisonDimensions(candidate); err != nil {
+			return err
+		}
+		if candidate.Origin == "hidden_combination" {
+			if !containsString(state.EvidenceQuality.CoveredTopics, "geju") {
+				return baziViolationError(baziViolationEvidenceTopicMissing, "static.pattern_adjudication.candidates.evidence_topics", candidate.ID, "hidden combination cannot lead without covered geju authority evidence", []string{"geju"}, state.EvidenceQuality.CoveredTopics)
+			}
+		}
+	}
+	return nil
+}
+
+// requirePatternComparisonDimensions requires every comparison axis promised
+// by the methodology contract before a route can displace stronger visibility.
+func requirePatternComparisonDimensions(candidate baziPatternCandidate) error {
+	missing := make([]string, 0)
+	completed := comparisonDimensionNames(candidate.ComparisonDimensions)
+	for _, dimension := range requiredPatternComparisonDimensions {
+		if !containsString(completed, dimension) {
+			missing = append(missing, dimension)
+		}
+	}
+	if len(missing) > 0 {
+		return baziViolationError(baziViolationMethodContract, "static.pattern_adjudication.candidates.comparison_dimensions", candidate.ID, "pattern candidate lacks the required comparison dimensions", missing, requiredPatternComparisonDimensions)
+	}
+	return nil
+}
+
+// comparisonDimensionNames normalizes the two JSON shapes accepted from the
+// model. The contract cares that each named comparison was performed, not
+// whether the model encoded its explanation as an array or keyed object.
+func comparisonDimensionNames(raw any) []string {
+	seen := make(map[string]bool)
+	appendName := func(value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			seen[value] = true
+		}
+	}
+	switch value := raw.(type) {
+	case []string:
+		for _, item := range value {
+			appendName(item)
+		}
+	case []any:
+		for _, item := range value {
+			if name, ok := item.(string); ok {
+				appendName(name)
+			}
+		}
+	case map[string]any:
+		for name := range value {
+			appendName(name)
+		}
+	case map[string]string:
+		for name := range value {
+			appendName(name)
+		}
+	}
+	result := make([]string, 0, len(seen))
+	for _, dimension := range requiredPatternComparisonDimensions {
+		if seen[dimension] {
+			result = append(result, dimension)
+		}
+	}
+	return result
+}
+
+// validateStaticAssertionEvidenceTopics binds each static judgment to the
+// authority topic that can support it and requires withholding on missing topics.
+func validateStaticAssertionEvidenceTopics(state baziCharterState, assertions []baziAssertion) error {
+	if len(state.EvidenceQuality.RequiredTopics) == 0 {
+		return nil
+	}
+	for _, assertion := range assertions {
+		required := requiredTopicsForStaticAssertion(assertion.Kind, state.EvidenceQuality.RequiredTopics)
+		if len(required) == 0 {
+			continue
+		}
+		missingDeclarations := make([]string, 0)
+		for _, topic := range required {
+			if !containsString(assertion.EvidenceTopics, topic) {
+				missingDeclarations = append(missingDeclarations, topic)
+			}
+		}
+		if len(missingDeclarations) > 0 {
+			return baziViolationError(baziViolationEvidenceTopicMissing, "static.assertions.evidence_topics", assertion.ID, "static assertion omits required authority topics", missingDeclarations, required)
+		}
+		wantStatus := evidenceStatusForTopics(state.EvidenceQuality, required)
+		if strings.TrimSpace(assertion.EvidenceStatus) != wantStatus {
+			return baziViolationError(baziViolationEvidenceTopicMissing, "static.assertions.evidence_status", assertion.ID, "static assertion evidence status does not match topic coverage", []string{wantStatus}, []string{baziEvidenceSupported, baziEvidenceWithheld})
+		}
+	}
+	return nil
+}
+
+// requiredTopicsForStaticAssertion maps methodology claims to authority topics;
+// tier judgments consume every A-tier topic because they synthesize all lenses.
+func requiredTopicsForStaticAssertion(kind baziAssertionKind, requiredTopics []string) []string {
+	switch kind {
+	case baziAssertionMainAxis, baziAssertionPatternUsage, baziAssertionTopicAnswer:
+		if containsString(requiredTopics, "geju") {
+			return []string{"geju"}
+		}
+	case baziAssertionTiaohou:
+		if containsString(requiredTopics, "tiaohou") {
+			return []string{"tiaohou"}
+		}
+	case baziAssertionTier:
+		return append([]string{}, requiredTopics...)
+	}
+	return nil
+}
+
+// evidenceStatusForTopics returns withheld when any referenced authority topic
+// is missing, otherwise supported.
+func evidenceStatusForTopics(quality baziEvidenceQuality, topics []string) string {
+	for _, topic := range topics {
+		if containsString(quality.MissingTopics, topic) || !containsString(quality.CoveredTopics, topic) {
+			return baziEvidenceWithheld
+		}
+	}
+	return baziEvidenceSupported
+}
+
+// normalizePatternCandidateName removes transport suffixes before comparing a
+// model candidate with the deterministic month-command candidate.
+func normalizePatternCandidateName(value string) string {
+	value = strings.ReplaceAll(strings.TrimSpace(value), " ", "")
+	value = strings.TrimSuffix(value, "候选")
+	return value
+}
+
+// onlyContainsString reports whether a non-empty list consists solely of one
+// normalized enum value.
+func onlyContainsString(items []string, want string) bool {
+	if len(items) == 0 {
+		return false
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item) != want {
+			return false
+		}
+	}
+	return true
+}
+
+// validateMainAxisAssertionConsistency requires one machine-verifiable main
+// axis and a non-empty legacy projection. It deliberately does not compare
+// Chinese wording: semantic agreement belongs to the independent audit, while
+// substring matching rejects harmless paraphrases and turns the renderer's
+// compatibility field into a second semantic judge.
+func validateMainAxisAssertionConsistency(static baziStaticSynthesis) error {
+	var mainAxisAssertions []baziAssertion
+	for _, assertion := range static.Assertions {
+		if assertion.Kind == baziAssertionMainAxis {
+			mainAxisAssertions = append(mainAxisAssertions, assertion)
+		}
+	}
+	if len(mainAxisAssertions) != 1 {
+		return baziViolationError(baziViolationScopeEscalation, "static.assertions", "", fmt.Sprintf("static synthesis requires exactly one main_axis assertion, got %d", len(mainAxisAssertions)), nil, nil)
+	}
+	field := canonicalJudgmentText(static.MainAxis)
+	verdict := canonicalJudgmentText(mainAxisAssertions[0].Verdict)
+	if field == "" || verdict == "" {
+		return baziViolationError(baziViolationScopeEscalation, "static.main_axis", mainAxisAssertions[0].ID, "main_axis field and assertion verdict are both required", nil, nil)
+	}
+	return nil
+}
+
+// canonicalJudgmentText removes presentation punctuation before comparing two
+// projections of the same structured judgment.
+func canonicalJudgmentText(value string) string {
+	replacer := strings.NewReplacer(
+		" ", "", "\t", "", "\n", "", "，", "", "。", "",
+		"；", "", "：", "", ",", "", ".", "", ";", "", ":", "",
+	)
+	return replacer.Replace(strings.TrimSpace(value))
 }
 
 func validateDynamicAssertions(state baziCharterState) error {

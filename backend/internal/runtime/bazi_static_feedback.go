@@ -6,14 +6,20 @@ import (
 	"strings"
 )
 
-func (e *Executor) runStaticSynthesisWithFeedback(chartState baziCharterState, run func(map[string]any) (baziStaticSynthesis, error)) (baziStaticSynthesis, error) {
+// runStaticSynthesisWithFeedback gives the generator one structured retry when
+// deterministic or independent semantic contracts reject its first output.
+func (e *Executor) runStaticSynthesisWithFeedback(chartState baziCharterState, run func(map[string]any) (baziStaticSynthesis, error), audits ...func(baziStaticSynthesis) (baziContractAudit, error)) (baziStaticSynthesis, error) {
+	audit := func(baziStaticSynthesis) (baziContractAudit, error) { return baziContractAudit{Compliant: true}, nil }
+	if len(audits) > 0 && audits[0] != nil {
+		audit = audits[0]
+	}
 	payload := buildStaticSynthesisPayload(chartState)
 	output, err := run(payload)
 	if err != nil {
 		return baziStaticSynthesis{}, err
 	}
 	output = ensureStaticAssertions(chartState, projectStaticAssertionsToLegacy(normalizeStaticSynthesis(output)))
-	if err := validateStaticSynthesisResult(chartState, output); err == nil {
+	if output, err = validateStaticSynthesisWithAudit(chartState, output, audit); err == nil {
 		output.Source = "model"
 		return output, nil
 	} else {
@@ -25,14 +31,48 @@ func (e *Executor) runStaticSynthesisWithFeedback(chartState baziCharterState, r
 		return baziStaticSynthesis{}, err
 	}
 	output = ensureStaticAssertions(chartState, projectStaticAssertionsToLegacy(normalizeStaticSynthesis(output)))
-	if err := validateStaticSynthesisResult(chartState, output); err != nil {
-		recovered := recoverStaticSynthesis(chartState, output, err)
-		if recoverErr := validateStaticSynthesisResult(chartState, recovered); recoverErr != nil {
-			return baziStaticSynthesis{}, recoverErr
+	if output, err = validateStaticSynthesisWithAudit(chartState, output, audit); err != nil {
+		if partial, ok := acceptPartialStaticSynthesisAfterRetry(chartState, output, err); ok {
+			return partial, nil
 		}
-		return recovered, nil
+		return baziStaticSynthesis{}, err
 	}
 	output.Source = "model"
+	return output, nil
+}
+
+// acceptPartialStaticSynthesisAfterRetry keeps a usable model reading when the
+// second attempt is missing only renderer-owned detail fields. Fact conflicts,
+// methodology violations, and missing core judgments still return errors so the
+// runtime does not replace a failed reading with invented facts-only prose.
+func acceptPartialStaticSynthesisAfterRetry(chartState baziCharterState, output baziStaticSynthesis, cause error) (baziStaticSynthesis, bool) {
+	if !isOmittableStaticSynthesisError(cause) {
+		return baziStaticSynthesis{}, false
+	}
+	output = ensureStaticAssertions(chartState, projectStaticAssertionsToLegacy(normalizeStaticSynthesis(output)))
+	if err := validatePartialStaticSynthesis(chartState, output); err != nil {
+		return baziStaticSynthesis{}, false
+	}
+	output.Source = "model_partial"
+	output.RecoveryReason = recoveryReasonText(cause, "静态综合存在局部缺漏，已省略对应展示块。")
+	output.FieldAudit = append(output.FieldAudit, "static_partial_omitted:"+partialSynthesisReason(cause))
+	return output, true
+}
+
+// validateStaticSynthesisWithAudit runs deterministic validation first so the
+// semantic reviewer only evaluates a structurally valid candidate.
+func validateStaticSynthesisWithAudit(chartState baziCharterState, output baziStaticSynthesis, audit func(baziStaticSynthesis) (baziContractAudit, error)) (baziStaticSynthesis, error) {
+	if err := validateStaticSynthesisResult(chartState, output); err != nil {
+		return output, err
+	}
+	result, err := audit(output)
+	output.ContractAudit = result
+	if err != nil {
+		return output, err
+	}
+	if err := validateBaziContractAudit("static", result); err != nil {
+		return output, err
+	}
 	return output, nil
 }
 
@@ -89,12 +129,27 @@ func buildStaticSynthesisFeedback(output baziStaticSynthesis, cause error) strin
 	if ceiling := strings.TrimSpace(output.AxisCeiling); ceiling != "" {
 		lines = append(lines, fmt.Sprintf("本轮你自己给出的 axis_ceiling 是“%s”，自然语言结论必须服从这一天花板。", ceiling))
 	}
+	if strings.TrimSpace(output.AxisLevel) != "" || strings.TrimSpace(output.AxisCeiling) != "" {
+		lines = append(lines, fmt.Sprintf(
+			"本轮结构字段回显：axis_level=%s；axis_ceiling=%s；effect_on_tiaohou=%s；effect_on_core_disease=%s；effect_on_jishen_direction=%s。若后三项任一为“冲突”或“放大”，axis_ceiling 只能是“结构信号”或“受限路线”；这是字段闭合要求，不是在替你选择格局。",
+			firstNonEmptyTrim(output.AxisLevel, "未填"),
+			firstNonEmptyTrim(output.AxisCeiling, "未填"),
+			firstNonEmptyTrim(output.EffectOnTiaohou, "未填"),
+			firstNonEmptyTrim(output.EffectOnCoreDisease, "未填"),
+			firstNonEmptyTrim(output.EffectOnJiShenDirection, "未填"),
+		))
+	}
 	if errText := strings.TrimSpace(cause.Error()); errText != "" {
 		lines = append(lines, "本次校验失败原因："+errText)
 	}
 	if violation, ok := baziViolationFromError(cause); ok {
 		if raw, err := json.Marshal(violation); err == nil {
 			lines = append(lines, "机器可读 violation："+string(raw))
+		}
+	}
+	if len(output.ContractAudit.Findings) > 0 {
+		if raw, err := json.Marshal(output.ContractAudit.Findings); err == nil {
+			lines = append(lines, "独立审计已确认的 findings（只修复这些字段，不要把检查过程当作结论）："+string(raw))
 		}
 	}
 	return strings.Join(lines, "\n")

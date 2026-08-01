@@ -28,6 +28,104 @@ func TestValidateStaticStage_RequiresAxisVerdictFields_NewContract(t *testing.T)
 	}
 }
 
+func TestValidateStaticStage_AllowsNeutralAxisWithoutConflictReasons_NewContract(t *testing.T) {
+	state := baziCharterState{
+		StaticSynthesis: validStaticAxisSynthesisForTest(),
+	}
+
+	if err := validateStaticStage(state); err != nil {
+		t.Fatalf("expected neutral axis to pass static validation without conflict reasons, got %v", err)
+	}
+	if err := validateStaticAxisVerdictConsistency(state.StaticSynthesis); err != nil {
+		t.Fatalf("expected neutral axis verdict to pass without conflict reasons, got %v", err)
+	}
+}
+
+func TestValidateStaticStage_RequiresConflictReasonsOnlyForLimitedOrConflictAxis_NewContract(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*baziStaticSynthesis)
+	}{
+		{
+			name: "tiaohou conflict",
+			mutate: func(s *baziStaticSynthesis) {
+				s.EffectOnTiaohou = "冲突"
+			},
+		},
+		{
+			name: "core disease amplification",
+			mutate: func(s *baziStaticSynthesis) {
+				s.EffectOnCoreDisease = "放大"
+			},
+		},
+		{
+			name: "ji-shen amplification",
+			mutate: func(s *baziStaticSynthesis) {
+				s.EffectOnJiShenDirection = "放大"
+			},
+		},
+		{
+			name: "structure signal ceiling",
+			mutate: func(s *baziStaticSynthesis) {
+				s.AxisLevel = "结构可见"
+				s.AxisCeiling = "结构信号"
+			},
+		},
+		{
+			name: "restricted route ceiling",
+			mutate: func(s *baziStaticSynthesis) {
+				s.AxisCeiling = "受限路线"
+			},
+		},
+		{
+			name: "limited consistency flag",
+			mutate: func(s *baziStaticSynthesis) {
+				s.ConsistencyFlags = []string{"方向成立但力度受限"}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synthesis := validStaticAxisSynthesisForTest()
+			tt.mutate(&synthesis)
+			state := baziCharterState{StaticSynthesis: synthesis}
+
+			if err := validateStaticStage(state); err == nil {
+				t.Fatalf("expected missing conflict reasons to fail for %s", tt.name)
+			}
+			if err := validateStaticAxisVerdictConsistency(synthesis); err == nil {
+				t.Fatalf("expected axis verdict consistency to require conflict reasons for %s", tt.name)
+			}
+		})
+	}
+}
+
+func validStaticAxisSynthesisForTest() baziStaticSynthesis {
+	return baziStaticSynthesis{
+		MainAxis:                "财星疏印，方向成立",
+		ClaimStrength:           "倾向成立",
+		SupportLevel:            "有气",
+		LimitationLevel:         "明显",
+		WordingCap:              "中性",
+		AxisLevel:               "方向成立",
+		EffectOnTiaohou:         "中性",
+		EffectOnCoreDisease:     "缓解",
+		EffectOnJiShenDirection: "缓解",
+		AxisCeiling:             "可作主轴",
+		PatternBasis:            "先看月令印星当令，再看财星透出疏印。",
+		PatternOutcome:          "财星能疏印，方向成立。",
+		CounterEvidence:         "财星力道有限，仍保留层次边界。",
+		AxisConsistency:         "当前仍以财星疏印为主轴，不改判为别格。",
+		TiaohouAnchor:           "甲木生冬月，先按寒木待火的月令场景审调候。",
+		PatternAndQingZhuo:      "清中带浊。",
+		TierJudgment:            "中等偏上",
+		TierBasis:               "主轴有路，但药力未满，不宜拔高。",
+		ReasoningSummary:        "静态主轴方向成立，同时保留调候和药力限制。",
+		ReasoningSteps:          []string{"先看月令，再看透干与根气。"},
+	}
+}
+
 func TestValidateCharterConsistency_RejectsRoutePromotedBeyondConflictCeiling_NewContract(t *testing.T) {
 	state := baziCharterState{
 		StaticSynthesis: baziStaticSynthesis{

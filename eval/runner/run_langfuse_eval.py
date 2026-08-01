@@ -18,8 +18,23 @@ from langfuse_eval_common import (  # noqa: E402
     langfuse_headers,
     load_env_map,
     poll_trace_detail,
+    require_score_config_ids,
     write_score,
 )
+
+EVAL_SCORE_CONFIG_TYPES = {
+    "eval_contract_pass": "BOOLEAN",
+    "eval_failure_class": "CATEGORICAL",
+}
+
+
+class SmokeCaseFailure(RuntimeError):
+    """Carry trace context for a failed case so reports and scores remain diagnosable."""
+
+    def __init__(self, message: str, session_id: str = "", trace_id: str = ""):
+        super().__init__(message)
+        self.session_id = session_id
+        self.trace_id = trace_id
 
 
 def parse_csv_list(values: list[str]) -> list[str]:
@@ -70,6 +85,92 @@ def case_timeout_seconds(case: dict[str, Any], default_timeout_seconds: int) -> 
     return timeout_seconds
 
 
+def unique_case_session_id(session_base: str) -> str:
+    """Build a storage-safe unique session id within the backend's 64-char contract."""
+    suffix = uuid.uuid4().hex
+    prefix = str(session_base).strip() or "eval"
+    prefix = prefix[: 64 - len(suffix) - 1]
+    return f"{prefix}-{suffix}"
+
+
+def classify_failure(error: Exception) -> str:
+    """Map a runner error to the stable categorical score used for aggregation."""
+    message = str(error).lower()
+    if "timeout" in message or "exceeded its total time budget" in message:
+        return "timeout"
+    if "sse done" in message:
+        return "sse"
+    if "response missing" in message or "forbidden content" in message:
+        return "response_contract"
+    if "route_primary mismatch" in message:
+        return "route"
+    if "task_intent mismatch" in message:
+        return "task_intent"
+    if "turn_type mismatch" in message:
+        return "turn_type"
+    if "missing observation" in message:
+        return "observation"
+    if "trace attribute mismatch" in message:
+        return "trace_attribute"
+    if "http" in message or "trace not found" in message or "service.name mismatch" in message:
+        return "transport"
+    return "unknown"
+
+
+def write_case_scores(langfuse_url, headers, trace_id, score_config_ids, passed, error=None):
+    """Persist the complete eval verdict once a trace id exists for the evaluated turn."""
+    comment = "" if passed else str(error)
+    write_score(
+        langfuse_url,
+        headers,
+        trace_id,
+        "eval_contract_pass",
+        1 if passed else 0,
+        comment=comment,
+        config_id=score_config_ids["eval_contract_pass"],
+        data_type="BOOLEAN",
+    )
+    if not passed:
+        write_score(
+            langfuse_url,
+            headers,
+            trace_id,
+            "eval_failure_class",
+            classify_failure(error),
+            comment=comment,
+            config_id=score_config_ids["eval_failure_class"],
+            data_type="CATEGORICAL",
+        )
+
+
+def write_failure_scores_if_trace_exists(
+    langfuse_url,
+    headers,
+    session_id,
+    excluded_trace_ids,
+    max_polls,
+    score_config_ids,
+    error,
+) -> str:
+    """Best-effort score a failed case when the backend emitted a trace before timing out."""
+    if not score_config_ids:
+        return ""
+    try:
+        trace_id, _ = poll_trace_detail(
+            langfuse_url,
+            headers,
+            session_id,
+            timeout_seconds=10,
+            poll_interval_seconds=1,
+            max_limit=max_polls,
+            excluded_trace_ids=excluded_trace_ids,
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+    write_case_scores(langfuse_url, headers, trace_id, score_config_ids, passed=False, error=error)
+    return trace_id
+
+
 def smoke_case(
     case: dict[str, Any],
     server_url: str,
@@ -79,9 +180,10 @@ def smoke_case(
     poll_interval_seconds: int,
     max_polls: int,
     write_scores: bool,
+    score_config_ids: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     session_base = str(case.get("session_id") or f"eval-{case['id']}")
-    session_id = f"{session_base}-{uuid.uuid4().hex}"
+    session_id = unique_case_session_id(session_base)
     deadline = time.monotonic() + case_timeout_seconds(case, timeout_seconds)
 
     setup_message = str(case.get("setup_message") or "").strip()
@@ -98,19 +200,24 @@ def smoke_case(
         )
         excluded_trace_ids.add(setup_trace_id)
 
-    chat_content = invoke_chat(
-        server_url,
-        session_id,
-        str(case.get("message") or ""),
-        remaining_timeout_seconds(deadline),
-    )
-    if "event: done" not in chat_content:
-        raise RuntimeError("missing SSE done event")
-
-    response_must_contain = str(case.get("response_must_contain") or "").strip()
-    if response_must_contain and response_must_contain not in chat_content:
-        raise RuntimeError(f"response missing expected content: {response_must_contain}")
-
+    try:
+        chat_content = invoke_chat(
+            server_url,
+            session_id,
+            str(case.get("message") or ""),
+            remaining_timeout_seconds(deadline),
+        )
+    except Exception as exc:
+        trace_id = write_failure_scores_if_trace_exists(
+            langfuse_url,
+            headers,
+            session_id,
+            excluded_trace_ids,
+            max_polls,
+            score_config_ids if write_scores else None,
+            exc,
+        )
+        raise SmokeCaseFailure(str(exc), session_id=session_id, trace_id=trace_id) from exc
     expected_route_primary = str(case.get("expected_route_primary") or "").strip()
     expected_task_intents = parse_csv_list(list(case.get("expected_task_intent_any") or []))
     expected_turn_types = parse_csv_list(list(case.get("expected_turn_type_any") or []))
@@ -131,65 +238,99 @@ def smoke_case(
         max_limit=max_polls,
         excluded_trace_ids=excluded_trace_ids,
     )
-    while time.monotonic() < deadline:
-        trace_detail = get_trace_detail(langfuse_url, headers, trace_id)
-        route_primary = get_route_primary(trace_detail)
-        task_intent = get_trace_field(trace_detail, "task_intent")
-        turn_type = get_trace_field(trace_detail, "turn_type")
-        service_name = get_trace_field(trace_detail, "service.name")
-        observation_names = get_observation_names(trace_detail)
 
-        if service_name != "suanming-agent":
-            raise RuntimeError(f"service.name mismatch: {service_name}")
+    try:
+        if "event: done" not in chat_content:
+            raise RuntimeError("missing SSE done event")
+
+        response_must_contain = str(case.get("response_must_contain") or "").strip()
+        if response_must_contain and response_must_contain not in chat_content:
+            raise RuntimeError(f"response missing expected content: {response_must_contain}")
+        for expected in case.get("response_must_contain_all") or []:
+            expected = str(expected).strip()
+            if expected and expected not in chat_content:
+                raise RuntimeError(f"response missing expected content: {expected}")
+        for forbidden in case.get("response_must_not_contain") or []:
+            forbidden = str(forbidden).strip()
+            if forbidden and forbidden in chat_content:
+                raise RuntimeError(f"response contains forbidden content: {forbidden}")
+
+        while time.monotonic() < deadline:
+            trace_detail = get_trace_detail(langfuse_url, headers, trace_id)
+            route_primary = get_route_primary(trace_detail)
+            task_intent = get_trace_field(trace_detail, "task_intent")
+            turn_type = get_trace_field(trace_detail, "turn_type")
+            service_name = get_trace_field(trace_detail, "service.name")
+            observation_names = get_observation_names(trace_detail)
+
+            if service_name != "suanming-agent":
+                raise RuntimeError(f"service.name mismatch: {service_name}")
+
+            if expected_route_primary and route_primary != expected_route_primary:
+                time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
+                continue
+            if expected_task_intents and task_intent not in expected_task_intents:
+                time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
+                continue
+            if expected_turn_types and turn_type not in expected_turn_types:
+                time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
+                continue
+            if any(name not in observation_names for name in required_observations):
+                time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
+                continue
+            break
 
         if expected_route_primary and route_primary != expected_route_primary:
-            time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
-            continue
+            raise RuntimeError(f"route_primary mismatch: {route_primary}")
         if expected_task_intents and task_intent not in expected_task_intents:
-            time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
-            continue
+            raise RuntimeError(f"task_intent mismatch: {task_intent}")
         if expected_turn_types and turn_type not in expected_turn_types:
-            time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
-            continue
-        if any(name not in observation_names for name in required_observations):
-            time.sleep(min(max(1, poll_interval_seconds), remaining_timeout_seconds(deadline)))
-            continue
-        break
-
-    if expected_route_primary and route_primary != expected_route_primary:
-        raise RuntimeError(f"route_primary mismatch: {route_primary}")
-    if expected_task_intents and task_intent not in expected_task_intents:
-        raise RuntimeError(f"task_intent mismatch: {task_intent}")
-    if expected_turn_types and turn_type not in expected_turn_types:
-        raise RuntimeError(f"turn_type mismatch: {turn_type}")
-    for name in required_observations:
-        if name not in observation_names:
-            raise RuntimeError(f"missing observation: {name}")
-
-    if write_scores and headers:
-        write_score(langfuse_url, headers, trace_id, "langfuse_smoke_pass", 1)
-        write_score(langfuse_url, headers, trace_id, "langfuse_trace_present", 1)
-        write_score(langfuse_url, headers, trace_id, "langfuse_required_observations", 1)
-        write_score(langfuse_url, headers, trace_id, "sse_done", 1)
-        if expected_route_primary:
-            write_score(langfuse_url, headers, trace_id, "route_primary_match", 1)
-        if expected_task_intents:
-            write_score(langfuse_url, headers, trace_id, "task_intent_match", 1)
-        if expected_turn_types:
-            write_score(langfuse_url, headers, trace_id, "turn_type_match", 1)
+            raise RuntimeError(f"turn_type mismatch: {turn_type}")
         for name in required_observations:
-            write_score(langfuse_url, headers, trace_id, f"observation_{name}_present", 1)
+            if name not in observation_names:
+                raise RuntimeError(f"missing observation: {name}")
 
-    return {
-        "id": str(case["id"]),
-        "passed": True,
-        "session_id": session_id,
-        "trace_id": trace_id,
-        "route_primary": route_primary,
-        "task_intent": task_intent,
-        "turn_type": turn_type,
-        "observations": observation_names,
-    }
+        expected_trace_attributes = case.get("expected_trace_attributes") or {}
+        for key, expected in expected_trace_attributes.items():
+            actual = get_trace_field(trace_detail, str(key))
+            if str(actual) != str(expected):
+                raise RuntimeError(f"trace attribute mismatch for {key}: {actual!r} != {expected!r}")
+
+        if write_scores:
+            if not score_config_ids:
+                raise RuntimeError("missing resolved Langfuse ScoreConfig ids")
+            write_case_scores(langfuse_url, headers, trace_id, score_config_ids, passed=True)
+
+        return {
+            "id": str(case["id"]),
+            "passed": True,
+            "session_id": session_id,
+            "trace_id": trace_id,
+            "route_primary": route_primary,
+            "task_intent": task_intent,
+            "turn_type": turn_type,
+            "observations": observation_names,
+            "trace_attributes": {
+                str(key): get_trace_field(trace_detail, str(key))
+                for key in expected_trace_attributes
+            },
+        }
+    except Exception as exc:
+        if write_scores and score_config_ids:
+            write_case_scores(langfuse_url, headers, trace_id, score_config_ids, passed=False, error=exc)
+        raise SmokeCaseFailure(str(exc), session_id=session_id, trace_id=trace_id) from exc
+
+
+def failed_case_result(case_id: str, error: Exception) -> dict[str, Any]:
+    """Build a report row for failures, preserving trace context when available."""
+    result = {"id": case_id, "passed": False, "error": str(error)}
+    if isinstance(error, SmokeCaseFailure):
+        if error.session_id:
+            result["session_id"] = error.session_id
+        if error.trace_id:
+            result["trace_id"] = error.trace_id
+            result["failure_class"] = classify_failure(error)
+    return result
 
 
 def main() -> int:
@@ -207,6 +348,7 @@ def main() -> int:
     payload = load_dataset(args.dataset_path)
     env_map = load_env_map()
     headers = langfuse_headers(env_map)
+    score_config_ids = require_score_config_ids(args.langfuse_url, headers, EVAL_SCORE_CONFIG_TYPES) if args.write_scores else None
 
     results: list[dict[str, Any]] = []
     for case in payload["cases"]:
@@ -220,10 +362,11 @@ def main() -> int:
                 poll_interval_seconds=args.poll_interval_seconds,
                 max_polls=args.max_polls,
                 write_scores=args.write_scores,
+                score_config_ids=score_config_ids,
             )
             results.append(result)
         except Exception as exc:  # noqa: BLE001
-            results.append({"id": str(case["id"]), "passed": False, "error": str(exc)})
+            results.append(failed_case_result(str(case["id"]), exc))
 
     summary = {
         "dataset": str(payload["name"]),

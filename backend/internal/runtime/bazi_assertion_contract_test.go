@@ -7,6 +7,23 @@ import (
 	"testing"
 )
 
+// TestValidateMainAxisAssertionConsistency_AllowsEquivalentParaphrase leaves
+// natural-language semantic comparison to the independent contract audit.
+func TestValidateMainAxisAssertionConsistency_AllowsEquivalentParaphrase(t *testing.T) {
+	static := baziStaticSynthesis{
+		MainAxis: "第一条主轴",
+		Assertions: []baziAssertion{{
+			ID:      "static.main_axis",
+			Kind:    baziAssertionMainAxis,
+			Verdict: "另一条主轴",
+		}},
+	}
+
+	if err := validateMainAxisAssertionConsistency(static); err != nil {
+		t.Fatalf("structured main-axis projections should allow a semantic audit: %v", err)
+	}
+}
+
 func TestValidateBaziAssertions_AuditsUnknownFactRefWithoutRejectingReading(t *testing.T) {
 	state := assertionTestState()
 	state.StaticSynthesis.Assertions = []baziAssertion{{
@@ -138,6 +155,87 @@ func TestValidateBaziAssertions_RejectsUnsupportedConcreteOutcome(t *testing.T) 
 		ClaimRefs: []baziClaimRef{"ziping_dynamic_four_dimension"},
 	}})
 	assertBaziViolationCode(t, err, baziViolationUnsupportedConcreteOutcome)
+}
+
+func TestValidatePatternAdjudicationDoesNotRejectMonthCandidateOnlyForOpacity(t *testing.T) {
+	state := assertionTestState()
+	state.EvidenceQuality = baziEvidenceQuality{CoveredTopics: []string{"geju"}}
+	state.StaticSynthesis.PatternAdjudication = baziPatternAdjudication{
+		MonthCommandCandidateID:  "month",
+		SelectedAxisCandidateIDs: []string{"visible"},
+		Candidates: []baziPatternCandidate{
+			{ID: "month", Name: "月劫格", Origin: "month_command", Role: "rejected", RejectionReasons: []string{"independent_break"}, ComparisonDimensions: requiredPatternComparisonDimensions},
+			{ID: "visible", Name: "伤官路线", Origin: "visible_stem", Role: "selected_axis", ComparisonDimensions: requiredPatternComparisonDimensions},
+		},
+	}
+	if err := validatePatternAdjudication(state, state.StaticSynthesis.PatternAdjudication); err != nil {
+		t.Fatalf("independent break with complete comparison should be admissible: %v", err)
+	}
+}
+
+func TestValidatePatternAdjudicationRequiresComparisonForHiddenAxis(t *testing.T) {
+	state := assertionTestState()
+	state.EvidenceQuality = baziEvidenceQuality{CoveredTopics: []string{"geju"}}
+	state.StaticSynthesis.PatternAdjudication = baziPatternAdjudication{
+		MonthCommandCandidateID:  "month",
+		SelectedAxisCandidateIDs: []string{"hidden"},
+		Candidates: []baziPatternCandidate{
+			{ID: "month", Name: "月劫格", Origin: "month_command", Role: "pattern_foundation"},
+			{ID: "hidden", Name: "藏支组合", Origin: "hidden_combination", Role: "selected_axis"},
+		},
+	}
+	assertBaziViolationCode(t, validatePatternAdjudication(state, state.StaticSynthesis.PatternAdjudication), baziViolationMethodContract)
+}
+
+func TestEnsureStaticAssertionsCanonicalizesEvidenceStatusFromQuality(t *testing.T) {
+	state := assertionTestState()
+	state.EvidenceQuality = baziEvidenceQuality{
+		RequiredTopics: []string{"geju", "bingyao"},
+		CoveredTopics:  []string{"geju"},
+		MissingTopics:  []string{"bingyao"},
+	}
+	static := ensureStaticAssertions(state, baziStaticSynthesis{Assertions: []baziAssertion{{
+		ID:             "static.tier",
+		Kind:           baziAssertionTier,
+		Subject:        "chart",
+		Verdict:        "层次只能保守看。",
+		EvidenceTopics: []string{"geju"},
+		EvidenceStatus: baziEvidenceSupported,
+	}}})
+
+	assertion := static.Assertions[0]
+	if assertion.EvidenceStatus != baziEvidenceWithheld {
+		t.Fatalf("evidence status should be runtime-derived, got %q", assertion.EvidenceStatus)
+	}
+	if !containsString(assertion.EvidenceTopics, "bingyao") {
+		t.Fatalf("required missing topic should still be bound for audit, got %v", assertion.EvidenceTopics)
+	}
+	if err := validateStaticAssertionEvidenceTopics(state, static.Assertions); err != nil {
+		t.Fatalf("canonicalized evidence metadata should validate: %v", err)
+	}
+}
+
+func TestRequirePatternComparisonDimensionsAcceptsObjectShape(t *testing.T) {
+	dimensions := make(map[string]any, len(requiredPatternComparisonDimensions))
+	for _, dimension := range requiredPatternComparisonDimensions {
+		dimensions[dimension] = "已比较"
+	}
+	if err := requirePatternComparisonDimensions(baziPatternCandidate{ID: "candidate", ComparisonDimensions: dimensions}); err != nil {
+		t.Fatalf("keyed comparison object should satisfy the same contract: %v", err)
+	}
+}
+
+func TestValidateBaziContractAuditRejectsNonCompliantReview(t *testing.T) {
+	assertBaziViolationCode(t, validateBaziContractAudit("dynamic", baziContractAudit{
+		Compliant: false,
+		Findings:  []baziContractAuditFinding{{Code: "age_scope", Field: "dayun_judgments[0]", Reason: "unauthorized domain"}},
+	}), baziViolationSemanticContract)
+}
+
+func TestBaziContractAuditSummaryMarksMissingAuditAsNotRun(t *testing.T) {
+	if got := baziContractAuditSummary(baziContractAudit{}); got != "not_run" {
+		t.Fatalf("empty audit summary = %q, want not_run", got)
+	}
 }
 
 func TestValidationRecoverySourceHasNoCaseSpecificPhrasePatches(t *testing.T) {

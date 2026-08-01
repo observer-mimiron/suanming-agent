@@ -160,6 +160,9 @@ func TestBaziCharterPrompts_ContainRoleBoundaries(t *testing.T) {
 	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "不得回头推翻静态主轴") {
 		t.Fatalf("dynamic synthesis prompt must separate static and dynamic layers")
 	}
+	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "evidence_quality.missing_topics") || !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "社会地位") {
+		t.Fatalf("dynamic synthesis prompt must bind evidence gaps to authorized outcome domains")
+	}
 }
 
 func TestBaziCharterPrompts_ContainMethodologyOrder(t *testing.T) {
@@ -422,6 +425,145 @@ func TestBaziCharterInnerNodes_DisableSessionContextInjection(t *testing.T) {
 	}
 }
 
+// TestBuildBaziSubjectContext_InfantAtTargetYear locks the age-aware dynamic
+// scope used to prevent adult life-domain projections for young children.
+func TestBuildBaziSubjectContext_InfantAtTargetYear(t *testing.T) {
+	context := buildBaziSubjectContext(baziCharterInput{
+		BaziResult: map[string]any{"birthday": "2025-11-11 00:15"},
+		Liunian:    map[string]any{"liunian_year": 2026},
+	})
+	if context.BirthYear != 2025 || context.TargetYear != 2026 || context.Age != 1 || context.AgeBand != "infant" {
+		t.Fatalf("unexpected subject context: %+v", context)
+	}
+	if containsString(context.AllowedOutcomeDomains, "user_requested_authorized_domain") || !containsString(context.AllowedOutcomeDomains, "growth_environment") {
+		t.Fatalf("unexpected infant outcome authorization: %+v", context.AllowedOutcomeDomains)
+	}
+}
+
+// TestValidateDynamicOutcomeDomains_RejectsAdultDomainForInfant validates the
+// structured age scope without relying on a growing prose blacklist.
+func TestValidateDynamicOutcomeDomains_RejectsAdultDomainForInfant(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{
+			BaziResult: map[string]any{"birthday": "2025-11-11 00:15"},
+			Liunian:    map[string]any{"liunian_year": 2026},
+		},
+		DynamicSynthesis: baziDynamicSynthesis{OutcomeDomains: []string{"user_requested_authorized_domain"}},
+	}
+	if err := validateDynamicOutcomeDomains(state); err == nil {
+		t.Fatal("infant dynamic synthesis must reject adult-authorized domains")
+	}
+}
+
+// TestValidateDynamicOutcomeDomains_RejectsAdultDomainTextForInfant prevents a
+// model from declaring an allowed minor domain while writing adult outcomes in
+// the visible text.
+func TestValidateDynamicOutcomeDomains_RejectsAdultDomainTextForInfant(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{
+			BaziResult: map[string]any{"birthday": "2025-11-11 00:15"},
+			Liunian:    map[string]any{"liunian_year": 2026},
+		},
+		DynamicSynthesis: baziDynamicSynthesis{
+			OutcomeDomains: []string{"structure", "growth_environment"},
+			DayunJudgments: []baziDayunJudgment{{
+				GanZhi:         "丙戌",
+				Trend:          "结构观察",
+				Interpretation: "这步运会带来事业压力与财富增长。",
+				OutcomeDomains: []string{"structure"},
+			}},
+		},
+	}
+	assertBaziViolationCode(t, validateDynamicOutcomeDomains(state), baziViolationUnsupportedConcreteOutcome)
+}
+
+func TestValidateDynamicOutcomeDomains_AllowsMinorGrowthDomainText(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{
+			BaziResult: map[string]any{"birthday": "2025-11-11 00:15"},
+			Liunian:    map[string]any{"liunian_year": 2026},
+		},
+		DynamicSynthesis: baziDynamicSynthesis{
+			CurrentTrend:   "只作成长节奏观察。",
+			OutcomeDomains: []string{"structure", "growth_environment"},
+			DayunJudgments: []baziDayunJudgment{{
+				GanZhi:         "丙戌",
+				Trend:          "结构观察",
+				Interpretation: "更多体现在成长环境变化、照护节奏和可观察发展上。",
+				OutcomeDomains: []string{"structure", "growth_environment"},
+			}},
+		},
+	}
+	if err := validateDynamicOutcomeDomains(state); err != nil {
+		t.Fatalf("minor growth-domain wording should pass: %v", err)
+	}
+}
+
+func TestValidateStaticOutcomeScope_RejectsAdultDomainTextForInfant(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{
+			BaziResult: map[string]any{"birthday": "2025-11-11 00:15"},
+			Liunian:    map[string]any{"liunian_year": 2026},
+		},
+		StaticSynthesis: func() baziStaticSynthesis {
+			out := validStaticSynthesisForConsistencyTests()
+			out.Risks = []string{"事业竞争压力较大，需注意健康。"}
+			return out
+		}(),
+	}
+	assertBaziViolationCode(t, validateStaticOutcomeScope(state), baziViolationUnsupportedConcreteOutcome)
+}
+
+func TestValidateStaticOutcomeScope_AllowsMinorGrowthText(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{
+			BaziResult: map[string]any{"birthday": "2025-11-11 00:15"},
+			Liunian:    map[string]any{"liunian_year": 2026},
+		},
+		StaticSynthesis: func() baziStaticSynthesis {
+			out := validStaticSynthesisForConsistencyTests()
+			out.Risks = []string{"成长环境变化较多，照护节奏宜保持稳定。"}
+			out.Advantages = []string{"结构层面有承接，适合观察可见发展节奏。"}
+			return out
+		}(),
+	}
+	if err := validateStaticOutcomeScope(state); err != nil {
+		t.Fatalf("minor growth-domain static wording should pass: %v", err)
+	}
+}
+
+// TestBuildDynamicSynthesisFeedback_RepeatsAgeAndEvidenceBoundaries keeps the
+// retry prompt aligned with the independent contract audit instead of relying on
+// final rendering to hide unauthorized adult-domain projections.
+func TestBuildDynamicSynthesisFeedback_RepeatsAgeAndEvidenceBoundaries(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{
+			BaziResult: map[string]any{"birthday": "2025-11-11 00:15"},
+			Liunian:    map[string]any{"liunian_year": 2026},
+		},
+		EvidenceQuality: baziEvidenceQuality{Enough: false, MissingTopics: []string{"bingyao"}},
+	}
+
+	feedback := buildDynamicSynthesisFeedback(state, baziDynamicSynthesis{OutcomeDomains: []string{"structure"}}, nil)
+	for _, want := range []string{"allowed_outcome_domains", "社会地位", "权威", "missing_topics=bingyao", "structure 结构观察"} {
+		if !strings.Contains(feedback, want) {
+			t.Fatalf("dynamic feedback missing %q in %s", want, feedback)
+		}
+	}
+}
+
+// TestValidateStaticEvidenceCoverageBoundaryCapsMissingTopics prevents a
+// partial retrieval bundle from authorizing a high-confidence axis tier.
+func TestValidateStaticEvidenceCoverageBoundaryCapsMissingTopics(t *testing.T) {
+	state := baziCharterState{
+		EvidenceQuality: baziEvidenceQuality{MissingTopics: []string{"bingyao"}},
+		StaticSynthesis: baziStaticSynthesis{AxisLevel: "可以拔高"},
+	}
+	if err := validateStaticEvidenceCoverageBoundary(state); err == nil {
+		t.Fatal("missing critical evidence must cap axis level")
+	}
+}
+
 func TestBuildStaticSynthesisPayload_UsesSlimViews(t *testing.T) {
 	state := baziCharterState{
 		Input: baziCharterInput{
@@ -482,6 +624,9 @@ func TestBuildStaticSynthesisPayload_UsesSlimViews(t *testing.T) {
 	}
 	if _, exists := rawInput["liunian"]; exists {
 		t.Fatalf("static payload should not carry raw liunian block")
+	}
+	if _, exists := rawInput["subject_context"]; !exists {
+		t.Fatalf("static payload must carry age-aware subject_context")
 	}
 
 	core, ok := rawInput["core_chart"].(map[string]any)
@@ -811,6 +956,34 @@ func TestBaziDynamicSynthesisPrompt_RequiresTrendConsistency(t *testing.T) {
 func TestBaziDynamicSynthesisPrompt_ForbidsCasualInvalidRelations(t *testing.T) {
 	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "`合身`、`制劫`、`合杀`、`合官`") {
 		t.Fatalf("dynamic synthesis prompt must forbid casual invalid relational jargon")
+	}
+}
+
+func TestBaziDynamicSynthesisPrompt_UsesReadableTrendLabels(t *testing.T) {
+	prompt := prompts.BaziDynamicSynthesisInstruction
+	for _, forbidden := range []string{"压力面可见", "承托与压力并见", "结构承接可见"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("dynamic synthesis prompt must not teach mechanical trend label %q", forbidden)
+		}
+	}
+	for _, required := range []string{"有助力但不纯顺", "阻力偏重，宜保守观察", "有转机，也有牵制"} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("dynamic synthesis prompt missing readable trend label %q", required)
+		}
+	}
+}
+
+func TestBaziStaticSynthesisPrompt_CompletesTiaohouWithoutImplementationLeak(t *testing.T) {
+	prompt := prompts.BaziStaticSynthesisInstruction
+	for _, forbidden := range []string{"调候规则表尚未实现", "规则表未实现", "调候视角未完成"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("static synthesis prompt must not expose implementation state %q", forbidden)
+		}
+	}
+	for _, required := range []string{"本轮只确认季节环境，具体调候先后需补足对应规则材料", "季节环境 + 寒暖燥湿约束 + 证据边界", "input.subject_context"} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("static synthesis prompt missing tiaohou/age boundary %q", required)
+		}
 	}
 }
 

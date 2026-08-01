@@ -186,3 +186,26 @@ func TestDayunAnalyzer_DoesNotLabelQualityWithoutBalanceVerdict(t *testing.T) {
 		t.Fatalf("relation facts must remain available: %#v", items[0])
 	}
 }
+
+func TestDayunAnalyzer_ExposesDeterministicBranchTenGodFacts(t *testing.T) {
+	raw, err := (&DayunAnalyzer{}).Execute(context.Background(), map[string]any{
+		"dayun": []map[string]any{{"startAge": 20, "endAge": 29, "ganZhi": "甲未"}},
+		"bazi_result": map[string]any{
+			"dayGan":  "甲",
+			"pillars": []map[string]any{{"stem": "甲", "branch": "子"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := raw.(map[string]any)["dayun_analyzed"].([]map[string]any)[0]
+	if result["branch"] != "未" {
+		t.Fatalf("branch = %v, want 未", result["branch"])
+	}
+	if got := result["branchHiddenStems"].([]string); len(got) != 3 || got[0] != "己" {
+		t.Fatalf("branchHiddenStems = %v, want 未藏干 in canonical order", got)
+	}
+	if got := result["branchMainTenGod"]; got != "正财" {
+		t.Fatalf("branchMainTenGod = %v, want 甲日主见己为正财", got)
+	}
+}

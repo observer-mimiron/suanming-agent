@@ -226,9 +226,8 @@ Specialists: bazi / qimen / ziwei（各自挂载领域工具，不拥有最终�
 | `eino-component` | `.claude/skills/eino-component/SKILL.md` | Eino 组件选择、配置和使用（ChatModel/Tool/Embedding/Retriever 等） |
 | `eino-compose` | `.claude/skills/eino-compose/SKILL.md` | Eino 编排：Graph、Chain、Workflow |
 | `eino-agent` | `.claude/skills/eino-agent/SKILL.md` | Eino ADK Agent 构建、中间件、Runner |
-| `agent-test-suites` | `.claude/skills/agent-test-suites/SKILL.md` | Agent 行为回归测试 |
 
-**Claude Code 用户：** 以上技能通过 `Skill` 工具调用，技能名与目录名一致（如 `eino-agent`、`agent-test-suites`）。
+**Claude Code 用户：** 以上技能通过 `Skill` 工具调用，技能名与目录名一致（如 `eino-agent`）。
 **Codex 用户：** 请从对应路径加载技能文件作为指令上下文。
 
 ## 参考资源

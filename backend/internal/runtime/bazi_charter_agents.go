@@ -39,6 +39,20 @@ func baziDynamicSynthesisConfig() specialists.Config {
 	return newBaziCharterConfig("bazi_dynamic_synthesis", "八字动态综合器", prompts.BaziDynamicSynthesisInstruction, false, true)
 }
 
+// baziContractAuditConfig builds an independent fast-model reviewer that only
+// accepts or rejects synthesis contracts and never rewrites their content.
+func baziContractAuditConfig() specialists.Config {
+	return specialists.Config{
+		UseJSONMode:          true,
+		UseFastModel:         true,
+		Domain:               "bazi",
+		Name:                 "bazi_contract_audit",
+		Description:          "八字综合合同审计器",
+		Instruction:          strings.TrimSpace(prompts.BaziContractAuditInstruction),
+		InjectSessionContext: false,
+	}
+}
+
 func newBaziCharterConfig(name, description, instruction string, withKnowledgeTools, useJSON bool) specialists.Config {
 	cfg := specialists.Config{
 		UseJSONMode:          useJSON,

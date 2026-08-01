@@ -41,8 +41,8 @@ func TestProfileStaticSynthesis_FactsOnlyDoesNotProjectClaims(t *testing.T) {
 }
 
 func TestPeriodHeadline_StripsMarkdownHeadingPrefix(t *testing.T) {
-	got := periodHeadline("### 甲午运（30-39岁）：偏压；十神：七杀\n**综合解读**：压力面略强。")
-	if got != "甲午运（30-39岁）：偏压；十神：七杀" {
+	got := periodHeadline("### 甲午运（30-39岁）：阻力偏重；十神：七杀\n**综合解读**：过程宜保守观察。")
+	if got != "甲午运（30-39岁）：阻力偏重；十神：七杀" {
 		t.Fatalf("period headline = %q", got)
 	}
 }

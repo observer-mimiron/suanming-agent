@@ -85,8 +85,11 @@ func validateStaticStage(state baziCharterState) error {
 	if strings.TrimSpace(state.StaticSynthesis.AxisCeiling) == "" {
 		return fmt.Errorf("missing static synthesis axis ceiling")
 	}
-	if len(state.StaticSynthesis.ConflictReasons) == 0 {
+	if requiresStaticConflictReasons(state.StaticSynthesis) && len(state.StaticSynthesis.ConflictReasons) == 0 {
 		return fmt.Errorf("missing static synthesis conflict reasons")
+	}
+	if err := validateStaticOutcomeScope(state); err != nil {
+		return err
 	}
 	return nil
 }
@@ -131,8 +134,25 @@ func staticSynthesisUserVisibleText(output baziStaticSynthesis) string {
 	}, "\n")
 }
 
+// validateStaticOutcomeScope applies the same age-domain contract to static
+// synthesis as dynamic synthesis. Static layers own visible advantages, risks
+// and tier rationale, so minors must not receive adult-domain projections there.
+func validateStaticOutcomeScope(state baziCharterState) error {
+	context := buildBaziSubjectContext(state.Input)
+	if context.AgeBand != "infant" && context.AgeBand != "child" && context.AgeBand != "adolescent" {
+		return nil
+	}
+	if domain, term := firstUnauthorizedMinorOutcomeSignal(staticSynthesisUserVisibleText(state.StaticSynthesis)); domain != "" {
+		return baziViolationError(baziViolationUnsupportedConcreteOutcome, "static", "", fmt.Sprintf("minor static synthesis writes unauthorized %s outcome signal %q", domain, term), nil, context.AllowedOutcomeDomains)
+	}
+	return nil
+}
+
 func validateDynamicAgainstProfileScope(state baziCharterState) error {
 	if err := validateDynamicFireBureauFacts(state); err != nil {
+		return err
+	}
+	if err := validateDynamicOutcomeDomains(state); err != nil {
 		return err
 	}
 	text := strings.Join([]string{
@@ -150,6 +170,98 @@ func validateDynamicAgainstProfileScope(state baziCharterState) error {
 		return err
 	}
 	return nil
+}
+
+// validateDynamicOutcomeDomains enforces the deterministic age-based scope
+// declared in the payload. It validates structured domains rather than growing
+// a natural-language blacklist of possible life events.
+func validateDynamicOutcomeDomains(state baziCharterState) error {
+	context := buildBaziSubjectContext(state.Input)
+	isMinor := context.AgeBand == "infant" || context.AgeBand == "child" || context.AgeBand == "adolescent"
+	if !isMinor && len(state.DynamicSynthesis.DayunJudgments) == 0 {
+		return nil
+	}
+	periodDomains := make(map[string]bool)
+	for index, judgment := range state.DynamicSynthesis.DayunJudgments {
+		if len(judgment.OutcomeDomains) == 0 {
+			return baziViolationError(baziViolationScopeEscalation, fmt.Sprintf("dynamic.dayun_judgments[%d].outcome_domains", index), "", "each dayun judgment must declare outcome domains", nil, context.AllowedOutcomeDomains)
+		}
+		for _, domain := range judgment.OutcomeDomains {
+			domain = strings.TrimSpace(domain)
+			if !containsString(context.AllowedOutcomeDomains, domain) {
+				return baziViolationError(baziViolationScopeEscalation, fmt.Sprintf("dynamic.dayun_judgments[%d].outcome_domains", index), "", "dayun outcome domain is not authorized for the subject age", nil, context.AllowedOutcomeDomains)
+			}
+			periodDomains[domain] = true
+		}
+	}
+	if len(state.DynamicSynthesis.OutcomeDomains) == 0 {
+		if !isMinor && len(periodDomains) == 0 {
+			return nil
+		}
+		return baziViolationError(baziViolationScopeEscalation, "dynamic.outcome_domains", "", "dynamic synthesis must declare outcome domains", nil, context.AllowedOutcomeDomains)
+	}
+	for _, domain := range state.DynamicSynthesis.OutcomeDomains {
+		if !containsString(context.AllowedOutcomeDomains, strings.TrimSpace(domain)) {
+			return baziViolationError(baziViolationScopeEscalation, "dynamic.outcome_domains", "", "dynamic outcome domain is not authorized for the subject age", nil, context.AllowedOutcomeDomains)
+		}
+	}
+	for domain := range periodDomains {
+		if !containsString(state.DynamicSynthesis.OutcomeDomains, domain) {
+			return baziViolationError(baziViolationScopeEscalation, "dynamic.outcome_domains", "", "top-level outcome domains must cover every dayun judgment domain", nil, state.DynamicSynthesis.OutcomeDomains)
+		}
+	}
+	if isMinor {
+		if domain, term := firstUnauthorizedMinorOutcomeSignal(dynamicUserVisibleText(state.DynamicSynthesis)); domain != "" {
+			return baziViolationError(baziViolationUnsupportedConcreteOutcome, "dynamic", "", fmt.Sprintf("minor dynamic synthesis writes unauthorized %s outcome signal %q", domain, term), nil, context.AllowedOutcomeDomains)
+		}
+	}
+	return nil
+}
+
+// firstUnauthorizedMinorOutcomeSignal maps broad life-domain wording back to
+// the age-domain contract. This is a small taxonomy check, not a chart-specific
+// phrase patch: minors may receive structure/growth/care wording, not adult
+// career, finance, marriage, legal or medical projections hidden in prose.
+func firstUnauthorizedMinorOutcomeSignal(text string) (string, string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", ""
+	}
+	for _, signal := range []struct {
+		domain string
+		terms  []string
+	}{
+		{domain: "career", terms: []string{"事业", "职业", "职场", "工作", "职位", "升迁", "权力", "权威", "名望"}},
+		{domain: "finance", terms: []string{"财富", "财运", "财务", "收入", "赚钱", "投资", "破财"}},
+		{domain: "marriage", terms: []string{"婚姻", "婚恋", "配偶", "感情"}},
+		{domain: "legal", terms: []string{"法律", "官非", "诉讼", "牢狱", "血光", "伤灾"}},
+		{domain: "medical", terms: []string{"疾病", "健康", "病症", "脾胃", "心血管", "高血压"}},
+	} {
+		for _, term := range signal.terms {
+			if strings.Contains(text, term) {
+				return signal.domain, term
+			}
+		}
+	}
+	return "", ""
+}
+
+func dynamicUserVisibleText(dynamic baziDynamicSynthesis) string {
+	periodTexts := make([]string, 0, len(dynamic.DayunJudgments))
+	for _, judgment := range dynamic.DayunJudgments {
+		periodTexts = append(periodTexts, judgment.Trend, judgment.Interpretation, strings.Join(judgment.Evidence, "\n"))
+	}
+	return strings.Join([]string{
+		dynamic.CurrentTrend,
+		strings.Join(dynamic.DayunPath, "\n"),
+		strings.Join(periodTexts, "\n"),
+		dynamic.LiunianFocus,
+		strings.Join(dynamic.TriggerSignals, "\n"),
+		strings.Join(dynamic.KeyWindows, "\n"),
+		strings.Join(dynamic.Risks, "\n"),
+		dynamic.ReasoningSummary,
+		strings.Join(dynamic.ReasoningSteps, "\n"),
+	}, "\n")
 }
 
 func validateDynamicConsistencyFlags(flags []string) error {
@@ -364,6 +476,9 @@ func validateCharterConsistency(state baziCharterState) error {
 	if err := validateStaticAxisVerdictConsistency(state.StaticSynthesis); err != nil {
 		return err
 	}
+	if err := validateStaticEvidenceCoverageBoundary(state); err != nil {
+		return err
+	}
 	if err := validateStaticAxisAgainstChartFacts(state); err != nil {
 		return err
 	}
@@ -377,6 +492,19 @@ func validateCharterConsistency(state baziCharterState) error {
 		return err
 	}
 	return validateDynamicAgainstStaticCeiling(state.StaticSynthesis, state.DynamicSynthesis)
+}
+
+// validateStaticEvidenceCoverageBoundary caps only the strength of a static
+// route when planned A-tier topics remain missing. It does not select a chart
+// methodology or alter the model's interpretive text.
+func validateStaticEvidenceCoverageBoundary(state baziCharterState) error {
+	if len(state.EvidenceQuality.MissingTopics) == 0 {
+		return nil
+	}
+	if state.StaticSynthesis.AxisLevel == "主轴成立" || state.StaticSynthesis.AxisLevel == "可以拔高" {
+		return fmt.Errorf("static axis level exceeds incomplete evidence boundary: missing %s", strings.Join(state.EvidenceQuality.MissingTopics, ", "))
+	}
+	return nil
 }
 
 // validateCurrentDayunLineConsistency 约束当前大运总述与当前大运条目保持同线，
@@ -415,7 +543,7 @@ func validateStaticAxisVerdictConsistency(s baziStaticSynthesis) error {
 	if err := validateAllowedValue("static axis ceiling", s.AxisCeiling, []string{"结构信号", "受限路线", "可作主轴", "可以拔高"}); err != nil {
 		return err
 	}
-	if len(s.ConflictReasons) == 0 {
+	if requiresStaticConflictReasons(s) && len(s.ConflictReasons) == 0 {
 		return fmt.Errorf("static conflict reasons required")
 	}
 	if err := validateAxisVerdictAgainstConflict(s); err != nil {
@@ -430,6 +558,19 @@ func validateStaticAxisVerdictConsistency(s baziStaticSynthesis) error {
 		return fmt.Errorf("static synthesis promotes restricted route beyond axis ceiling")
 	}
 	return nil
+}
+
+// requiresStaticConflictReasons limits the conflict-reason requirement to
+// outputs that actually declare conflict, amplification, or a restricted
+// ceiling. Neutral axes still go through semantic audit; they should not be
+// rejected before audit just because no conflict list is present.
+func requiresStaticConflictReasons(s baziStaticSynthesis) bool {
+	return s.EffectOnTiaohou == "冲突" ||
+		s.EffectOnCoreDisease == "放大" ||
+		s.EffectOnJiShenDirection == "放大" ||
+		s.AxisCeiling == "结构信号" ||
+		s.AxisCeiling == "受限路线" ||
+		containsString(s.ConsistencyFlags, "方向成立但力度受限")
 }
 
 func validateAxisVerdictAgainstConflict(s baziStaticSynthesis) error {
@@ -550,6 +691,9 @@ func validateFinalWriterOutput(plan baziAnalysisPlan, state baziCharterState, ou
 	if output == "" {
 		return fmt.Errorf("final writer produced empty output")
 	}
+	if strings.Contains(output, "上游未提供") {
+		return fmt.Errorf("final writer output leaked internal missing-field placeholder")
+	}
 	if isFactsOnlyStaticSynthesis(state.StaticSynthesis) {
 		if !strings.Contains(output, "模型综合未通过") || !strings.Contains(output, "不输出主轴") {
 			return fmt.Errorf("facts-only final output must expose degraded synthesis status")
@@ -593,7 +737,7 @@ func validateFinalWriterOutput(plan baziAnalysisPlan, state baziCharterState, ou
 		if !containsAnyText([]string{gejuSection}, []string{"**规则口径**"}) {
 			return fmt.Errorf("full writer output must expose the selected rule-profile boundary in 格局视角")
 		}
-		if !containsAnyText([]string{gejuSection}, []string{"**依据**"}) {
+		if strings.TrimSpace(state.StaticSynthesis.PatternBasis) != "" && !containsAnyText([]string{gejuSection}, []string{"**依据**"}) {
 			return fmt.Errorf("full writer output must expose concise evidence in 格局视角")
 		}
 		if !containsAnyText([]string{gejuSection}, []string{"**限制**"}) {
@@ -603,7 +747,7 @@ func validateFinalWriterOutput(plan baziAnalysisPlan, state baziCharterState, ou
 		if tierSection == "" {
 			return fmt.Errorf("full writer output missing 综合判定 section body")
 		}
-		if !containsAnyText([]string{tierSection}, []string{"**解释**"}) {
+		if strings.TrimSpace(state.StaticSynthesis.TierBasis) != "" && !containsAnyText([]string{tierSection}, []string{"**解释**"}) {
 			return fmt.Errorf("full writer output must expose a concise basis in 综合判定")
 		}
 	case "topic":
@@ -806,22 +950,17 @@ func (e *Executor) runBaziAuthorityFirstGraph(ctx context.Context, sink EventSin
 	// evidence-aware judgment rather than a deterministic projection of claims.
 	staticSynthesis, err := e.runStaticSynthesisWithFeedback(chartState, func(payload map[string]any) (baziStaticSynthesis, error) {
 		return runBaziInnerAgentJSON[baziStaticSynthesis](ctx, e.builder, baziStaticSynthesisConfig(), st, buildBaziCharterPrompt("静态综合", question, payload))
+	}, func(candidate baziStaticSynthesis) (baziContractAudit, error) {
+		return e.runBaziContractAudit(ctx, st, "static", chartState, candidate)
 	})
 	if err != nil {
-		// A transient model failure must not discard a usable chart. This is an
-		// explicit degraded path, not the normal source of whole-chart judgments.
 		annotateBaziGraphError(ctx, "static_synthesis", err)
-		staticSynthesis = buildProfileStaticSynthesis(chartState.Input)
-		staticSynthesis = normalizeStaticSynthesis(staticSynthesis)
-		if recoverErr := validateStaticSynthesisResult(chartState, staticSynthesis); recoverErr != nil {
-			annotateBaziGraphError(ctx, "static_fallback_validation", recoverErr)
-			return "", recoverErr
-		}
+		return "", baziSynthesisRuntimeFailure("static_synthesis", "BAZI_STATIC_SYNTHESIS_CONTRACT_FAILED", err)
 	}
 	chartState.StaticSynthesis = staticSynthesis
 	chartState.FieldAudit = append(chartState.FieldAudit, staticSynthesis.FieldAudit...)
 	emitBaziStageThinking(ctx, sink, "bazi_graph", buildStaticStageSummary(chartState))
-	if !isFactsOnlyStaticSynthesis(chartState.StaticSynthesis) {
+	if !isFactsOnlyStaticSynthesis(chartState.StaticSynthesis) && !isPartialSynthesisSource(chartState.StaticSynthesis.Source) {
 		emitBaziReasoningSteps(ctx, sink, "静态推演", chartState.StaticSynthesis.ReasoningSteps)
 	}
 
@@ -833,30 +972,17 @@ func (e *Executor) runBaziAuthorityFirstGraph(ctx context.Context, sink EventSin
 		}
 		dynamicSynthesis, dynamicErr := e.runDynamicSynthesisWithFeedback(ctx, st, chartState, question)
 		if dynamicErr != nil {
-			// Keep the same degraded behavior as static synthesis: facts and
-			// profile claims remain available, but the trace records that no model
-			// arbitration was available for this turn.
 			annotateBaziGraphError(ctx, "dynamic_synthesis", dynamicErr)
-			dynamicSynthesis = buildProfileDynamicSynthesis(chartState.Input, chartState.StaticSynthesis)
+			return "", baziSynthesisRuntimeFailure("dynamic_synthesis", "BAZI_DYNAMIC_SYNTHESIS_CONTRACT_FAILED", dynamicErr)
 		}
 		chartState.DynamicSynthesis = sanitizeDynamicPresentationBoundaries(normalizeDynamicSynthesis(dynamicSynthesis))
 		chartState.FieldAudit = append(chartState.FieldAudit, chartState.DynamicSynthesis.FieldAudit...)
-		if err := validateDynamicStage(chartState); err != nil {
-			chartState.DynamicSynthesis = recoverDynamicSynthesis(chartState, chartState.DynamicSynthesis, err)
-		}
-		if err := validateCharterConsistency(chartState); err != nil {
-			chartState.DynamicSynthesis = recoverDynamicSynthesis(chartState, chartState.DynamicSynthesis, err)
-			if recoverErr := validateDynamicStage(chartState); recoverErr != nil {
-				annotateBaziGraphError(ctx, "dynamic_validation", recoverErr)
-				return "", recoverErr
-			}
-			if recoverErr := validateCharterConsistency(chartState); recoverErr != nil {
-				annotateBaziGraphError(ctx, "dynamic_consistency", recoverErr)
-				return "", recoverErr
-			}
+		if err := validateDynamicSynthesisAfterGraphNormalization(chartState); err != nil {
+			annotateBaziGraphError(ctx, "dynamic_validation", err)
+			return "", baziSynthesisRuntimeFailure("dynamic_synthesis", "BAZI_DYNAMIC_SYNTHESIS_CONTRACT_FAILED", err)
 		}
 		emitBaziStageThinking(ctx, sink, "bazi_graph", buildDynamicStageSummary(chartState))
-		if !isFactsOnlyDynamicSynthesis(chartState.DynamicSynthesis) {
+		if !isFactsOnlyDynamicSynthesis(chartState.DynamicSynthesis) && !isPartialSynthesisSource(chartState.DynamicSynthesis.Source) {
 			emitBaziReasoningSteps(ctx, sink, "动态推演", chartState.DynamicSynthesis.ReasoningSteps)
 		}
 	}
@@ -866,6 +992,27 @@ func (e *Executor) runBaziAuthorityFirstGraph(ctx context.Context, sink EventSin
 	return e.runFinalWriter(ctx, st, chartState, question)
 }
 
+func baziSynthesisRuntimeFailure(stage, code string, cause error) error {
+	return &RuntimeFailure{
+		Class:       failureClassModelContractViolation,
+		Stage:       stage,
+		Domain:      "bazi",
+		Code:        code,
+		Retryable:   true,
+		Degraded:    false,
+		UserVisible: true,
+		Message:     "本轮八字综合未通过结构化合同校验，已停止展示不稳定内容。请稍后重试。",
+		Cause:       cause,
+	}
+}
+
+func validateDynamicSynthesisAfterGraphNormalization(state baziCharterState) error {
+	if isPartialSynthesisSource(state.DynamicSynthesis.Source) {
+		return validatePartialDynamicSynthesis(state, state.DynamicSynthesis)
+	}
+	return validateDynamicSynthesisResult(state, state.DynamicSynthesis)
+}
+
 func annotateBaziSynthesisSources(ctx context.Context, state baziCharterState) {
 	outputMode := "model_full"
 	switch {
@@ -873,21 +1020,31 @@ func annotateBaziSynthesisSources(ctx context.Context, state baziCharterState) {
 		outputMode = baziSynthesisSourceFactsOnlyDegraded
 	case isFactsOnlyDynamicSynthesis(state.DynamicSynthesis):
 		outputMode = "model_static_dynamic_degraded"
+	case isPartialSynthesisSource(state.StaticSynthesis.Source) && isPartialSynthesisSource(state.DynamicSynthesis.Source):
+		outputMode = "model_static_dynamic_partial"
+	case isPartialSynthesisSource(state.StaticSynthesis.Source):
+		outputMode = "model_static_partial"
+	case isPartialSynthesisSource(state.DynamicSynthesis.Source):
+		outputMode = "model_dynamic_partial"
 	}
 	tracing.SetTraceAttributes(ctx, map[string]any{
 		"bazi.facts.source":            "deterministic_tools",
 		"bazi.static.source":           firstNonEmptyTrim(state.StaticSynthesis.Source, "unknown"),
 		"bazi.static.error":            state.StaticSynthesis.RecoveryReason,
+		"bazi.static.partial_reason":   partialReasonForSource(state.StaticSynthesis.Source, state.StaticSynthesis.RecoveryReason),
 		"bazi.static.degraded_reason":  degradedReasonForSource(state.StaticSynthesis.Source, state.StaticSynthesis.RecoveryReason),
 		"bazi.static.recovery_reason":  state.StaticSynthesis.RecoveryReason,
 		"bazi.static.assertion_count":  len(state.StaticSynthesis.Assertions),
+		"bazi.static.contract_audit":   baziContractAuditSummary(state.StaticSynthesis.ContractAudit),
 		"bazi.tier.source":             firstNonEmptyTrim(state.StaticSynthesis.Source, "unknown"),
 		"bazi.tiaohou.coverage":        "runtime_profile_disabled",
 		"bazi.dynamic.source":          firstNonEmptyTrim(state.DynamicSynthesis.Source, "unknown"),
 		"bazi.dynamic.error":           state.DynamicSynthesis.RecoveryReason,
+		"bazi.dynamic.partial_reason":  partialReasonForSource(state.DynamicSynthesis.Source, state.DynamicSynthesis.RecoveryReason),
 		"bazi.dynamic.degraded_reason": degradedReasonForSource(state.DynamicSynthesis.Source, state.DynamicSynthesis.RecoveryReason),
 		"bazi.dynamic.recovery_reason": state.DynamicSynthesis.RecoveryReason,
 		"bazi.dynamic.assertion_count": len(state.DynamicSynthesis.Assertions),
+		"bazi.dynamic.contract_audit":  baziContractAuditSummary(state.DynamicSynthesis.ContractAudit),
 		"bazi.dayun.count":             len(state.DynamicSynthesis.DayunPath),
 		"bazi.final.output_mode":       outputMode,
 		"bazi.final.audit_result":      baziFieldAuditResult(state.FieldAudit),
@@ -896,6 +1053,13 @@ func annotateBaziSynthesisSources(ctx context.Context, state baziCharterState) {
 
 func degradedReasonForSource(source, reason string) string {
 	if strings.TrimSpace(source) != baziSynthesisSourceFactsOnlyDegraded {
+		return ""
+	}
+	return reason
+}
+
+func partialReasonForSource(source, reason string) string {
+	if !isPartialSynthesisSource(source) {
 		return ""
 	}
 	return reason
@@ -1018,7 +1182,7 @@ func (e *Executor) supplementDynamicEvidenceIfNeeded(ctx context.Context, st *st
 	}
 	chartState.EvidencePlan = plan
 	chartState.EvidenceBundle = mergeEvidenceBundles(chartState.EvidenceBundle, bundle)
-	chartState.EvidenceQuality = evaluateEvidenceBundleQuality(chartState.EvidenceBundle)
+	chartState.EvidenceQuality = evaluateEvidenceBundleQuality(plan, bundle)
 	return chartState, nil
 }
 
@@ -1169,7 +1333,8 @@ func buildEvidencePlannerPayload(question string, chartFacts baziCharterInput, a
 func buildStaticSynthesisPayload(state baziCharterState) map[string]any {
 	return map[string]any{
 		"input": map[string]any{
-			"core_chart": buildCoreChartView(state.Input),
+			"core_chart":      buildCoreChartView(state.Input),
+			"subject_context": buildBaziSubjectContext(state.Input),
 		},
 		"analysis_plan":    state.AnalysisPlan,
 		"evidence_plan":    state.EvidencePlan,
@@ -1182,8 +1347,9 @@ func buildStaticSynthesisPayload(state baziCharterState) map[string]any {
 func buildDynamicSynthesisPayload(state baziCharterState) map[string]any {
 	return map[string]any{
 		"input": map[string]any{
-			"core_chart":    buildCoreChartView(state.Input),
-			"dynamic_facts": buildDynamicFactsView(state.Input),
+			"core_chart":      buildCoreChartView(state.Input),
+			"dynamic_facts":   buildDynamicFactsView(state.Input),
+			"subject_context": buildBaziSubjectContext(state.Input),
 		},
 		"analysis_plan":    state.AnalysisPlan,
 		"evidence_bundle":  buildEvidenceBundleView(state.EvidenceBundle, true),
@@ -1191,6 +1357,49 @@ func buildDynamicSynthesisPayload(state baziCharterState) map[string]any {
 		"static_synthesis": state.StaticSynthesis,
 		"question":         state.Input.UserQuestion,
 	}
+}
+
+// buildBaziSubjectContext derives age from the calculated birth timestamp and
+// target year. It scopes interpretation only; it never changes chart facts.
+func buildBaziSubjectContext(input baziCharterInput) baziSubjectContext {
+	birthYear := yearPrefix(stringValue(input.BaziResult["birthday"]))
+	targetYear := intValue(input.Liunian["liunian_year"])
+	context := baziSubjectContext{BirthYear: birthYear, TargetYear: targetYear, AgeBand: "unknown", AllowedOutcomeDomains: []string{"structure"}}
+	if birthYear <= 0 || targetYear < birthYear {
+		return context
+	}
+	context.Age = targetYear - birthYear
+	switch {
+	case context.Age <= 2:
+		context.AgeBand = "infant"
+		context.AllowedOutcomeDomains = []string{"structure", "growth_environment", "care_routine", "observable_development"}
+	case context.Age <= 12:
+		context.AgeBand = "child"
+		context.AllowedOutcomeDomains = []string{"structure", "growth_environment", "care_routine", "observable_development"}
+	case context.Age <= 17:
+		context.AgeBand = "adolescent"
+		context.AllowedOutcomeDomains = []string{"structure", "growth_environment", "care_routine", "observable_development"}
+	case context.Age <= 64:
+		context.AgeBand = "adult"
+		context.AllowedOutcomeDomains = []string{"structure", "user_requested_authorized_domain"}
+	default:
+		context.AgeBand = "senior"
+		context.AllowedOutcomeDomains = []string{"structure", "user_requested_authorized_domain"}
+	}
+	return context
+}
+
+// yearPrefix reads a four-digit year from a normalized timestamp prefix.
+func yearPrefix(value string) int {
+	value = strings.TrimSpace(value)
+	if len(value) < 4 {
+		return 0
+	}
+	var year int
+	if _, err := fmt.Sscanf(value[:4], "%d", &year); err != nil {
+		return 0
+	}
+	return year
 }
 
 func buildEvidenceBundleView(bundle baziEvidenceBundle, includeTopics bool) map[string]any {
@@ -1395,7 +1604,7 @@ func (e *Executor) runBaziEvidenceStage(ctx context.Context, st *state.SessionSt
 	if err != nil {
 		return plan, baziEvidenceBundle{}, baziEvidenceQuality{}, err
 	}
-	quality := evaluateEvidenceBundleQuality(bundle)
+	quality := evaluateEvidenceBundleQuality(plan, bundle)
 	return plan, bundle, quality, nil
 }
 
@@ -1471,8 +1680,9 @@ func defaultBaziEvidencePlan(question string, analysisPlan baziAnalysisPlan) baz
 
 func (e *Executor) runControlledBaziRetrieval(ctx context.Context, plan baziEvidencePlan) (baziEvidenceBundle, error) {
 	bundle := baziEvidenceBundle{
-		Stage:        plan.Stage,
-		TopicBuckets: map[string][]baziCitation{},
+		Stage:                plan.Stage,
+		TopicBuckets:         map[string][]baziCitation{},
+		CriticalTopicBuckets: map[string][]baziCitation{},
 	}
 	if !plan.NeedRetrieval || len(plan.QueryPackets) == 0 {
 		return bundle, nil
@@ -1490,6 +1700,7 @@ func (e *Executor) runControlledBaziRetrieval(ctx context.Context, plan baziEvid
 		index     int
 		packet    baziQueryPacket
 		citations []baziCitation
+		degraded  bool
 		err       error
 	}
 	results := make([]retrievalResult, len(plan.QueryPackets))
@@ -1513,11 +1724,14 @@ func (e *Executor) runControlledBaziRetrieval(ctx context.Context, plan baziEvid
 				return
 			}
 			citations := citationsFromKnowledgeResult(result, packet)
+			degraded := knowledgeResultDegraded(result)
 			retrievalSpan.SetAttribute("hits", len(citations))
+			retrievalSpan.SetAttribute("degraded", degraded)
 			results[index] = retrievalResult{
 				index:     index,
 				packet:    packet,
 				citations: citations,
+				degraded:  degraded,
 			}
 		}(i, packet)
 	}
@@ -1527,13 +1741,30 @@ func (e *Executor) runControlledBaziRetrieval(ctx context.Context, plan baziEvid
 			return bundle, result.err
 		}
 		if len(result.citations) == 0 {
+			if result.degraded {
+				bundle.DegradedTopics = mergeStrings(bundle.DegradedTopics, result.packet.Topic)
+			}
 			continue
 		}
 		bundle.TopicBuckets[result.packet.Topic] = mergeCitations(bundle.TopicBuckets[result.packet.Topic], result.citations...)
+		if strings.EqualFold(strings.TrimSpace(result.packet.SourceTier), "A") {
+			bundle.CriticalTopicBuckets[result.packet.Topic] = mergeCitations(bundle.CriticalTopicBuckets[result.packet.Topic], result.citations...)
+		}
 		bundle.Citations = mergeCitations(bundle.Citations, result.citations...)
 	}
 
 	return bundle, nil
+}
+
+// knowledgeResultDegraded exposes a tool-level fallback so missing evidence is
+// distinguishable from a successful empty semantic search.
+func knowledgeResultDegraded(result any) bool {
+	rm, ok := result.(map[string]any)
+	if !ok {
+		return false
+	}
+	degraded, _ := rm["fallback"].(bool)
+	return degraded
 }
 
 func hasDynamicSystemFacts(input baziCharterInput) bool {
@@ -1589,9 +1820,6 @@ func filterPreferredCitations(items []baziCitation, preferredSources []string) [
 
 func citationFromPassage(source, content string, packet baziQueryPacket) baziCitation {
 	classic := extractAuthorityClassic(source)
-	if classic == "" && len(packet.PreferredSources) > 0 {
-		classic = packet.PreferredSources[0]
-	}
 	if classic == "" {
 		classic = source
 	}
@@ -1649,10 +1877,12 @@ func mergeCitations(base []baziCitation, adds ...baziCitation) []baziCitation {
 
 func mergeEvidenceBundles(base, add baziEvidenceBundle) baziEvidenceBundle {
 	merged := baziEvidenceBundle{
-		Stage:        base.Stage,
-		TopicBuckets: map[string][]baziCitation{},
-		Citations:    mergeCitations(base.Citations, add.Citations...),
-		Conflicts:    mergeStrings(base.Conflicts, add.Conflicts...),
+		Stage:                base.Stage,
+		TopicBuckets:         map[string][]baziCitation{},
+		CriticalTopicBuckets: map[string][]baziCitation{},
+		Citations:            mergeCitations(base.Citations, add.Citations...),
+		Conflicts:            mergeStrings(base.Conflicts, add.Conflicts...),
+		DegradedTopics:       mergeStrings(base.DegradedTopics, add.DegradedTopics...),
 	}
 	if strings.TrimSpace(merged.Stage) == "" {
 		merged.Stage = add.Stage
@@ -1662,6 +1892,12 @@ func mergeEvidenceBundles(base, add baziEvidenceBundle) baziEvidenceBundle {
 	}
 	for topic, citations := range add.TopicBuckets {
 		merged.TopicBuckets[topic] = mergeCitations(merged.TopicBuckets[topic], citations...)
+	}
+	for topic, citations := range base.CriticalTopicBuckets {
+		merged.CriticalTopicBuckets[topic] = mergeCitations(merged.CriticalTopicBuckets[topic], citations...)
+	}
+	for topic, citations := range add.CriticalTopicBuckets {
+		merged.CriticalTopicBuckets[topic] = mergeCitations(merged.CriticalTopicBuckets[topic], citations...)
 	}
 	return merged
 }
@@ -1686,13 +1922,44 @@ func (e *Executor) maybeReflectOnBaziEvidence(ctx context.Context, st *state.Ses
 		return chartState, nil
 	}
 
-	bundle, err := e.runControlledBaziRetrieval(ctx, chartState.EvidencePlan)
+	retryPlan := buildEvidenceRetryPlan(chartState.EvidencePlan, chartState.EvidenceQuality)
+	if !retryPlan.NeedRetrieval || len(retryPlan.QueryPackets) == 0 {
+		return chartState, nil
+	}
+	bundle, err := e.runControlledBaziRetrieval(ctx, retryPlan)
 	if err != nil {
 		return chartState, err
 	}
-	chartState.EvidenceBundle = bundle
-	chartState.EvidenceQuality = evaluateEvidenceBundleQuality(bundle)
+	chartState.EvidenceBundle = mergeEvidenceBundles(chartState.EvidenceBundle, bundle)
+	chartState.EvidenceQuality = evaluateEvidenceBundleQuality(chartState.EvidencePlan, chartState.EvidenceBundle)
 	return chartState, nil
+}
+
+// buildEvidenceRetryPlan retries only missing A-tier topics with stable source
+// and topic terms. Reissuing an unchanged broad plan cannot repair a coverage gap.
+func buildEvidenceRetryPlan(plan baziEvidencePlan, quality baziEvidenceQuality) baziEvidencePlan {
+	retryTopics := append([]string{}, quality.MissingTopics...)
+	if len(retryTopics) == 0 && quality.ConflictScore == "high" {
+		retryTopics = requiredEvidenceTopics(plan)
+	}
+	retry := baziEvidencePlan{
+		NeedRetrieval:     len(retryTopics) > 0,
+		Stage:             plan.Stage,
+		EvidenceGaps:      append([]string{}, retryTopics...),
+		RecommendedSource: append([]string{}, plan.RecommendedSource...),
+	}
+	for _, topic := range retryTopics {
+		for _, packet := range plan.QueryPackets {
+			if packet.Topic != topic || !strings.EqualFold(strings.TrimSpace(packet.SourceTier), "A") {
+				continue
+			}
+			retryPacket := packet
+			retryPacket.Query = strings.TrimSpace(strings.Join(append(append([]string{}, packet.PreferredSources...), packet.Topic), " "))
+			retry.QueryPackets = append(retry.QueryPackets, retryPacket)
+			break
+		}
+	}
+	return retry
 }
 
 func (e *Executor) runStaticSynthesis(ctx context.Context, st *state.SessionState, chartState baziCharterState, question string) (baziStaticSynthesis, error) {
@@ -1723,10 +1990,12 @@ func (e *Executor) runDynamicSynthesisWithFeedback(ctx context.Context, st *stat
 	}
 	output.Source = "model"
 	output = ensureDynamicAssertions(chartState, projectDynamicAssertionsToLegacy(normalizeDynamicSynthesis(output)))
-	if err := validateDynamicSynthesisResult(chartState, output); err == nil {
+	if output, err = validateDynamicSynthesisWithAudit(chartState, output, func(candidate baziDynamicSynthesis) (baziContractAudit, error) {
+		return e.runBaziContractAudit(ctx, st, "dynamic", chartState, candidate)
+	}); err == nil {
 		return output, nil
 	} else {
-		payload["dynamic_feedback"] = buildDynamicSynthesisFeedback(err)
+		payload["dynamic_feedback"] = buildDynamicSynthesisFeedback(chartState, output, err)
 	}
 
 	output, err = run(payload)
@@ -1735,15 +2004,37 @@ func (e *Executor) runDynamicSynthesisWithFeedback(ctx context.Context, st *stat
 	}
 	output.Source = "model"
 	output = ensureDynamicAssertions(chartState, projectDynamicAssertionsToLegacy(normalizeDynamicSynthesis(output)))
-	if err := validateDynamicSynthesisResult(chartState, output); err == nil {
+	if output, err = validateDynamicSynthesisWithAudit(chartState, output, func(candidate baziDynamicSynthesis) (baziContractAudit, error) {
+		return e.runBaziContractAudit(ctx, st, "dynamic", chartState, candidate)
+	}); err == nil {
 		return output, nil
 	} else {
-		recovered := recoverDynamicSynthesis(chartState, output, err)
-		if recoverErr := validateDynamicSynthesisResult(chartState, recovered); recoverErr != nil {
-			return baziDynamicSynthesis{}, recoverErr
+		if partial, ok := acceptPartialDynamicSynthesisAfterRetry(chartState, output, err); ok {
+			return partial, nil
 		}
-		return recovered, nil
+		return baziDynamicSynthesis{}, err
 	}
+}
+
+// validateDynamicSynthesisWithAudit runs deterministic checks before the
+// independent reviewer; a failed review is either retried once, accepted as a
+// partial display omission, or surfaced as a runtime contract error.
+func validateDynamicSynthesisWithAudit(chartState baziCharterState, output baziDynamicSynthesis, audit func(baziDynamicSynthesis) (baziContractAudit, error)) (baziDynamicSynthesis, error) {
+	if err := validateDynamicSynthesisResult(chartState, output); err != nil {
+		return output, err
+	}
+	if audit == nil {
+		return output, nil
+	}
+	result, err := audit(output)
+	if err != nil {
+		return output, err
+	}
+	output.ContractAudit = result
+	if err := validateBaziContractAudit("dynamic", result); err != nil {
+		return output, err
+	}
+	return output, nil
 }
 
 func validateDynamicSynthesisResult(chartState baziCharterState, output baziDynamicSynthesis) error {
@@ -1762,12 +2053,28 @@ func validateDynamicSynthesisResult(chartState baziCharterState, output baziDyna
 	return validateCharterConsistency(checkState)
 }
 
-func buildDynamicSynthesisFeedback(cause error) string {
+func buildDynamicSynthesisFeedback(chartState baziCharterState, output baziDynamicSynthesis, cause error) string {
+	context := buildBaziSubjectContext(chartState.Input)
 	lines := []string{
 		"请仅修复本次校验失败的字段，保留其余逐运裁断与静态主轴。",
 		"大运必须逐条覆盖输入的完整计算序列；若输出 dayun_judgments，其顺序、干支和数量必须与输入完全一致。",
 		"只使用输入已声明的十神和冲合刑害；不得补造关系或具体健康、财务、婚恋、职位、法律等应事。",
 		"`consistency_flags` 只能使用以下固定值：" + strings.Join(allowedDynamicConsistencyFlags, "、") + "。非法值只修复该字段，不要重写其他已合格内容。",
+	}
+	if context.AgeBand == "infant" || context.AgeBand == "child" || context.AgeBand == "adolescent" {
+		lines = append(lines, fmt.Sprintf(
+			"本轮 subject_context：age_band=%s；allowed_outcome_domains=%s。你必须重写所有 dayun_judgments 和兼容正文：每步 outcome_domains 只能取此集合，未来成年大运也只能说明结构触发、成长环境、照护节奏或可观察发展；不得写事业、婚姻、财富、职位、社会地位、权威、权力、升迁、名望、健康、法律、事故等现实落点。当前顶层 outcome_domains=%s。",
+			context.AgeBand,
+			strings.Join(context.AllowedOutcomeDomains, "、"),
+			strings.Join(output.OutcomeDomains, "、"),
+		))
+	}
+	if !chartState.EvidenceQuality.Enough || len(chartState.EvidenceQuality.MissingTopics) > 0 {
+		lines = append(lines, fmt.Sprintf(
+			"本轮 evidence_quality.enough=%t；missing_topics=%s。缺失主题相关的大运与流年只能降为 structure 结构观察，不得把未覆盖的病药、层级或主轴证据转译成社会地位、权威、职位、财富、健康等现实结论。",
+			chartState.EvidenceQuality.Enough,
+			strings.Join(chartState.EvidenceQuality.MissingTopics, "、"),
+		))
 	}
 	if cause != nil && strings.TrimSpace(cause.Error()) != "" {
 		lines = append(lines, "本次校验失败原因："+cause.Error())
@@ -1775,6 +2082,11 @@ func buildDynamicSynthesisFeedback(cause error) string {
 	if violation, ok := baziViolationFromError(cause); ok {
 		if raw, err := json.Marshal(violation); err == nil {
 			lines = append(lines, "机器可读 violation："+string(raw))
+		}
+	}
+	if len(output.ContractAudit.Findings) > 0 {
+		if raw, err := json.Marshal(output.ContractAudit.Findings); err == nil {
+			lines = append(lines, "独立审计已确认的 findings（只修复这些字段，不要把检查过程当作结论）："+string(raw))
 		}
 	}
 	return strings.Join(lines, "\n")

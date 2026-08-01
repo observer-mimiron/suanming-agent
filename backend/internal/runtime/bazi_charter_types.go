@@ -1,3 +1,7 @@
+// Package runtime defines the manager-owned BaZi graph contracts.
+//
+// These types carry deterministic facts, evidence provenance and bounded model
+// judgments; rendering code must not invent new domain conclusions.
 package runtime
 
 type baziCharterInput struct {
@@ -7,6 +11,16 @@ type baziCharterInput struct {
 	Dayun        map[string]any  `json:"dayun"`
 	Liunian      map[string]any  `json:"liunian"`
 	RuleProfile  baziRuleProfile `json:"selected_rule_profile"`
+}
+
+// baziSubjectContext gives dynamic synthesis deterministic age context for the
+// requested target year. It limits life-domain scope without encoding a chart.
+type baziSubjectContext struct {
+	BirthYear             int      `json:"birth_year,omitempty"`
+	TargetYear            int      `json:"target_year,omitempty"`
+	Age                   int      `json:"age,omitempty"`
+	AgeBand               string   `json:"age_band"`
+	AllowedOutcomeDomains []string `json:"allowed_outcome_domains"`
 }
 
 // baziRuleProfile describes the sole rule family allowed to issue verdicts for
@@ -83,14 +97,58 @@ type baziClaimRef string
 // synthesis text remains for rendering, while assertions record which chart
 // facts and rule-profile claims authorize each visible conclusion.
 type baziAssertion struct {
-	ID         string            `json:"id"`
-	Kind       baziAssertionKind `json:"kind"`
-	Subject    string            `json:"subject"`
-	Verdict    string            `json:"verdict"`
-	FactRefs   []baziFactRef     `json:"fact_refs,omitempty"`
-	ClaimRefs  []baziClaimRef    `json:"claim_refs,omitempty"`
-	Confidence string            `json:"confidence,omitempty"`
-	Boundary   string            `json:"boundary,omitempty"`
+	ID             string            `json:"id"`
+	Kind           baziAssertionKind `json:"kind"`
+	Subject        string            `json:"subject"`
+	Verdict        string            `json:"verdict"`
+	FactRefs       []baziFactRef     `json:"fact_refs,omitempty"`
+	ClaimRefs      []baziClaimRef    `json:"claim_refs,omitempty"`
+	EvidenceTopics []string          `json:"evidence_topics,omitempty"`
+	EvidenceStatus string            `json:"evidence_status,omitempty"`
+	Confidence     string            `json:"confidence,omitempty"`
+	Boundary       string            `json:"boundary,omitempty"`
+}
+
+// baziPatternCandidate records one competing static route and the evidence
+// dimensions used to compare it without letting runtime choose the winner.
+type baziPatternCandidate struct {
+	ID             string        `json:"id"`
+	Name           string        `json:"name"`
+	Origin         string        `json:"origin"`
+	Visibility     string        `json:"visibility"`
+	Role           string        `json:"role"`
+	FactRefs       []baziFactRef `json:"fact_refs,omitempty"`
+	EvidenceTopics []string      `json:"evidence_topics,omitempty"`
+	// ComparisonDimensions accepts either a list of completed dimensions or an
+	// object keyed by dimension. Models naturally emit both representations;
+	// validation normalizes them before enforcing the fixed comparison contract.
+	ComparisonDimensions any      `json:"comparison_dimensions,omitempty"`
+	RejectionReasons     []string `json:"rejection_reasons,omitempty"`
+}
+
+// baziPatternAdjudication projects how the model compared the month-command,
+// visible and hidden routes before selecting one static axis.
+type baziPatternAdjudication struct {
+	MonthCommandCandidateID  string                 `json:"month_command_candidate_id"`
+	SelectedAxisCandidateIDs []string               `json:"selected_axis_candidate_ids"`
+	Candidates               []baziPatternCandidate `json:"candidates"`
+}
+
+// baziContractAuditFinding identifies one semantic contract mismatch without
+// rewriting the candidate synthesis that caused it.
+type baziContractAuditFinding struct {
+	Code           string `json:"code"`
+	Field          string `json:"field"`
+	Excerpt        string `json:"excerpt,omitempty"`
+	DetectedDomain string `json:"detected_domain,omitempty"`
+	Reason         string `json:"reason"`
+}
+
+// baziContractAudit is an independent binary review of one model synthesis.
+// Failed audits trigger feedback or facts-only degradation, never text repair.
+type baziContractAudit struct {
+	Compliant bool                       `json:"compliant"`
+	Findings  []baziContractAuditFinding `json:"findings"`
 }
 
 type baziViolationCode string
@@ -101,6 +159,9 @@ const (
 	baziViolationClaimNotAuthorized         baziViolationCode = "claim_not_authorized"
 	baziViolationScopeEscalation            baziViolationCode = "scope_escalation"
 	baziViolationDayunCoverageMissing       baziViolationCode = "dayun_coverage_missing"
+	baziViolationMethodContract             baziViolationCode = "method_contract_violation"
+	baziViolationEvidenceTopicMissing       baziViolationCode = "evidence_topic_missing"
+	baziViolationSemanticContract           baziViolationCode = "semantic_contract_violation"
 	baziViolationUnsupportedConcreteOutcome baziViolationCode = "unsupported_concrete_outcome"
 	baziViolationRendererContract           baziViolationCode = "renderer_contract_violation"
 )
@@ -150,6 +211,7 @@ type baziDayunJudgment struct {
 	Trend          string   `json:"trend"`
 	Interpretation string   `json:"interpretation"`
 	Evidence       []string `json:"evidence,omitempty"`
+	OutcomeDomains []string `json:"outcome_domains,omitempty"`
 }
 
 type baziStaticSynthesis struct {
@@ -157,41 +219,43 @@ type baziStaticSynthesis struct {
 	RecoveryReason string `json:"recovery_reason,omitempty"`
 	// FieldAudit records runtime-only local wording repairs. It is neither
 	// rendered nor returned to another model as part of the judgment.
-	FieldAudit              []string             `json:"-"`
-	RuleProfile             string               `json:"rule_profile"`
-	MainAxis                string               `json:"main_axis"`
-	ClaimStrength           string               `json:"claim_strength"`
-	SupportLevel            string               `json:"support_level"`
-	LimitationLevel         string               `json:"limitation_level"`
-	WordingCap              string               `json:"wording_cap"`
-	ConsistencyFlags        []string             `json:"consistency_flags"`
-	AxisLevel               string               `json:"axis_level"`
-	EffectOnTiaohou         string               `json:"effect_on_tiaohou"`
-	EffectOnCoreDisease     string               `json:"effect_on_core_disease"`
-	EffectOnJiShenDirection string               `json:"effect_on_jishen_direction"`
-	AxisCeiling             string               `json:"axis_ceiling"`
-	ConflictReasons         []string             `json:"conflict_reasons"`
-	PatternBasis            string               `json:"pattern_basis"`
-	PatternOutcome          string               `json:"pattern_outcome"`
-	CounterEvidence         string               `json:"counter_evidence"`
-	AxisConsistency         string               `json:"axis_consistency"`
-	TiaohouConstraint       string               `json:"tiaohou_constraint"`
-	TiaohouAnchor           string               `json:"tiaohou_anchor"`
-	StrengthBalance         string               `json:"strength_balance"`
-	Strength                baziStrengthJudgment `json:"strength,omitempty"`
-	Usage                   baziUsageLayers      `json:"usage,omitempty"`
-	PatternAndQingZhuo      string               `json:"pattern_and_qing_zhuo"`
-	QiShiOrCongHua          string               `json:"qishi_or_conghua"`
-	TierJudgment            string               `json:"tier_judgment"`
-	TierBasis               string               `json:"tier_basis"`
-	ReasoningSummary        string               `json:"reasoning_summary"`
-	ReasoningSteps          []string             `json:"reasoning_steps"`
-	TopicDirectAnswer       string               `json:"topic_direct_answer,omitempty"`
-	TopicFocusAnswer        string               `json:"topic_focus_answer,omitempty"`
-	Advantages              []string             `json:"advantages"`
-	Risks                   []string             `json:"risks"`
-	Citations               []baziCitation       `json:"citations"`
-	Assertions              []baziAssertion      `json:"assertions,omitempty"`
+	FieldAudit              []string                `json:"-"`
+	RuleProfile             string                  `json:"rule_profile"`
+	MainAxis                string                  `json:"main_axis"`
+	ClaimStrength           string                  `json:"claim_strength"`
+	SupportLevel            string                  `json:"support_level"`
+	LimitationLevel         string                  `json:"limitation_level"`
+	WordingCap              string                  `json:"wording_cap"`
+	ConsistencyFlags        []string                `json:"consistency_flags"`
+	AxisLevel               string                  `json:"axis_level"`
+	EffectOnTiaohou         string                  `json:"effect_on_tiaohou"`
+	EffectOnCoreDisease     string                  `json:"effect_on_core_disease"`
+	EffectOnJiShenDirection string                  `json:"effect_on_jishen_direction"`
+	AxisCeiling             string                  `json:"axis_ceiling"`
+	ConflictReasons         []string                `json:"conflict_reasons"`
+	PatternBasis            string                  `json:"pattern_basis"`
+	PatternOutcome          string                  `json:"pattern_outcome"`
+	CounterEvidence         string                  `json:"counter_evidence"`
+	AxisConsistency         string                  `json:"axis_consistency"`
+	TiaohouConstraint       string                  `json:"tiaohou_constraint"`
+	TiaohouAnchor           string                  `json:"tiaohou_anchor"`
+	StrengthBalance         string                  `json:"strength_balance"`
+	Strength                baziStrengthJudgment    `json:"strength,omitempty"`
+	Usage                   baziUsageLayers         `json:"usage,omitempty"`
+	PatternAdjudication     baziPatternAdjudication `json:"pattern_adjudication"`
+	PatternAndQingZhuo      string                  `json:"pattern_and_qing_zhuo"`
+	QiShiOrCongHua          string                  `json:"qishi_or_conghua"`
+	TierJudgment            string                  `json:"tier_judgment"`
+	TierBasis               string                  `json:"tier_basis"`
+	ReasoningSummary        string                  `json:"reasoning_summary"`
+	ReasoningSteps          []string                `json:"reasoning_steps"`
+	TopicDirectAnswer       string                  `json:"topic_direct_answer,omitempty"`
+	TopicFocusAnswer        string                  `json:"topic_focus_answer,omitempty"`
+	Advantages              []string                `json:"advantages"`
+	Risks                   []string                `json:"risks"`
+	Citations               []baziCitation          `json:"citations"`
+	Assertions              []baziAssertion         `json:"assertions,omitempty"`
+	ContractAudit           baziContractAudit       `json:"-"`
 }
 
 type baziDynamicSynthesis struct {
@@ -210,15 +274,17 @@ type baziDynamicSynthesis struct {
 	// CurrentDayunIndex identifies the current period in the chronologically
 	// ordered DayunPath. It prevents validators from treating the first period
 	// as the current period when the path includes the full life sequence.
-	CurrentDayunIndex int             `json:"current_dayun_index"`
-	LiunianFocus      string          `json:"liunian_focus"`
-	WindowLevel       string          `json:"window_level"`
-	TriggerSignals    []string        `json:"trigger_signals"`
-	KeyWindows        []string        `json:"key_windows"`
-	Risks             []string        `json:"risks"`
-	ReasoningSummary  string          `json:"reasoning_summary"`
-	ReasoningSteps    []string        `json:"reasoning_steps"`
-	Assertions        []baziAssertion `json:"assertions,omitempty"`
+	CurrentDayunIndex int               `json:"current_dayun_index"`
+	LiunianFocus      string            `json:"liunian_focus"`
+	WindowLevel       string            `json:"window_level"`
+	TriggerSignals    []string          `json:"trigger_signals"`
+	KeyWindows        []string          `json:"key_windows"`
+	Risks             []string          `json:"risks"`
+	ReasoningSummary  string            `json:"reasoning_summary"`
+	ReasoningSteps    []string          `json:"reasoning_steps"`
+	OutcomeDomains    []string          `json:"outcome_domains"`
+	Assertions        []baziAssertion   `json:"assertions,omitempty"`
+	ContractAudit     baziContractAudit `json:"-"`
 }
 
 type baziCharterState struct {

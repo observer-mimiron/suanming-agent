@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 mkdir -p "$repo_root/$report_dir"
-for dataset in "$repo_root/eval/datasets/runtime-smoke-v1.json" "$repo_root/eval/datasets/retrieval-benchmark-v1.json"; do
+for dataset in "$repo_root/eval/datasets/runtime-smoke-v1.json" "$repo_root/eval/datasets/retrieval-benchmark-v1.json" "$repo_root/eval/datasets/bazi-quality-v1.json"; do
   dataset_name="$(basename "$dataset" .json)"
   report_path="$repo_root/$report_dir/$dataset_name.json"
   python3 "$script_dir/run_langfuse_eval.py" \

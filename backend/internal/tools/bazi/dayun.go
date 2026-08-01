@@ -69,6 +69,12 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 		if len(runes) >= 2 {
 			dyZhi = string(runes[1])
 		}
+		branchHiddenStems := append([]string{}, branchHidegan[dyZhi]...)
+		branchTenGods := computeSubShiShen(dayGan, branchHiddenStems)
+		branchMainTenGod := ""
+		if len(branchTenGods) > 0 {
+			branchMainTenGod = branchTenGods[0]
+		}
 		chonghe := computeDayunChonghe(dyZhi, allZhi)
 		annotated = append(annotated, map[string]any{
 			"startAge": dy["startAge"], "endAge": dy["endAge"],
@@ -76,6 +82,8 @@ func (t *DayunAnalyzer) Execute(_ context.Context, params map[string]any) (any, 
 			// 仍能按真实交运时刻定位当前大运，而不是退回到任意一条运。
 			"startAt": dy["startAt"], "endAtExclusive": dy["endAtExclusive"],
 			"ganZhi": gz, "tenGod": tenGod, "tenGodType": godType,
+			"branch": dyZhi, "branchHiddenStems": branchHiddenStems,
+			"branchTenGods": branchTenGods, "branchMainTenGod": branchMainTenGod,
 			"quality":      "待profile裁断",
 			"quality_base": "待profile裁断",
 			"quality_reason": map[string]any{

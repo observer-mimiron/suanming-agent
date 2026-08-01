@@ -214,7 +214,7 @@ func TestValidateDynamicStage_AllowsOrdinaryBaziInterpretiveLanguage(t *testing.
 	}
 }
 
-func TestRunStaticSynthesisWithFeedback_DegradesAfterRepeatedValidationFailure(t *testing.T) {
+func TestRunStaticSynthesisWithFeedback_ErrorsAfterRepeatedFatalValidationFailure(t *testing.T) {
 	executor := &Executor{}
 	chartState := baziCharterState{}
 	invalid := validStaticSynthesisForConsistencyTests()
@@ -228,17 +228,120 @@ func TestRunStaticSynthesisWithFeedback_DegradesAfterRepeatedValidationFailure(t
 		calls++
 		return invalid, nil
 	})
-	if err != nil {
-		t.Fatalf("expected graceful degradation instead of error, got %v", err)
+	if err == nil {
+		t.Fatalf("expected fatal validation failure after retry, got output %+v", out)
 	}
 	if calls != 2 {
 		t.Fatalf("static synthesis calls = %d, want 2", calls)
 	}
-	if out.Source != baziSynthesisSourceFactsOnlyDegraded {
-		t.Fatalf("source = %q, want facts-only degraded", out.Source)
+	if out.Source == baziSynthesisSourceFactsOnlyDegraded {
+		t.Fatalf("fatal retry failure must not return facts-only degraded output: %+v", out)
 	}
-	if strings.Contains(out.PatternOutcome, "贵格已成") || strings.Contains(out.TierBasis, "上等") {
-		t.Fatalf("facts-only degraded output must drop candidate judgment text, got %+v", out)
+}
+
+func TestRunStaticSynthesisWithFeedback_AcceptsDisplayOnlyPartialAfterRetry(t *testing.T) {
+	executor := &Executor{}
+	chartState := baziCharterState{}
+	first := validStaticSynthesisForConsistencyTests()
+	first.AxisLevel = "可以拔高"
+	first.AxisCeiling = "结构信号"
+	first.PatternOutcome = "这条路线已经贵格已成，可以拔高。"
+	second := validStaticSynthesisForConsistencyTests()
+	second.TierBasis = ""
+
+	calls := 0
+	out, err := executor.runStaticSynthesisWithFeedback(chartState, func(payload map[string]any) (baziStaticSynthesis, error) {
+		calls++
+		if calls == 1 {
+			return first, nil
+		}
+		return second, nil
+	})
+	if err != nil {
+		t.Fatalf("display-only missing field should be accepted as partial after retry: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("static synthesis calls = %d, want 2", calls)
+	}
+	if out.Source != baziSynthesisSourceModelPartial {
+		t.Fatalf("source = %q, want model_partial", out.Source)
+	}
+	if !containsAnyText(out.FieldAudit, []string{"static_partial_omitted:"}) {
+		t.Fatalf("expected static partial field audit, got %+v", out.FieldAudit)
+	}
+	if strings.TrimSpace(out.TierBasis) != "" {
+		t.Fatalf("partial output should keep missing display field omitted, got %q", out.TierBasis)
+	}
+	if strings.TrimSpace(out.MainAxis) == "" || strings.TrimSpace(out.PatternOutcome) == "" {
+		t.Fatalf("partial output must retain core judgments, got %+v", out)
+	}
+}
+
+func TestAcceptPartialDynamicSynthesisAfterRetry_AcceptsDisplayOnlyMissingField(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{Dayun: map[string]any{
+			"dayun_analyzed": []map[string]any{{"ganZhi": "甲午"}},
+		}},
+		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
+	}
+	candidate := baziDynamicSynthesis{
+		CurrentTrend:     "当前只作结构观察，承接中仍有扰动。",
+		ClaimStrength:    "倾向成立",
+		SupportLevel:     "有气",
+		LimitationLevel:  "明显",
+		WordingCap:       "中性",
+		ConsistencyFlags: []string{dynamicFlagStructureOnly},
+		DayunPath:        []string{"甲午运：只按已计算关系作结构观察。"},
+		DayunJudgments: []baziDayunJudgment{{
+			GanZhi:         "甲午",
+			Trend:          "先看结构，不下吉凶",
+			Interpretation: "只按已计算关系作结构观察。",
+			OutcomeDomains: []string{"structure"},
+		}},
+		LiunianFocus:     "流年只观察结构触发，不展开具体应事。",
+		WindowLevel:      "窗口年",
+		ReasoningSummary: "按大运与流年结构观察。",
+		OutcomeDomains:   []string{"structure"},
+	}
+
+	out, ok := acceptPartialDynamicSynthesisAfterRetry(state, candidate, fmt.Errorf("missing dynamic synthesis reasoning steps"))
+	if !ok {
+		t.Fatalf("display-only dynamic omission should be accepted as partial")
+	}
+	if out.Source != baziSynthesisSourceModelPartial {
+		t.Fatalf("source = %q, want model_partial", out.Source)
+	}
+	if !containsAnyText(out.FieldAudit, []string{"dynamic_partial_omitted:"}) {
+		t.Fatalf("expected dynamic partial field audit, got %+v", out.FieldAudit)
+	}
+	if len(out.ReasoningSteps) != 0 {
+		t.Fatalf("partial output should keep missing reasoning steps omitted, got %+v", out.ReasoningSteps)
+	}
+}
+
+func TestAcceptPartialDynamicSynthesisAfterRetry_RejectsFatalScopeFailure(t *testing.T) {
+	state := baziCharterState{
+		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
+		Input: baziCharterInput{BaziResult: map[string]any{
+			"birthSolar": "2025-11-11 00:15",
+		}},
+	}
+	candidate := baziDynamicSynthesis{
+		CurrentTrend:     "未来运势会进入事业升迁和财富兑现阶段。",
+		ClaimStrength:    "倾向成立",
+		SupportLevel:     "有气",
+		LimitationLevel:  "明显",
+		WordingCap:       "中性",
+		ConsistencyFlags: []string{dynamicFlagStructureOnly},
+		DayunPath:        []string{"甲午运：未来事业升迁明显。"},
+		LiunianFocus:     "流年只观察结构触发。",
+		WindowLevel:      "窗口年",
+		ReasoningSummary: "按大运与流年结构观察。",
+	}
+
+	out, ok := acceptPartialDynamicSynthesisAfterRetry(state, candidate, fmt.Errorf("missing dynamic synthesis reasoning steps"))
+	if ok {
+		t.Fatalf("fatal age-scope failure must not be accepted as partial: %+v", out)
 	}
 }
 
