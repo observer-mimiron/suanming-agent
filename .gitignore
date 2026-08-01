@@ -1,67 +1,49 @@
-# 密钥与配置
+# Local secrets and machine config
 .env
+.env.*
+!.env.example
 
-# 运行时数据
-data/
-.pid/
+# Runtime data and logs
+/data/
+/logs/
+*.log
+/.pid/
 /tmp/
+tmp-chat-body.json
+*.bak
 __pycache__/
 *.py[cod]
-*.bak
-tmp-chat-body.json
 
-*.log
-logs/
-PROGRESS.md
-docs/agent-engineering
-# 构建产物
-dist/
-web/dist/
-server
-backend/server
-orchestrator.test
+# Eval generated artifacts and local human-label snapshots
+/eval/reports/
+/eval/annotation/*.json
+/eval/runner/__pycache__/
+/eval/datasets/bazi-quality-v1.json
 
-# 依赖
-node_modules/
-package-lock.json
-package.json
+# Build outputs
+/dist/
+/web/dist/
+/server
+/backend/server
+/web/server
+/orchestrator.test
+*.test
+*.exe
 
-# IDE
+# Root-level accidental Node files; subprojects own their lockfiles.
+/node_modules/
+/package.json
+/package-lock.json
+
+# Local IDE and agent tooling
 .idea/
 .vscode/
 .DS_Store
-
-# 工具链
 .codegraph/
-eino-agent/
-.claude/
-.gstack/
-.debug/
-
-# 外部资料
-/research/
-
+.codex-logs/
 .claude/
 .agents/
-AGENTS.md
-CLAUDE.md
+.debug/
 
-# 知识库子项目 — 运行时数据与密钥
-knowledge/.env
-knowledge/.env.local
-knowledge/.dev.vars
-knowledge/.next/
-knowledge/node_modules/
-knowledge/*.tsbuildinfo
-knowledge/.wrangler/
-knowledge/.open-next/
-knowledge/.clerk/
-knowledge/discuss/
-knowledge/.indexes/
-knowledge/tenants/
-knowledge/agents/
-knowledge/agent-secrets/
-knowledge/.llm-wiki-config.json
-
-# �������
-*.exe
+# Local reference checkouts and generated docs
+/docs/agent-interview/
