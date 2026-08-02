@@ -1,5 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NextRequest } from "next/server";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {NextRequest} from "next/server";
+import {AgentOwnershipError, assertCanMutateAgent, deleteAgent, updateAgent,} from "@/lib/agents";
+import {getPrincipal} from "@/lib/auth";
+import {DELETE, PUT} from "@/app/api/agents/[id]/route";
+import type {AgentProfile} from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Mock the agents library. AgentOwnershipError is a real class so the route's
@@ -24,16 +28,6 @@ vi.mock("@/lib/agents", () => {
 vi.mock("@/lib/auth", () => ({
   getPrincipal: vi.fn(async () => ({ id: "alice", handle: "alice" })),
 }));
-
-import {
-  deleteAgent,
-  updateAgent,
-  assertCanMutateAgent,
-  AgentOwnershipError,
-} from "@/lib/agents";
-import { getPrincipal } from "@/lib/auth";
-import { PUT, DELETE } from "@/app/api/agents/[id]/route";
-import type { AgentProfile } from "@/lib/types";
 
 const mockedDelete = vi.mocked(deleteAgent);
 const mockedUpdate = vi.mocked(updateAgent);

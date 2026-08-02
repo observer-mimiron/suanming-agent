@@ -1,21 +1,21 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import {
-  getContributorIndex,
-  recordEditForAuthor,
-  reverseEditForAuthor,
-  recordTalkForAuthor,
-  rebuildContributorIndex,
-  profilesFromIndex,
+    getContributorIndex,
+    profilesFromIndex,
+    rebuildContributorIndex,
+    recordEditForAuthor,
+    recordTalkForAuthor,
+    reverseEditForAuthor,
 } from "../contributor-index";
-import { listContributors } from "../contributors";
-import { ensureDirectories, writeWikiPage } from "../wiki";
-import { saveRevision } from "../revisions";
-import { createThread, _resetTimestamp } from "../talk";
-import { _resetLocks } from "../lock";
-import { _resetStorage } from "../storage";
+import {listContributors} from "../contributors";
+import {ensureDirectories, writeWikiPage} from "../wiki";
+import {saveRevision} from "../revisions";
+import {_resetTimestamp, createThread} from "../talk";
+import {_resetLocks} from "../lock";
+import {_resetStorage} from "../storage";
 
 let tmpDir: string;
 const saved: Record<string, string | undefined> = {};

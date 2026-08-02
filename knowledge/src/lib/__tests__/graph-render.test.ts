@@ -1,15 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
+import {describe, expect, it, vi} from "vitest";
 import {
-  nodeRadius,
-  MIN_RADIUS,
-  MAX_RADIUS,
-  getColorPalette,
-  DARK_PALETTE,
-  stepPhysics,
-  renderGraph,
-  type GraphNode,
-  type GraphEdge,
-  type RenderOptions,
+    DARK_PALETTE,
+    getColorPalette,
+    type GraphEdge,
+    type GraphNode,
+    MAX_RADIUS,
+    MIN_RADIUS,
+    nodeRadius,
+    renderGraph,
+    type RenderOptions,
+    stepPhysics,
 } from "../graph-render";
 
 function makeNode(overrides: Partial<GraphNode> & { id: string }): GraphNode {

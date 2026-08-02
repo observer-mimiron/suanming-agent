@@ -249,14 +249,14 @@ cp deploy/langfuse/.env.example deploy/langfuse/.env
 4. 安装前端与知识库依赖
 
 ```bash
-cd /mnt/d/Workspace/suanming-agent/knowledge && npm install --legacy-peer-deps
-cd /mnt/d/Workspace/suanming-agent/web && npm install
+cd /home/huang/workspace/suanming-agent/knowledge && npm install --legacy-peer-deps
+cd /home/huang/workspace/suanming-agent/web && npm install
 ```
 
 4. 启动本地开发栈
 
 ```bash
-cd /mnt/d/Workspace/suanming-agent
+cd /home/huang/workspace/suanming-agent
 make dev
 ```
 

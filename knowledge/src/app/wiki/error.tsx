@@ -1,6 +1,6 @@
 "use client";
 
-import { PageError } from "@/components/ErrorBoundary";
+import {PageError} from "@/components/ErrorBoundary";
 
 export default function WikiError({
   error,

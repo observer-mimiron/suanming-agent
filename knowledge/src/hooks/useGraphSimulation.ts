@@ -1,23 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, type RefObject } from "react";
-import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
+import {type RefObject, useCallback, useEffect, useRef, useState} from "react";
+import type {AppRouterInstance} from "next/dist/shared/lib/app-router-context.shared-runtime";
 import {
-  type GraphNode,
-  type GraphEdge,
-  type GraphData,
-  type ColorPalette,
-  type Camera,
-  DARK_PALETTE,
-  VELOCITY_THRESHOLD,
-  nodeRadius,
-  getColorPalette,
-  stepPhysics,
-  renderGraph,
-  screenToWorld,
-  fitCameraToNodes,
+    type Camera,
+    type ColorPalette,
+    DARK_PALETTE,
+    fitCameraToNodes,
+    getColorPalette,
+    type GraphData,
+    type GraphEdge,
+    type GraphNode,
+    nodeRadius,
+    renderGraph,
+    screenToWorld,
+    stepPhysics,
+    VELOCITY_THRESHOLD,
 } from "@/lib/graph-render";
-import { GRAPH_CANVAS_HEIGHT, GRAPH_MIN_SCALE, GRAPH_MAX_SCALE } from "@/lib/constants";
+import {GRAPH_CANVAS_HEIGHT, GRAPH_MAX_SCALE, GRAPH_MIN_SCALE} from "@/lib/constants";
 
 export interface UseGraphSimulationReturn {
   loading: boolean;

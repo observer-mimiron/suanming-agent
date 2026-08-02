@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { providerLabel } from "@/lib/providers";
+import {useEffect, useState} from "react";
+import {providerLabel} from "@/lib/providers";
 
 interface ProviderInfo {
   configured: boolean;

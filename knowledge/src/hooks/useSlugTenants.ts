@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { pagePath } from "@/lib/links";
+import {useEffect, useState} from "react";
+import {pagePath} from "@/lib/links";
 
 type SlugTenants = Record<string, string>;
 

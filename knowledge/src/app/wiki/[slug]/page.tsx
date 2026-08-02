@@ -1,15 +1,11 @@
 import Link from "next/link";
-import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-import { decodeSlug } from "@/lib/slugify";
-import {
-  readWikiPageWithFrontmatter,
-  tenantForOwner,
-  validateSlug,
-} from "@/lib/wiki";
-import { commonsPath } from "@/lib/links";
-import { belongsInCommons } from "@/lib/commons";
-import { ArticleView } from "@/components/ArticleView";
+import type {Metadata} from "next";
+import {notFound} from "next/navigation";
+import {decodeSlug} from "@/lib/slugify";
+import {readWikiPageWithFrontmatter, tenantForOwner, validateSlug,} from "@/lib/wiki";
+import {commonsPath} from "@/lib/links";
+import {belongsInCommons} from "@/lib/commons";
+import {ArticleView} from "@/components/ArticleView";
 
 interface PublicWikiPageProps {
   params: Promise<{ slug: string }>;

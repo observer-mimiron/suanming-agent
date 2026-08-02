@@ -1,7 +1,27 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import {embed, embedMany} from "ai";
+import {
+    clearEmbeddings,
+    contentHash,
+    cosineSimilarity,
+    embedText,
+    embedTexts,
+    getEmbeddingModel,
+    getEmbeddingModelName,
+    hasEmbeddingSupport,
+    rebuildVectorStore,
+    relatedByVector,
+    removeEmbedding,
+    searchByVector,
+    upsertEmbedding,
+} from "../embeddings";
+import {_resetStorage, getStorage} from "../storage";
+import {loadConfigSync} from "../config";
+import {listWikiPages, readWikiPage} from "../wiki";
+import {getCloudflareContext} from "@opennextjs/cloudflare";
 
 // Mock the `ai` module so we never hit real API endpoints
 vi.mock("ai", () => ({
@@ -37,27 +57,6 @@ vi.mock("@opennextjs/cloudflare", () => ({
     throw new Error("no cloudflare context");
   }),
 }));
-
-import { embed, embedMany } from "ai";
-import {
-  cosineSimilarity,
-  contentHash,
-  hasEmbeddingSupport,
-  getEmbeddingModelName,
-  getEmbeddingModel,
-  clearEmbeddings,
-  upsertEmbedding,
-  removeEmbedding,
-  searchByVector,
-  relatedByVector,
-  embedText,
-  embedTexts,
-  rebuildVectorStore,
-} from "../embeddings";
-import { getStorage, _resetStorage } from "../storage";
-import { loadConfigSync } from "../config";
-import { listWikiPages, readWikiPage } from "../wiki";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 const DEFAULT_TEST_MODEL = "text-embedding-3-small";
 

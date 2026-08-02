@@ -1,7 +1,7 @@
-import { listVaults } from "@/lib/vault";
-import { getPrincipal } from "@/lib/auth";
-import { searchCommons, BROWSE_PAGE_SIZE } from "@/lib/browse";
-import { BrowseClient } from "@/components/BrowseClient";
+import {listVaults} from "@/lib/vault";
+import {getPrincipal} from "@/lib/auth";
+import {BROWSE_PAGE_SIZE, searchCommons} from "@/lib/browse";
+import {BrowseClient} from "@/components/BrowseClient";
 
 export default async function WikiIndex({
   searchParams,

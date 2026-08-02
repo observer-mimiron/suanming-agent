@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {getStorage} from "@/lib/storage";
+import {GET} from "@/app/api/assets/[...path]/route";
 
 vi.mock("@/lib/storage", () => ({
   getStorage: vi.fn(() => ({ readAsset: vi.fn() })),
@@ -7,9 +9,6 @@ vi.mock("@/lib/storage", () => ({
 vi.mock("@/lib/wiki", () => ({
   rawRelPath: (f: string) => `raw/${f}`,
 }));
-
-import { getStorage } from "@/lib/storage";
-import { GET } from "@/app/api/assets/[...path]/route";
 
 const mockedGetStorage = vi.mocked(getStorage);
 

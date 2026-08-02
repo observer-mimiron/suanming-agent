@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { fixKey } from "@/hooks/useLint";
-import type { LintIssue } from "@/lib/types";
+import {describe, expect, it} from "vitest";
+import {fixKey} from "@/hooks/useLint";
+import type {LintIssue} from "@/lib/types";
 
 /** Helper to build a minimal LintIssue for testing. */
 function issue(

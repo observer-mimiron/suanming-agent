@@ -62,7 +62,7 @@ cd web && npm run dev
   当前默认是本地开发/演示用途，不是线上正式部署路径。
 
 ```bash
-wsl -e sh -lc "cd /mnt/d/Workspace/suanming-agent/deploy/app && docker compose up -d --build"
+wsl -e sh -lc "cd /home/huang/workspace/suanming-agent/deploy/app && docker compose up -d --build"
 ```
 
 - `deploy/app/` 是当前默认的本地 Docker 入口：启动 `app`（Go 后端 + 内嵌前端构建产物）和 `knowledge`；`deploy/langfuse/` 仍是可选观测栈。

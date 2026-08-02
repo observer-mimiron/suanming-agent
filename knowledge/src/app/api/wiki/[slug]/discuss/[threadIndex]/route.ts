@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server";
-import { decodeSlug } from "@/lib/slugify";
-import { getThread, resolveThread } from "@/lib/talk";
-import { getPrincipal, getServicePrincipal } from "@/lib/auth";
-import { canReadSlug } from "@/lib/authz";
-import { getErrorMessage } from "@/lib/errors";
-import { logger } from "@/lib/logger";
+import {NextResponse} from "next/server";
+import {decodeSlug} from "@/lib/slugify";
+import {getThread, resolveThread} from "@/lib/talk";
+import {getPrincipal, getServicePrincipal} from "@/lib/auth";
+import {canReadSlug} from "@/lib/authz";
+import {getErrorMessage} from "@/lib/errors";
+import {logger} from "@/lib/logger";
 
 type RouteParams = { params: Promise<{ slug: string; threadIndex: string }> };
 

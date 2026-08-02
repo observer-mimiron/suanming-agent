@@ -1,0 +1,17 @@
+# Keep source files normalized for Linux/WSL tooling.
+* text=auto eol=lf
+
+# Preserve binary assets exactly.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.wasm binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary

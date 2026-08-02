@@ -1,13 +1,6 @@
-import { describe, it, expect } from "vitest";
-import {
-  composeSrcDoc,
-  htmlToPlainText,
-  stripHtmlFence,
-  usesChartLib,
-  HTML_SANDBOX,
-  HTML_MAX_HEIGHT,
-} from "../html";
-import { CHARTJS_VERSION, CHARTJS_SOURCE } from "../vendor/chartjs.generated";
+import {describe, expect, it} from "vitest";
+import {composeSrcDoc, HTML_MAX_HEIGHT, HTML_SANDBOX, htmlToPlainText, stripHtmlFence, usesChartLib,} from "../html";
+import {CHARTJS_SOURCE, CHARTJS_VERSION} from "../vendor/chartjs.generated";
 
 describe("stripHtmlFence", () => {
   it("strips a wrapping ```html fence", () => {

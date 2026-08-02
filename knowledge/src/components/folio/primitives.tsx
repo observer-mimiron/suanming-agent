@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { SourceEntry } from "@/lib/types";
+import type {SourceEntry} from "@/lib/types";
 
 /**
  * Folio provenance primitives — the visual language of the redesign

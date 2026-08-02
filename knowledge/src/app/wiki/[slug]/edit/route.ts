@@ -1,12 +1,8 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { notFound } from "next/navigation";
-import { decodeSlug } from "@/lib/slugify";
-import {
-  readWikiPageWithFrontmatter,
-  tenantForOwner,
-  validateSlug,
-} from "@/lib/wiki";
-import { editPath } from "@/lib/links";
+import {type NextRequest, NextResponse} from "next/server";
+import {notFound} from "next/navigation";
+import {decodeSlug} from "@/lib/slugify";
+import {readWikiPageWithFrontmatter, tenantForOwner, validateSlug,} from "@/lib/wiki";
+import {editPath} from "@/lib/links";
 
 /** Legacy flat edit URL → true 308 to canonical `/u/<tenant>/<slug>/edit`. */
 export async function GET(

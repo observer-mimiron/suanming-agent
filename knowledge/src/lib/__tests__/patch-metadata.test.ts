@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { patchMetadata, PATCHABLE_KEYS } from "../patch-metadata";
-import { ensureDirectories, writeWikiPage } from "../wiki";
-import { serializeFrontmatter } from "../frontmatter";
-import { resetAliasIndex } from "../alias-index";
+import {PATCHABLE_KEYS, patchMetadata} from "../patch-metadata";
+import {ensureDirectories, writeWikiPage} from "../wiki";
+import {serializeFrontmatter} from "../frontmatter";
+import {resetAliasIndex} from "../alias-index";
 
 // ---------------------------------------------------------------------------
 // Temp directory setup

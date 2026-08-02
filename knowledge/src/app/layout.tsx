@@ -1,7 +1,7 @@
-import type { Metadata } from "next";
-import { Inter, Source_Serif_4, JetBrains_Mono } from "next/font/google";
-import { NavHeader } from "@/components/NavHeader";
-import { ClientProviders } from "@/components/ClientProviders";
+import type {Metadata} from "next";
+import {Inter, JetBrains_Mono, Source_Serif_4} from "next/font/google";
+import {NavHeader} from "@/components/NavHeader";
+import {ClientProviders} from "@/components/ClientProviders";
 import "./globals.css";
 
 const fontSans = Inter({

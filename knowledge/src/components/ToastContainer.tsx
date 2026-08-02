@@ -1,6 +1,6 @@
 "use client";
 
-import { useToast, type ToastVariant } from "@/hooks/useToast";
+import {type ToastVariant, useToast} from "@/hooks/useToast";
 
 const variantClasses: Record<ToastVariant, string> = {
   error:

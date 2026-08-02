@@ -7,10 +7,17 @@
  * - Service principal fallback works for service-token reverts
  * - Contributor index reflects the reverter's edit
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import {getPrincipal, getServicePrincipal} from "@/lib/auth";
+import {ensureDirectories, writeWikiPage} from "../wiki";
+import {listRevisions, readRevisionMeta} from "../revisions";
+import {getContributorIndex, rebuildContributorIndex,} from "../contributor-index";
+import {_resetStorage} from "../storage";
+import {_resetLocks} from "../lock";
+import {serializeFrontmatter} from "../frontmatter";
 
 // ---------------------------------------------------------------------------
 // Mock auth before any imports that transitively pull it in
@@ -19,17 +26,6 @@ vi.mock("@/lib/auth", () => ({
   getPrincipal: vi.fn(async () => ({ id: "user-1", handle: "alice" })),
   getServicePrincipal: vi.fn(() => null),
 }));
-
-import { getPrincipal, getServicePrincipal } from "@/lib/auth";
-import { ensureDirectories, writeWikiPage } from "../wiki";
-import { listRevisions, readRevisionMeta } from "../revisions";
-import {
-  getContributorIndex,
-  rebuildContributorIndex,
-} from "../contributor-index";
-import { _resetStorage } from "../storage";
-import { _resetLocks } from "../lock";
-import { serializeFrontmatter } from "../frontmatter";
 
 const mockedGetPrincipal = vi.mocked(getPrincipal);
 const mockedGetServicePrincipal = vi.mocked(getServicePrincipal);

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Icon } from "./icons";
+import {useEffect, useState} from "react";
+import {Icon} from "./icons";
 
 /**
  * Folio theme toggle — a round ghost button that flips dark/light (sun shown in

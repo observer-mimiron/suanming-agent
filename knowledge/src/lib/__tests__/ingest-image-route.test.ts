@@ -1,15 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {getPrincipal, getServicePrincipal} from "@/lib/auth";
+import {ingestImage} from "@/lib/ingest";
+import {ClientInputError} from "@/lib/errors";
+import {POST} from "@/app/api/ingest/image/route";
 
 vi.mock("@/lib/auth", () => ({
   getPrincipal: vi.fn(),
   getServicePrincipal: vi.fn(() => null),
 }));
 vi.mock("@/lib/ingest", () => ({ ingestImage: vi.fn() }));
-
-import { getPrincipal, getServicePrincipal } from "@/lib/auth";
-import { ingestImage } from "@/lib/ingest";
-import { ClientInputError } from "@/lib/errors";
-import { POST } from "@/app/api/ingest/image/route";
 
 const mockedPrincipal = vi.mocked(getPrincipal);
 const mockedServicePrincipal = vi.mocked(getServicePrincipal);

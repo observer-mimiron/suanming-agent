@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { getErrorHint } from "@/lib/error-hints";
+import {getErrorHint} from "@/lib/error-hints";
 
 interface PageErrorProps {
   title: string;

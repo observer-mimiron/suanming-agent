@@ -1,15 +1,15 @@
-import { describe, it, expect, afterEach } from "vitest";
+import {afterEach, describe, expect, it} from "vitest";
 import {
-  canReadPage,
-  canReadEntry,
-  canReadFrontmatter,
-  canSetPrivate,
-  canWritePage,
-  canWriteFrontmatter,
-  isAdmin,
+    canReadEntry,
+    canReadFrontmatter,
+    canReadPage,
+    canSetPrivate,
+    canWriteFrontmatter,
+    canWritePage,
+    isAdmin,
 } from "../authz";
-import { agentOwnerHandle } from "../agents";
-import type { IndexEntry } from "../types";
+import {agentOwnerHandle} from "../agents";
+import type {IndexEntry} from "../types";
 
 const alice = { handle: "alice" };
 const bob = { handle: "bob" };

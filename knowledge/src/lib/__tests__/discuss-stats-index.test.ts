@@ -1,25 +1,25 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import {
-  getDiscussStatsIndex,
-  syncDiscussStatsForSlug,
-  removeDiscussStatsForSlug,
-  rebuildDiscussStatsIndex,
-  statsFromThreads,
+    getDiscussStatsIndex,
+    rebuildDiscussStatsIndex,
+    removeDiscussStatsForSlug,
+    statsFromThreads,
+    syncDiscussStatsForSlug,
 } from "../discuss-stats-index";
 import {
-  createThread,
-  addComment,
-  resolveThread,
-  deleteDiscussions,
-  getDiscussionStatsForSlugs,
-  _resetTimestamp,
+    _resetTimestamp,
+    addComment,
+    createThread,
+    deleteDiscussions,
+    getDiscussionStatsForSlugs,
+    resolveThread,
 } from "../talk";
-import { _resetLocks } from "../lock";
-import { _resetStorage } from "../storage";
-import type { TalkThread } from "../types";
+import {_resetLocks} from "../lock";
+import {_resetStorage} from "../storage";
+import type {TalkThread} from "../types";
 
 let tmpDir: string;
 const saved: Record<string, string | undefined> = {};

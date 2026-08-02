@@ -1,25 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import {
+    ensureDirectories,
+    type Frontmatter,
+    readWikiPageWithFrontmatter,
+    serializeFrontmatter,
+    writeWikiPage,
+} from "../wiki";
+import {createThread, getThread} from "../talk";
+import {reconcileFromTalk} from "../reconcile";
+import {callLLM, hasLLMKey} from "../llm";
+import {_resetStorage} from "../storage";
 
 // Mock the LLM so reconcile never calls a real API.
 vi.mock("../llm", () => ({
   hasLLMKey: vi.fn(() => true),
   callLLM: vi.fn(),
 }));
-
-import {
-  ensureDirectories,
-  writeWikiPage,
-  serializeFrontmatter,
-  readWikiPageWithFrontmatter,
-  type Frontmatter,
-} from "../wiki";
-import { createThread, getThread } from "../talk";
-import { reconcileFromTalk } from "../reconcile";
-import { hasLLMKey, callLLM } from "../llm";
-import { _resetStorage } from "../storage";
 
 const mockedHasLLMKey = vi.mocked(hasLLMKey);
 const mockedCallLLM = vi.mocked(callLLM);

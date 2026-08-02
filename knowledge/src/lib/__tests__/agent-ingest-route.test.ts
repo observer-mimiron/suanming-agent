@@ -1,4 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {addAgentLearningPage, getAgent, verifyAgentToken} from "@/lib/agents";
+import {getServicePrincipal} from "@/lib/auth";
+import {ingest, ingestUrl} from "@/lib/ingest";
+import {POST} from "@/app/api/agents/[id]/ingest/route";
 
 vi.mock("@/lib/agents", () => ({
   verifyAgentToken: vi.fn(),
@@ -14,11 +18,6 @@ vi.mock("@/lib/ingest", () => ({
   ingestUrl: vi.fn(),
   ingest: vi.fn(),
 }));
-
-import { verifyAgentToken, addAgentLearningPage, getAgent } from "@/lib/agents";
-import { getServicePrincipal } from "@/lib/auth";
-import { ingestUrl, ingest } from "@/lib/ingest";
-import { POST } from "@/app/api/agents/[id]/ingest/route";
 
 const mockedVerify = vi.mocked(verifyAgentToken);
 const mockedAddLearning = vi.mocked(addAgentLearningPage);

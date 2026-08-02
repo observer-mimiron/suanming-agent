@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NextRequest } from "next/server";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {NextRequest} from "next/server";
+import {saveAnswerToWiki} from "@/lib/query";
+import {getPrincipal} from "@/lib/auth";
+import {POST} from "@/app/api/query/save/route";
 
 // ---------------------------------------------------------------------------
 // Mock saveAnswerToWiki — we test the route's wiring, not the library
@@ -15,10 +18,6 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/auth", () => ({
   getPrincipal: vi.fn(async () => ({ id: "test-user", handle: "test-user" })),
 }));
-
-import { saveAnswerToWiki } from "@/lib/query";
-import { getPrincipal } from "@/lib/auth";
-import { POST } from "@/app/api/query/save/route";
 
 const mockedSaveAnswer = vi.mocked(saveAnswerToWiki);
 const mockedGetPrincipal = vi.mocked(getPrincipal);

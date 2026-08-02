@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { buildContributorProfile, buildContributorProfiles, listContributors, computeScanData } from "../contributors";
-import { ensureDirectories, writeWikiPage } from "../wiki";
-import { saveRevision } from "../revisions";
-import { createThread, addComment, _resetTimestamp } from "../talk";
-import { _resetLocks } from "../lock";
-import { _resetStorage } from "../storage";
+import {buildContributorProfile, buildContributorProfiles, computeScanData, listContributors} from "../contributors";
+import {ensureDirectories, writeWikiPage} from "../wiki";
+import {saveRevision} from "../revisions";
+import {_resetTimestamp, addComment, createThread} from "../talk";
+import {_resetLocks} from "../lock";
+import {_resetStorage} from "../storage";
 
 let tmpDir: string;
 let originalWikiDir: string | undefined;

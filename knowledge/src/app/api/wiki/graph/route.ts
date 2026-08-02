@@ -1,15 +1,12 @@
-import { NextResponse, type NextRequest } from "next/server";
-import {
-  listReadableWikiPages,
-  isAgentScopedType,
-} from "@/lib/wiki";
-import { ownerToTenant } from "@/lib/links";
-import { listCommonsPages } from "@/lib/commons";
-import { expandMineScope, resolveScope } from "@/lib/search";
-import { getPrincipal } from "@/lib/auth";
-import { getBacklinkIndex } from "@/lib/backlink-index";
-import { getErrorMessage } from "@/lib/errors";
-import { logger } from "@/lib/logger";
+import {type NextRequest, NextResponse} from "next/server";
+import {isAgentScopedType, listReadableWikiPages,} from "@/lib/wiki";
+import {ownerToTenant} from "@/lib/links";
+import {listCommonsPages} from "@/lib/commons";
+import {expandMineScope, resolveScope} from "@/lib/search";
+import {getPrincipal} from "@/lib/auth";
+import {getBacklinkIndex} from "@/lib/backlink-index";
+import {getErrorMessage} from "@/lib/errors";
+import {logger} from "@/lib/logger";
 
 interface GraphNode {
   id: string;

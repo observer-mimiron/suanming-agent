@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { IngestReview, type PreviewData } from "@/components/IngestReview";
+import {useState} from "react";
+import {IngestReview, type PreviewData} from "@/components/IngestReview";
 
 interface ReingestButtonProps {
   slug: string;

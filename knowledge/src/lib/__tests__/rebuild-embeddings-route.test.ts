@@ -1,13 +1,12 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {getServicePrincipal} from "@/lib/auth";
+import {rebuildVectorStore} from "@/lib/embeddings";
 
 vi.mock("@/lib/auth", () => ({ getServicePrincipal: vi.fn() }));
 vi.mock("@/lib/embeddings", () => ({ rebuildVectorStore: vi.fn() }));
 vi.mock("@/lib/logger", () => ({
   logger: { error: vi.fn(), info: vi.fn(), debug: vi.fn(), warn: vi.fn() },
 }));
-
-import { getServicePrincipal } from "@/lib/auth";
-import { rebuildVectorStore } from "@/lib/embeddings";
 
 const mockedGetService = vi.mocked(getServicePrincipal);
 const mockedRebuild = vi.mocked(rebuildVectorStore);

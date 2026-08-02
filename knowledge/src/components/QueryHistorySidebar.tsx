@@ -1,7 +1,7 @@
 "use client";
 
-import { formatRelativeTime } from "@/lib/format";
-import type { QueryFormat } from "@/lib/query-format";
+import {formatRelativeTime} from "@/lib/format";
+import type {QueryFormat} from "@/lib/query-format";
 
 export interface HistoryEntry {
   id: string;

@@ -12,9 +12,9 @@
  * inline dot styling, no heavy dependencies.
  */
 
-import { useEffect, useState } from "react";
-import type { ContributorProfile } from "@/lib/types";
-import { profileHref } from "@/lib/links";
+import {useEffect, useState} from "react";
+import type {ContributorProfile} from "@/lib/types";
+import {profileHref} from "@/lib/links";
 
 export interface ContributorBadgeProps {
   handle: string;

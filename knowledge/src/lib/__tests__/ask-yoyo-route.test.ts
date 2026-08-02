@@ -1,14 +1,13 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {getPrincipal} from "@/lib/auth";
+import {canReadSlug} from "@/lib/authz";
+import {addComment, getThread} from "@/lib/talk";
+import {enqueueTask} from "@/lib/tasks";
 
 vi.mock("@/lib/auth", () => ({ getPrincipal: vi.fn() }));
 vi.mock("@/lib/authz", () => ({ canReadSlug: vi.fn() }));
 vi.mock("@/lib/talk", () => ({ getThread: vi.fn(), addComment: vi.fn() }));
 vi.mock("@/lib/tasks", () => ({ enqueueTask: vi.fn() }));
-
-import { getPrincipal } from "@/lib/auth";
-import { canReadSlug } from "@/lib/authz";
-import { getThread, addComment } from "@/lib/talk";
-import { enqueueTask } from "@/lib/tasks";
 
 const mockedGetPrincipal = vi.mocked(getPrincipal);
 const mockedCanReadSlug = vi.mocked(canReadSlug);

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
-import { useShortcutsHelp, SHORTCUTS } from "@/hooks/useKeyboardShortcuts";
+import {useCallback, useEffect} from "react";
+import {SHORTCUTS, useShortcutsHelp} from "@/hooks/useKeyboardShortcuts";
 
 /** Detect platform for modifier key display */
 function modKey(): string {

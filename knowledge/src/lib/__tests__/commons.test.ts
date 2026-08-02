@@ -1,18 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import {
-  belongsInCommons,
-  getCommonsIndex,
-  upsertCommonsEntry,
-  syncCommonsForPage,
-  removeCommonsEntryBySlug,
-  rebuildCommonsIndex,
-  listCommonsPages,
+    belongsInCommons,
+    getCommonsIndex,
+    listCommonsPages,
+    rebuildCommonsIndex,
+    removeCommonsEntryBySlug,
+    syncCommonsForPage,
+    upsertCommonsEntry,
 } from "../commons";
-import { ensureDirectories, writeWikiPage } from "../wiki";
-import { _resetStorage } from "../storage";
+import {ensureDirectories, writeWikiPage} from "../wiki";
+import {_resetStorage} from "../storage";
 
 let tmpDir: string;
 const saved: Record<string, string | undefined> = {};

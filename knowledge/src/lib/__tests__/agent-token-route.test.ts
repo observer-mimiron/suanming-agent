@@ -1,4 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {AgentOwnershipError, assertCanMutateAgent, generateAgentToken, revokeAgentToken,} from "@/lib/agents";
+import {getPrincipal} from "@/lib/auth";
+import {DELETE, POST} from "@/app/api/agents/[id]/token/route";
+import type {AgentProfile} from "@/lib/types";
 
 vi.mock("@/lib/agents", () => {
   class AgentOwnershipError extends Error {
@@ -18,16 +22,6 @@ vi.mock("@/lib/agents", () => {
 vi.mock("@/lib/auth", () => ({
   getPrincipal: vi.fn(async () => ({ id: "alice", handle: "alice" })),
 }));
-
-import {
-  generateAgentToken,
-  revokeAgentToken,
-  assertCanMutateAgent,
-  AgentOwnershipError,
-} from "@/lib/agents";
-import { getPrincipal } from "@/lib/auth";
-import { POST, DELETE } from "@/app/api/agents/[id]/token/route";
-import type { AgentProfile } from "@/lib/types";
 
 const mockedGen = vi.mocked(generateAgentToken);
 const mockedRevoke = vi.mocked(revokeAgentToken);

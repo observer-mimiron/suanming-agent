@@ -1,4 +1,21 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {appendToLog, listWikiPages, readWikiPage, readWikiPageWithFrontmatter, updateIndex} from "../wiki";
+import {deleteWikiPage, writeWikiPageWithSideEffects,} from "../lifecycle";
+import {callLLM, hasLLMKey} from "../llm";
+
+import {
+    fixContradiction,
+    fixEmptyPage,
+    fixLintIssue,
+    fixMissingConceptPage,
+    fixMissingCrossRef,
+    FixNotFoundError,
+    fixOrphanPage,
+    fixStaleIndex,
+    fixStalePage,
+    fixUnmigratedPage,
+    FixValidationError,
+} from "../lint-fix";
 
 // ---------------------------------------------------------------------------
 // Mock wiki.ts and lifecycle.ts — the modules lint-fix.ts depends on
@@ -42,27 +59,6 @@ vi.mock("../frontmatter", () => ({
     },
   ),
 }));
-
-import { readWikiPage, readWikiPageWithFrontmatter, listWikiPages, updateIndex, appendToLog } from "../wiki";
-import {
-  writeWikiPageWithSideEffects,
-  deleteWikiPage,
-} from "../lifecycle";
-import { callLLM, hasLLMKey } from "../llm";
-
-import {
-  fixOrphanPage,
-  fixStaleIndex,
-  fixEmptyPage,
-  fixMissingCrossRef,
-  fixContradiction,
-  fixMissingConceptPage,
-  fixStalePage,
-  fixUnmigratedPage,
-  fixLintIssue,
-  FixValidationError,
-  FixNotFoundError,
-} from "../lint-fix";
 
 const mockedReadWikiPage = vi.mocked(readWikiPage);
 const mockedReadWikiPageWithFrontmatter = vi.mocked(readWikiPageWithFrontmatter);

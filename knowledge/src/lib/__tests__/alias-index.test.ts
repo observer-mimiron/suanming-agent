@@ -1,19 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
 
 import {
-  buildAliasIndex,
-  resolveAlias,
-  resetAliasIndex,
-  updateAliasIndexForPage,
-  removeAliasForPage,
-  findDuplicateEntities,
+    buildAliasIndex,
+    findDuplicateEntities,
+    removeAliasForPage,
+    resetAliasIndex,
+    resolveAlias,
+    updateAliasIndexForPage,
 } from "../alias-index";
-import { writeWikiPage, ensureDirectories, updateIndex } from "../wiki";
-import { serializeFrontmatter } from "../frontmatter";
-import type { IndexEntry } from "../types";
+import {ensureDirectories, updateIndex, writeWikiPage} from "../wiki";
+import {serializeFrontmatter} from "../frontmatter";
+import type {IndexEntry} from "../types";
 
 let tmpDir: string;
 let originalWikiDir: string | undefined;

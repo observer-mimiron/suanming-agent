@@ -1,8 +1,8 @@
 import Link from "next/link";
-import type { IndexEntry } from "@/lib/types";
-import { formatRelativeTime } from "@/lib/format";
-import { commonsPath, pagePath, ownerToTenant } from "@/lib/links";
-import { isArtifactType } from "@/lib/page-types";
+import type {IndexEntry} from "@/lib/types";
+import {formatRelativeTime} from "@/lib/format";
+import {commonsPath, ownerToTenant, pagePath} from "@/lib/links";
+import {isArtifactType} from "@/lib/page-types";
 
 /**
  * A profile's saved HTML artifacts as cards: boxed Folio cards in a responsive

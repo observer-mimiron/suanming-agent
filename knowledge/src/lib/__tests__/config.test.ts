@@ -1,24 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import {
-  loadConfig,
-  saveConfig,
-  loadConfigSync,
-  isValidProvider,
-  isReadOnly,
-  getEffectiveProvider,
-  getEffectiveSettings,
-  getResolvedCredentials,
-  getWikiDir,
-  getRawDir,
-  getEmbeddingModelOverride,
-  getOllamaBaseUrl,
-  _resetConfigCache,
-  type AppConfig,
+    _resetConfigCache,
+    type AppConfig,
+    getEffectiveProvider,
+    getEffectiveSettings,
+    getEmbeddingModelOverride,
+    getOllamaBaseUrl,
+    getRawDir,
+    getResolvedCredentials,
+    getWikiDir,
+    isReadOnly,
+    isValidProvider,
+    loadConfig,
+    loadConfigSync,
+    saveConfig,
 } from "../config";
-import { _resetStorage } from "../storage";
+import {_resetStorage} from "../storage";
 
 // ---------------------------------------------------------------------------
 // Helpers — use a temp dir so tests don't touch the real project root

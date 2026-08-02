@@ -1,4 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {getPrincipal, getServicePrincipal} from "@/lib/auth";
+import {canReadSlug} from "@/lib/authz";
+import {getThread, resolveThread} from "@/lib/talk";
+import {readWikiPageWithFrontmatter} from "@/lib/wiki";
 
 vi.mock("@/lib/auth", () => ({
   getPrincipal: vi.fn(),
@@ -12,11 +16,6 @@ vi.mock("@/lib/talk", () => ({
 vi.mock("@/lib/wiki", () => ({
   readWikiPageWithFrontmatter: vi.fn(),
 }));
-
-import { getPrincipal, getServicePrincipal } from "@/lib/auth";
-import { canReadSlug } from "@/lib/authz";
-import { getThread, resolveThread } from "@/lib/talk";
-import { readWikiPageWithFrontmatter } from "@/lib/wiki";
 
 const mockedGetPrincipal = vi.mocked(getPrincipal);
 const mockedGetService = vi.mocked(getServicePrincipal);

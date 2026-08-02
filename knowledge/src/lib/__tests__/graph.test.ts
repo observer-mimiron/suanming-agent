@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { detectCommunities, ClusterInput } from "../graph";
+import {describe, expect, it} from "vitest";
+import {ClusterInput, detectCommunities} from "../graph";
 
 describe("detectCommunities", () => {
   it("returns empty clusters for an empty graph", () => {

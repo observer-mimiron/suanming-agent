@@ -1,12 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+import {describe, expect, it, vi} from "vitest";
+import {authenticatesInRoute} from "@/middleware";
 
 // clerkMiddleware runs at module load (`export default clerkMiddleware(...)`);
 // stub it so importing the middleware doesn't require a Clerk runtime.
 vi.mock("@clerk/nextjs/server", () => ({
   clerkMiddleware: (fn: unknown) => fn,
 }));
-
-import { authenticatesInRoute } from "@/middleware";
 
 describe("write-gate in-route auth exemptions", () => {
   it("exempts the service-token-authenticated routes", () => {

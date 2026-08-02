@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { slugify } from "@/lib/slugify";
-import type { AgentProfile } from "@/lib/types";
+import {useState} from "react";
+import {useRouter} from "next/navigation";
+import {slugify} from "@/lib/slugify";
+import type {AgentProfile} from "@/lib/types";
+import {Avatar, Mark} from "@/components/folio/primitives";
+import {AgentTokenPanel} from "@/components/AgentTokenPanel";
 
 /**
  * Client-safe mirror of `agentShortName` from `@/lib/agents` (a pure fn, but
@@ -17,8 +19,6 @@ function agentShortName(agent: AgentProfile): string {
   const prefix = `${slugify(agent.owner)}--`;
   return agent.id.startsWith(prefix) ? agent.id.slice(prefix.length) : agent.id;
 }
-import { Avatar, Mark } from "@/components/folio/primitives";
-import { AgentTokenPanel } from "@/components/AgentTokenPanel";
 
 interface AgentManagerProps {
   handle: string;

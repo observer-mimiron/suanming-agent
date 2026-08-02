@@ -1,10 +1,10 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import {useEffect, useRef, useState} from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useGraphSimulation } from "@/hooks/useGraphSimulation";
-import { GRAPH_CANVAS_HEIGHT } from "@/lib/constants";
+import {useRouter} from "next/navigation";
+import {useGraphSimulation} from "@/hooks/useGraphSimulation";
+import {GRAPH_CANVAS_HEIGHT} from "@/lib/constants";
 
 export default function GraphPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);

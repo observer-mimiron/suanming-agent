@@ -1,33 +1,33 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import type {UpdateAgentPage} from "../agents";
 import {
-  getAgentsDir,
-  ensureAgentsDir,
-  listAgents,
-  listAgentsForOwner,
-  getAgent,
-  getAgentByOwnerName,
-  registerAgent,
-  deleteAgent,
-  seedAgent,
-  updateAgent,
-  assertCanMutateAgent,
-  AgentOwnershipError,
-  agentIdFor,
-  agentShortName,
-  forkAgent,
-  resolveAgentPages,
-  generateAgentToken,
-  verifyAgentToken,
-  revokeAgentToken,
-  addAgentLearningPage,
+    addAgentLearningPage,
+    agentIdFor,
+    AgentOwnershipError,
+    agentShortName,
+    assertCanMutateAgent,
+    deleteAgent,
+    ensureAgentsDir,
+    forkAgent,
+    generateAgentToken,
+    getAgent,
+    getAgentByOwnerName,
+    getAgentsDir,
+    listAgents,
+    listAgentsForOwner,
+    registerAgent,
+    resolveAgentPages,
+    revokeAgentToken,
+    seedAgent,
+    updateAgent,
+    verifyAgentToken,
 } from "../agents";
-import type { UpdateAgentPage } from "../agents";
-import { readWikiPage, readWikiPageWithFrontmatter } from "../wiki";
-import type { AgentProfile } from "../types";
-import { _resetStorage, getStorage } from "../storage";
+import {readWikiPage, readWikiPageWithFrontmatter} from "../wiki";
+import type {AgentProfile} from "../types";
+import {_resetStorage, getStorage} from "../storage";
 
 // ---------------------------------------------------------------------------
 // Test setup — temp directory with DATA_DIR override

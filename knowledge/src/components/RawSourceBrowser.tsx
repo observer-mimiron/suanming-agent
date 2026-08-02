@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {useCallback, useEffect, useState} from "react";
 import Link from "next/link";
-import { MarkdownRenderer } from "@/components/MarkdownRenderer";
-import { SrcChip } from "@/components/folio/primitives";
-import type { SourceEntry } from "@/lib/types";
+import {MarkdownRenderer} from "@/components/MarkdownRenderer";
+import {SrcChip} from "@/components/folio/primitives";
+import type {SourceEntry} from "@/lib/types";
 
 /** One selectable source in the raw browser. */
 export interface RawItem {

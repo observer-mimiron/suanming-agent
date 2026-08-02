@@ -1,51 +1,53 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import {
-  handleSearchWiki,
-  handleRetrievePassages,
-  handleReadPage,
-  handleListPages,
-  handleCreatePage,
-  handleUpdatePage,
-  handleUpdateMetadata,
-  handleDeletePage,
-  handleIngestUrl,
-  handleBatchIngest,
-  handleIngestText,
-  handleIngestPdf,
-  handleIngestImage,
-  handleIngestXMention,
-  handleQueryWiki,
-  handleSaveQueryAnswer,
-  handleAgentContext,
-  handleSeedAgent,
-  handleListAgents,
-  handleUpdateAgent,
-  handleDeleteAgent,
-  handleLintWiki,
-  handleFixLintIssue,
-  handleListDiscussions,
-  handleCreateDiscussion,
-  handleResolveDiscussion,
-  handleAddComment,
-  handleReingest,
-  handleIngestHistory,
-  handleDataviewQuery,
-  handleListRevisions,
-  handleReadRevision,
-  handleVaultCurate,
-  handleVaultUncurate,
-  handleListVaults,
-  handleVaultPages,
-  createMcpServer,
+    createMcpServer,
+    handleAddComment,
+    handleAgentContext,
+    handleBatchIngest,
+    handleCreateDiscussion,
+    handleCreatePage,
+    handleDataviewQuery,
+    handleDeleteAgent,
+    handleDeletePage,
+    handleFixLintIssue,
+    handleIngestHistory,
+    handleIngestImage,
+    handleIngestPdf,
+    handleIngestText,
+    handleIngestUrl,
+    handleIngestXMention,
+    handleLintWiki,
+    handleListAgents,
+    handleListDiscussions,
+    handleListPages,
+    handleListRevisions,
+    handleListVaults,
+    handleQueryWiki,
+    handleReadPage,
+    handleReadRevision,
+    handleReingest,
+    handleResolveDiscussion,
+    handleRetrievePassages,
+    handleSaveQueryAnswer,
+    handleSearchWiki,
+    handleSeedAgent,
+    handleUpdateAgent,
+    handleUpdateMetadata,
+    handleUpdatePage,
+    handleVaultCurate,
+    handleVaultPages,
+    handleVaultUncurate,
 } from "../../mcp";
-import { vaultIdFor, listVaults, getVault } from "../vault";
-import { _resetStorage } from "../storage";
-import { _resetConfigCache } from "../config";
-import { parseFrontmatter } from "../frontmatter";
-import { registerAgent } from "../agents";
+import {getVault, listVaults, vaultIdFor} from "../vault";
+import {_resetStorage} from "../storage";
+import {_resetConfigCache} from "../config";
+import {parseFrontmatter} from "../frontmatter";
+import {registerAgent} from "../agents";
+import {downloadImages, fetchUrlContent} from "../fetch";
+import {fetchXPostContent} from "../x-post";
 
 // ---------------------------------------------------------------------------
 // Mock fetchUrlContent, downloadImages, fetchImageBytes, and storeImageBytes
@@ -102,8 +104,6 @@ vi.mock("../llm", async (importOriginal) => {
   };
 });
 
-import { fetchUrlContent, downloadImages } from "../fetch";
-import { fetchXPostContent } from "../x-post";
 const mockedFetchUrlContent = vi.mocked(fetchUrlContent);
 const mockedFetchXPostContent = vi.mocked(fetchXPostContent);
 const mockedDownloadImages = vi.mocked(downloadImages);

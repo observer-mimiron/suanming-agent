@@ -1,4 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {baseAgentId, forkAgent} from "@/lib/agents";
+import {getPrincipal} from "@/lib/auth";
+import {POST} from "@/app/api/agents/ensure/route";
+import type {AgentProfile} from "@/lib/types";
 
 vi.mock("@/lib/agents", () => ({
   forkAgent: vi.fn(),
@@ -8,11 +12,6 @@ vi.mock("@/lib/agents", () => ({
 vi.mock("@/lib/auth", () => ({
   getPrincipal: vi.fn(async () => ({ id: "alice", handle: "alice" })),
 }));
-
-import { forkAgent, baseAgentId } from "@/lib/agents";
-import { getPrincipal } from "@/lib/auth";
-import { POST } from "@/app/api/agents/ensure/route";
-import type { AgentProfile } from "@/lib/types";
 
 const mockedFork = vi.mocked(forkAgent);
 const mockedBaseId = vi.mocked(baseAgentId);

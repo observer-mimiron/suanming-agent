@@ -1,35 +1,34 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
 
 // Import directly from lint-checks (not via lint)
 import {
-  getOnDiskSlugs,
-  checkOrphanPages,
-  checkStaleIndex,
-  checkEmptyPages,
-  checkBrokenLinks,
-  checkMissingCrossRefs,
-  checkStalePages,
-  checkLowConfidence,
-  checkUnmigratedPages,
-  checkUncitedClaims,
-  checkUnresolvedDiscussions,
-  checkDisputedPages,
-  checkSupersededDangling,
-  LOW_CONFIDENCE_THRESHOLD,
-  STALE_VERIFICATION_DAYS,
-  buildSummary,
+    buildSummary,
+    checkBrokenLinks,
+    checkDisputedPages,
+    checkEmptyPages,
+    checkLowConfidence,
+    checkMissingCrossRefs,
+    checkOrphanPages,
+    checkStaleIndex,
+    checkStalePages,
+    checkSupersededDangling,
+    checkUncitedClaims,
+    checkUnmigratedPages,
+    checkUnresolvedDiscussions,
+    getOnDiskSlugs,
+    LOW_CONFIDENCE_THRESHOLD,
+    STALE_VERIFICATION_DAYS,
 } from "../lint-checks";
-import type { LintIssue } from "../types";
+import type {IndexEntry, LintIssue} from "../types";
 
 // We use writeWikiPage / ensureDirectories to set up wiki pages on disk.
-import { writeWikiPage, updateIndex, ensureDirectories } from "../wiki";
-import { serializeFrontmatter } from "../frontmatter";
-import { serializeSources } from "../sources";
-import type { IndexEntry } from "../types";
-import { _resetStorage } from "../storage";
+import {ensureDirectories, updateIndex, writeWikiPage} from "../wiki";
+import {serializeFrontmatter} from "../frontmatter";
+import {serializeSources} from "../sources";
+import {_resetStorage} from "../storage";
 
 let tmpDir: string;
 let originalWikiDir: string | undefined;

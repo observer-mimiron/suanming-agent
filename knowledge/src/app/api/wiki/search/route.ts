@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
-import { fuzzySearchWikiContent, resolveScope } from "@/lib/search";
-import { getPrincipal } from "@/lib/auth";
-import { getErrorMessage } from "@/lib/errors";
+import {NextResponse} from "next/server";
+import {fuzzySearchWikiContent, resolveScope} from "@/lib/search";
+import {getPrincipal} from "@/lib/auth";
+import {getErrorMessage} from "@/lib/errors";
 
 /**
  * GET /api/wiki/search?q=search+terms&scope=agent:yoyo

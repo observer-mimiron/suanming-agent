@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import type { TalkThread } from "@/lib/types";
-import { CommentNode, buildCommentTree } from "./CommentNode";
+import {useState} from "react";
+import type {TalkThread} from "@/lib/types";
+import {buildCommentTree, CommentNode} from "./CommentNode";
 
 interface ThreadViewProps {
   thread: TalkThread;

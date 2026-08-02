@@ -1,13 +1,35 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { searchIndex, buildContext, query, saveAnswerToWiki, buildCorpusStats, bm25Score, extractCitedSlugs, reciprocalRankFusion, buildQuerySystemPrompt, TABLE_FORMAT_INSTRUCTION, HTML_FORMAT_INSTRUCTION, extractBestSnippet, selectPagesForQuery } from "../query";
-import { writeWikiPage, updateIndex, ensureDirectories, readWikiPage, readWikiPageWithFrontmatter, listWikiPages } from "../wiki";
-import { registerAgent } from "../agents";
-import { _resetStorage } from "../storage";
-import type { AgentProfile } from "../types";
-import type { IndexEntry } from "../types";
+import {
+    bm25Score,
+    buildContext,
+    buildCorpusStats,
+    buildQuerySystemPrompt,
+    extractBestSnippet,
+    extractCitedSlugs,
+    HTML_FORMAT_INSTRUCTION,
+    query,
+    reciprocalRankFusion,
+    saveAnswerToWiki,
+    searchIndex,
+    selectPagesForQuery,
+    TABLE_FORMAT_INSTRUCTION
+} from "../query";
+import {
+    ensureDirectories,
+    listWikiPages,
+    readWikiPage,
+    readWikiPageWithFrontmatter,
+    updateIndex,
+    writeWikiPage
+} from "../wiki";
+import {registerAgent} from "../agents";
+import {_resetStorage} from "../storage";
+import type {AgentProfile, IndexEntry} from "../types";
+import {callLLM, hasLLMKey} from "../llm";
+import {searchByVector} from "../embeddings";
 
 // ---------------------------------------------------------------------------
 // Mock callLLM and hasLLMKey so tests don't require real API keys
@@ -23,9 +45,6 @@ vi.mock("../embeddings", () => ({
   upsertEmbedding: vi.fn(async () => {}),
   removeEmbedding: vi.fn(async () => {}),
 }));
-
-import { hasLLMKey, callLLM } from "../llm";
-import { searchByVector } from "../embeddings";
 
 const mockedHasLLMKey = vi.mocked(hasLLMKey);
 const mockedCallLLM = vi.mocked(callLLM);

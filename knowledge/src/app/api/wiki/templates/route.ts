@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
-import { loadPageTemplates } from "@/lib/schema";
-import { getErrorMessage } from "@/lib/errors";
+import {NextResponse} from "next/server";
+import {loadPageTemplates} from "@/lib/schema";
+import {getErrorMessage} from "@/lib/errors";
 
 interface TemplateEntry {
   name: string;

@@ -1,7 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import {callLLM, hasLLMKey} from "../llm";
+import {ingest} from "../ingest";
+import {query} from "../query";
+import {listWikiPages, readWikiPage} from "../wiki";
 
 // ---------------------------------------------------------------------------
 // Mock LLM and embeddings — real filesystem, fake AI
@@ -20,11 +24,6 @@ vi.mock("../embeddings", async (importOriginal) => {
     removeEmbedding: vi.fn(async () => {}),
   };
 });
-
-import { hasLLMKey, callLLM } from "../llm";
-import { ingest } from "../ingest";
-import { query } from "../query";
-import { listWikiPages, readWikiPage } from "../wiki";
 
 const mockedHasLLMKey = vi.mocked(hasLLMKey);
 const mockedCallLLM = vi.mocked(callLLM);

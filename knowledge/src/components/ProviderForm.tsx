@@ -4,8 +4,8 @@
 // ProviderForm — provider / model / Ollama URL fields
 // ---------------------------------------------------------------------------
 
-import { PROVIDER_INFO, DEFAULT_MODELS, providerLabel } from "@/lib/providers";
-import { SourceBadge } from "@/components/SourceBadge";
+import {DEFAULT_MODELS, PROVIDER_INFO, providerLabel} from "@/lib/providers";
+import {SourceBadge} from "@/components/SourceBadge";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NextRequest } from "next/server";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {NextRequest} from "next/server";
+import {getAgent, registerAgent} from "@/lib/agents";
+import {getPrincipal} from "@/lib/auth";
+import {POST} from "@/app/api/agents/route";
 
 // ---------------------------------------------------------------------------
 // Mock the agents data layer — the route only validates input and claims
@@ -21,10 +24,6 @@ vi.mock("@/lib/agents", () => ({
 vi.mock("@/lib/auth", () => ({
   getPrincipal: vi.fn(async () => ({ id: "alice", handle: "alice" })),
 }));
-
-import { registerAgent, getAgent } from "@/lib/agents";
-import { getPrincipal } from "@/lib/auth";
-import { POST } from "@/app/api/agents/route";
 
 const mockedRegister = vi.mocked(registerAgent);
 const mockedGetAgent = vi.mocked(getAgent);

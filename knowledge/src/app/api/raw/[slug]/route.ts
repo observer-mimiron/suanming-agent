@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
-import { decodeSlug } from "@/lib/slugify";
-import { readRawSource, readRawSourceById } from "@/lib/wiki";
-import { getPrincipal } from "@/lib/auth";
-import { canReadSlug } from "@/lib/authz";
-import { getErrorMessage } from "@/lib/errors";
+import {NextResponse} from "next/server";
+import {decodeSlug} from "@/lib/slugify";
+import {readRawSource, readRawSourceById} from "@/lib/wiki";
+import {getPrincipal} from "@/lib/auth";
+import {canReadSlug} from "@/lib/authz";
+import {getErrorMessage} from "@/lib/errors";
 
 /**
  * GET /api/raw/[slug][?source=<rawId>]

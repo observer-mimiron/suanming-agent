@@ -1,9 +1,26 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { writeWikiPage, updateIndex, ensureDirectories, readLog } from "../wiki";
-import type { IndexEntry } from "../types";
+import {ensureDirectories, readLog, updateIndex, writeWikiPage} from "../wiki";
+import type {IndexEntry} from "../types";
+import {callLLM, hasLLMKey} from "../llm";
+// Import lint after mocking
+import {
+    buildClusters,
+    checkBrokenLinks,
+    checkContradictions,
+    checkIncompleteCoverage,
+    checkMissingConceptPages,
+    extractCrossRefSlugs,
+    extractWikiLinks,
+    lint,
+    MAX_COVERAGE_CHECKS,
+    parseContradictionResponse,
+    parseIncompleteCoverageResponse,
+    parseMissingConceptResponse
+} from "../lint";
+import {saveRawSource} from "../raw";
 
 // Mock the LLM module so lint never calls the real API
 vi.mock("../llm", () => ({
@@ -16,26 +33,8 @@ vi.mock("../talk", () => ({
   getDiscussionStatsForSlugs: vi.fn(async () => new Map()),
 }));
 
-import { hasLLMKey, callLLM } from "../llm";
 const mockedHasLLMKey = vi.mocked(hasLLMKey);
 const mockedCallLLM = vi.mocked(callLLM);
-
-// Import lint after mocking
-import { lint } from "../lint";
-import {
-  extractCrossRefSlugs,
-  extractWikiLinks,
-  buildClusters,
-  parseContradictionResponse,
-  checkContradictions,
-  parseMissingConceptResponse,
-  checkMissingConceptPages,
-  parseIncompleteCoverageResponse,
-  checkIncompleteCoverage,
-  MAX_COVERAGE_CHECKS,
-  checkBrokenLinks,
-} from "../lint";
-import { saveRawSource } from "../raw";
 
 let tmpDir: string;
 let originalWikiDir: string | undefined;

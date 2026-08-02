@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { createMcpServer } from "../../mcp";
+import {describe, expect, it} from "vitest";
+import {createMcpServer} from "../../mcp";
 
 // ---------------------------------------------------------------------------
 // Helper — access the private _registeredTools map via runtime property access

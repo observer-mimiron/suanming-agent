@@ -1,11 +1,11 @@
-import { NextResponse } from "next/server";
-import { readWikiPage, readWikiPageWithFrontmatter, writeWikiPageWithSideEffects } from "@/lib/wiki";
-import { listRevisions, readRevision, readRevisionMeta } from "@/lib/revisions";
-import { extractSummary } from "@/lib/ingest";
-import { serializeFrontmatter } from "@/lib/frontmatter";
-import { getPrincipal, getServicePrincipal } from "@/lib/auth";
-import { canReadSlug, canWriteFrontmatter, canReadFrontmatter } from "@/lib/authz";
-import { getErrorMessage } from "@/lib/errors";
+import {NextResponse} from "next/server";
+import {readWikiPage, readWikiPageWithFrontmatter, writeWikiPageWithSideEffects} from "@/lib/wiki";
+import {listRevisions, readRevision, readRevisionMeta} from "@/lib/revisions";
+import {extractSummary} from "@/lib/ingest";
+import {serializeFrontmatter} from "@/lib/frontmatter";
+import {getPrincipal, getServicePrincipal} from "@/lib/auth";
+import {canReadFrontmatter, canReadSlug, canWriteFrontmatter} from "@/lib/authz";
+import {getErrorMessage} from "@/lib/errors";
 
 type RouteParams = { params: Promise<{ slug: string }> };
 

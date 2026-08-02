@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useUser, SignInButton } from "@clerk/nextjs";
-import type { TalkThread } from "@/lib/types";
-import { formatRelativeTime } from "@/lib/format";
-import { ThreadForm } from "./ThreadForm";
-import { ThreadView } from "./ThreadView";
+import {useCallback, useState} from "react";
+import {SignInButton, useUser} from "@clerk/nextjs";
+import type {TalkThread} from "@/lib/types";
+import {formatRelativeTime} from "@/lib/format";
+import {ThreadForm} from "./ThreadForm";
+import {ThreadView} from "./ThreadView";
 
 interface DiscussionPanelProps {
   slug: string;

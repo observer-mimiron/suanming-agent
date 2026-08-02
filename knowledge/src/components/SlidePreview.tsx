@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import {useState} from "react";
+import {MarkdownRenderer} from "@/components/MarkdownRenderer";
 
 interface SlidePreviewProps {
   content: string; // raw Marp markdown from LLM

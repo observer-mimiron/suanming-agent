@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import {
-  isUrl,
-  fetchUrlContent,
-} from "../fetch";
-import { MAX_RESPONSE_SIZE, MAX_PDF_SIZE } from "../constants";
+import {afterEach, describe, expect, it, vi} from "vitest";
+import {downloadImages, fetchUrlContent, isUrl,} from "../fetch";
+import {MAX_PDF_SIZE, MAX_RESPONSE_SIZE} from "../constants";
+import {_resetStorage} from "../storage";
+import fs from "fs/promises";
+import path from "path";
+import os from "os";
 
 // ---------------------------------------------------------------------------
 // Mock unpdf — dynamic import is used in production, vitest hoists vi.mock
@@ -563,12 +564,6 @@ describe("fetchUrlContent", () => {
 // ---------------------------------------------------------------------------
 // downloadImages
 // ---------------------------------------------------------------------------
-
-import { downloadImages } from "../fetch";
-import { _resetStorage } from "../storage";
-import fs from "fs/promises";
-import path from "path";
-import os from "os";
 
 describe("downloadImages", () => {
   let tmpDir: string;

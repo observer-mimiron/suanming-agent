@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { GlobalSearch } from "./GlobalSearch";
-import { ThemeToggle } from "./folio/ThemeToggle";
+import {usePathname} from "next/navigation";
+import {GlobalSearch} from "./GlobalSearch";
+import {ThemeToggle} from "./folio/ThemeToggle";
 
 const links = [
   { href: "/wiki", label: "文档" },

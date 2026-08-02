@@ -1,4 +1,4 @@
-import type { SVGProps } from "react";
+import type {SVGProps} from "react";
 
 /**
  * Folio icon set — small inline stroke SVGs (stroke 1.5–1.8), from the design

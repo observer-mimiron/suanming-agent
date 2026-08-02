@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import type { IndexEntry } from "@/lib/types";
-import type { BrowsePayload, DiscussionStats, TagFacet } from "@/lib/browse";
-import { formatRelativeTime } from "@/lib/format";
-import { commonsPath, pagePath, ownerToTenant } from "@/lib/links";
-import { isArtifactType } from "@/lib/page-types";
-import { Icon } from "@/components/folio/icons";
-import { Confidence, Mark } from "@/components/folio/primitives";
-import { RemoveFromVaultButton } from "@/components/RemoveFromVaultButton";
+import {useEffect, useRef, useState} from "react";
+import type {IndexEntry} from "@/lib/types";
+import type {BrowsePayload, DiscussionStats, TagFacet} from "@/lib/browse";
+import {formatRelativeTime} from "@/lib/format";
+import {commonsPath, ownerToTenant, pagePath} from "@/lib/links";
+import {isArtifactType} from "@/lib/page-types";
+import {Icon} from "@/components/folio/icons";
+import {Confidence, Mark} from "@/components/folio/primitives";
+import {RemoveFromVaultButton} from "@/components/RemoveFromVaultButton";
 
 type Sort = "recent" | "confidence" | "sources";
 

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import type { PreviewData } from "@/components/IngestReview";
-import type { IngestPreviewMeta } from "@/lib/types";
+import {useState} from "react";
+import type {PreviewData} from "@/components/IngestReview";
+import type {IngestPreviewMeta} from "@/lib/types";
 
 export type Mode = "url" | "pdf" | "xpost" | "text" | "image" | "batch";
 export type Stage = "form" | "synthesis" | "review" | "success";

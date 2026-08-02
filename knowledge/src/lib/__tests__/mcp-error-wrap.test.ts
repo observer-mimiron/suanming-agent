@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import {afterAll, beforeAll, describe, expect, it, vi} from "vitest";
+import {Client} from "@modelcontextprotocol/sdk/client/index.js";
+import {InMemoryTransport} from "@modelcontextprotocol/sdk/inMemory.js";
+import {createMcpServer} from "../../mcp";
 
 vi.mock("../search", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../search")>();
@@ -24,8 +25,6 @@ vi.mock("../wiki", async (importOriginal) => {
       .mockRejectedValue(new Error("filesystem read failed")),
   };
 });
-
-import { createMcpServer } from "../../mcp";
 
 describe("MCP error wrapping", () => {
   let client: Client;

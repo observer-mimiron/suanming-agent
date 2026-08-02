@@ -1,16 +1,16 @@
-import { describe, it, expect } from "vitest";
+import {describe, expect, it} from "vitest";
 import {
-  escapeRegex,
-  extractWikiLinks,
-  hasLinkTo,
-  DEFAULT_TENANT,
-  ownerToTenant,
-  commonsPath,
-  pagePath,
-  editPath,
-  rawPath,
-  resolveSlugPath,
-  profileHref,
+    commonsPath,
+    DEFAULT_TENANT,
+    editPath,
+    escapeRegex,
+    extractWikiLinks,
+    hasLinkTo,
+    ownerToTenant,
+    pagePath,
+    profileHref,
+    rawPath,
+    resolveSlugPath,
 } from "../links";
 
 describe("escapeRegex", () => {

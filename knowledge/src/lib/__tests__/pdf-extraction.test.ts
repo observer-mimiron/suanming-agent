@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { fetchUrlContent } from "../fetch";
-import { MAX_CONTENT_LENGTH, MAX_PDF_SIZE } from "../constants";
+import {afterEach, describe, expect, it, vi} from "vitest";
+import {fetchUrlContent} from "../fetch";
+import {MAX_CONTENT_LENGTH, MAX_PDF_SIZE} from "../constants";
 
 // ---------------------------------------------------------------------------
 // Mock unpdf — dynamic import is used in production, vitest hoists vi.mock

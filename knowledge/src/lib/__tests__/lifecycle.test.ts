@@ -1,25 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import * as embeddings from "../embeddings";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import {
-  writeWikiPageWithSideEffects,
-  deleteWikiPage,
-} from "../lifecycle";
-import type { WritePageOptions } from "../lifecycle";
-import {
-  ensureDirectories,
-  readWikiPage,
-  writeWikiPage,
-  listWikiPages,
-  readLog,
-} from "../wiki";
-import { updateIndex } from "../wiki";
-import { listRevisions, saveRevision } from "../revisions";
-import { resolveAlias, buildAliasIndex, resetAliasIndex } from "../alias-index";
-import { serializeFrontmatter } from "../frontmatter";
-import { getStorage, _resetStorage } from "../storage";
+import type {WritePageOptions} from "../lifecycle";
+import {deleteWikiPage, writeWikiPageWithSideEffects,} from "../lifecycle";
+import {ensureDirectories, listWikiPages, readLog, readWikiPage, updateIndex, writeWikiPage,} from "../wiki";
+import {listRevisions, saveRevision} from "../revisions";
+import {buildAliasIndex, resetAliasIndex, resolveAlias} from "../alias-index";
+import {serializeFrontmatter} from "../frontmatter";
+import {_resetStorage, getStorage} from "../storage";
 
 // ---------------------------------------------------------------------------
 // Temp directory setup — mirrors wiki.test.ts approach

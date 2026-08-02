@@ -6,8 +6,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/deminzhang/qimen-go/qimen"
 	"github.com/6tail/lunar-go/calendar"
+	"github.com/deminzhang/qimen-go/qimen"
 )
 
 // Tool 奇门遁甲排盘工具（时家奇门）。依据给定的年月日时分起局，生成九宫格局信息，

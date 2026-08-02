@@ -1,8 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { IndexEntry } from "../types";
+import type {IndexEntry} from "../types";
+import {hasLLMKey} from "../llm";
+import {searchByVector} from "../embeddings";
+import {buildContext, searchIndex, selectPagesForQuery,} from "../query-search";
+import * as wikiModule from "../wiki";
+import {ensureDirectories, writeWikiPage} from "../wiki";
 
 // ---------------------------------------------------------------------------
 // Mock LLM and embeddings (same pattern as query.test.ts)
@@ -17,16 +22,6 @@ vi.mock("../embeddings", () => ({
   upsertEmbedding: vi.fn(async () => {}),
   removeEmbedding: vi.fn(async () => {}),
 }));
-
-import { hasLLMKey } from "../llm";
-import { searchByVector } from "../embeddings";
-import {
-  selectPagesForQuery,
-  searchIndex,
-  buildContext,
-} from "../query-search";
-import { writeWikiPage, ensureDirectories } from "../wiki";
-import * as wikiModule from "../wiki";
 
 const mockedHasLLMKey = vi.mocked(hasLLMKey);
 const mockedSearchByVector = vi.mocked(searchByVector);

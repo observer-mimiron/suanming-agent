@@ -1,10 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  isInputElement,
-  matchShortcut,
-  SHORTCUTS,
-  SEQUENCE_TIMEOUT_MS,
-} from "@/hooks/useKeyboardShortcuts";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {isInputElement, matchShortcut, SEQUENCE_TIMEOUT_MS, SHORTCUTS,} from "@/hooks/useKeyboardShortcuts";
 
 // ---------------------------------------------------------------------------
 // isInputElement

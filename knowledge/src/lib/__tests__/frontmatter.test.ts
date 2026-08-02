@@ -1,18 +1,18 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import {afterEach, describe, expect, it, vi} from "vitest";
 import {
-  parseFrontmatter,
-  serializeFrontmatter,
-  normalizeTypedFields,
-  TITLE_MAX_CHARS,
-  ALIASES_MAX_ITEMS,
-  ALIASES_MAX_ITEM_CHARS,
-  AUTHORS_MAX_ITEMS,
-  AUTHORS_MAX_ITEM_CHARS,
-  CONTRIBUTORS_MAX_ITEMS,
-  CONTRIBUTORS_MAX_ITEM_CHARS,
-  SUPERSEDES_MAX_CHARS,
-  TAGS_MAX_ITEMS,
-  TAGS_MAX_ITEM_CHARS,
+    ALIASES_MAX_ITEM_CHARS,
+    ALIASES_MAX_ITEMS,
+    AUTHORS_MAX_ITEM_CHARS,
+    AUTHORS_MAX_ITEMS,
+    CONTRIBUTORS_MAX_ITEM_CHARS,
+    CONTRIBUTORS_MAX_ITEMS,
+    normalizeTypedFields,
+    parseFrontmatter,
+    serializeFrontmatter,
+    SUPERSEDES_MAX_CHARS,
+    TAGS_MAX_ITEM_CHARS,
+    TAGS_MAX_ITEMS,
+    TITLE_MAX_CHARS,
 } from "../frontmatter";
 
 // ---------------------------------------------------------------------------

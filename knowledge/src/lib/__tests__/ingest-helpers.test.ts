@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { validateIngestInput } from "@/hooks/useIngest";
+import {describe, expect, it} from "vitest";
+import {validateIngestInput} from "@/hooks/useIngest";
 
 describe("validateIngestInput", () => {
   // ── URL mode ──────────────────────────────────────────────────────────

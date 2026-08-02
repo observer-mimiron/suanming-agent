@@ -1,15 +1,15 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import {useCallback, useEffect, useState} from "react";
 import Link from "next/link";
-import { MarkdownRenderer } from "@/components/MarkdownRenderer";
-import { SlidePreview } from "@/components/SlidePreview";
-import { HtmlPreview } from "@/components/HtmlPreview";
-import { stripHtmlFence, composeSrcDoc, usesChartLib } from "@/lib/html";
-import { Alert } from "@/components/Alert";
-import { useSlugTenants } from "@/hooks/useSlugTenants";
-import { logger } from "@/lib/logger";
-import type { QueryFormat } from "@/lib/query-format";
+import {MarkdownRenderer} from "@/components/MarkdownRenderer";
+import {SlidePreview} from "@/components/SlidePreview";
+import {HtmlPreview} from "@/components/HtmlPreview";
+import {composeSrcDoc, stripHtmlFence, usesChartLib} from "@/lib/html";
+import {Alert} from "@/components/Alert";
+import {useSlugTenants} from "@/hooks/useSlugTenants";
+import {logger} from "@/lib/logger";
+import type {QueryFormat} from "@/lib/query-format";
 
 interface SaveState {
   status: "idle" | "editing" | "saving" | "saved" | "error";

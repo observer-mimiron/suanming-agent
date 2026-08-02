@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { useSlugTenants } from "./useSlugTenants";
+import {useCallback, useEffect, useRef, useState} from "react";
+import {useRouter} from "next/navigation";
+import {useSlugTenants} from "./useSlugTenants";
 
 export interface SearchNode {
   id: string;

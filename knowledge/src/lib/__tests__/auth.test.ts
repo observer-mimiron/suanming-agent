@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {getServicePrincipal} from "../auth";
 
 // auth.ts imports Clerk at module scope; stub it (getServicePrincipal doesn't
 // use it, but the import must resolve).
@@ -6,8 +7,6 @@ vi.mock("@clerk/nextjs/server", () => ({
   auth: vi.fn(),
   currentUser: vi.fn(),
 }));
-
-import { getServicePrincipal } from "../auth";
 
 const TOKEN = "s3cr3t-service-token-abcdef";
 const HANDLE = "yoyo-bot";

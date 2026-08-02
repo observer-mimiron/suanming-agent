@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import type { TalkComment } from "@/lib/types";
-import { formatRelativeTime } from "@/lib/format";
-import { UserLink } from "@/components/UserLink";
+import {useState} from "react";
+import type {TalkComment} from "@/lib/types";
+import {formatRelativeTime} from "@/lib/format";
+import {UserLink} from "@/components/UserLink";
 
 // ---------------------------------------------------------------------------
 // Comment tree builder

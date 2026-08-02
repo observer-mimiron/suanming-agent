@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import {useState} from "react";
 
 interface ThreadFormProps {
   onSubmit: (title: string, body: string) => Promise<void>;

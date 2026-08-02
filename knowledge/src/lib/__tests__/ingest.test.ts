@@ -1,48 +1,48 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import {
-  extractSummary,
-  ingest,
-  ingestUrl,
-  reingest,
-  buildIngestSystemPrompt,
-  chunkText,
-  parseConceptMarker,
-  parseDisputedMarker,
-  normalizeTags,
-  deriveTitleFromContent,
-  collectTagVocabulary,
-  computeConfidence,
-  tokenizeSourceImages,
-  restoreImageTokens,
+    buildIngestSystemPrompt,
+    chunkText,
+    collectTagVocabulary,
+    computeConfidence,
+    deriveTitleFromContent,
+    extractSummary,
+    getLedgerPath,
+    ingest,
+    ingestUrl,
+    type LedgerEntry,
+    normalizeTags,
+    parseConceptMarker,
+    parseDisputedMarker,
+    persistToLedger,
+    readLedger,
+    reingest,
+    restoreImageTokens,
+    tokenizeSourceImages,
 } from "../ingest";
-import { slugify } from "../slugify";
-import { loadPageConventions } from "../schema";
+import {slugify} from "../slugify";
+import {loadPageConventions} from "../schema";
+import {extractTitle, extractWithReadability, fetchUrlContent, isUrl, stripHtml, validateUrlSafety,} from "../fetch";
+import {findRelatedPages, updateRelatedPages} from "../search";
+import {parseSources} from "../sources";
+import {MAX_LLM_INPUT_CHARS} from "../constants";
 import {
-  isUrl,
-  stripHtml,
-  extractTitle,
-  extractWithReadability,
-  fetchUrlContent,
-  validateUrlSafety,
-} from "../fetch";
-import { findRelatedPages, updateRelatedPages } from "../search";
-import { parseSources } from "../sources";
-import { MAX_LLM_INPUT_CHARS } from "../constants";
-import {
-  listWikiPages,
-  readWikiPage,
-  writeWikiPage,
-  readWikiPageWithFrontmatter,
-  serializeFrontmatter,
-  type Frontmatter,
+    type Frontmatter,
+    listWikiPages,
+    readWikiPage,
+    readWikiPageWithFrontmatter,
+    serializeFrontmatter,
+    writeWikiPage,
 } from "../wiki";
-import { resetSourceIndex } from "../source-index";
-import { resetAliasIndex } from "../alias-index";
-import { hasEmbeddingSupport, searchByVector, contentHash } from "../embeddings";
-import type { IndexEntry, SourceEntry } from "../types";
+import {resetSourceIndex} from "../source-index";
+import {resetAliasIndex} from "../alias-index";
+import {contentHash, hasEmbeddingSupport, searchByVector} from "../embeddings";
+import type {IndexEntry, SourceEntry} from "../types";
+// Import the mocked module so we can override per-test
+import {callLLM, hasLLMKey} from "../llm";
+import {_resetStorage, getStorage} from "../storage";
 
 const mockedHasEmbeddingSupport = vi.mocked(hasEmbeddingSupport);
 const mockedSearchByVector = vi.mocked(searchByVector);
@@ -77,8 +77,6 @@ vi.mock("unpdf", () => ({
   extractText: (...args: unknown[]) => mockIngestExtractText(...args),
 }));
 
-// Import the mocked module so we can override per-test
-import { hasLLMKey, callLLM } from "../llm";
 const mockedHasLLMKey = vi.mocked(hasLLMKey);
 const mockedCallLLM = vi.mocked(callLLM);
 
@@ -3137,9 +3135,6 @@ describe("reingest", () => {
 // ---------------------------------------------------------------------------
 // Ingest ledger persistence
 // ---------------------------------------------------------------------------
-
-import { getLedgerPath, persistToLedger, readLedger, type LedgerEntry } from "../ingest";
-import { _resetStorage, getStorage } from "../storage";
 
 describe("ingest ledger", () => {
   let tmpDir: string;

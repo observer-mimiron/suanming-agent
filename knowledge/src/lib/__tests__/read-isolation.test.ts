@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { ensureDirectories, writeWikiPage, listReadableWikiPages } from "../wiki";
-import { _resetStorage } from "../storage";
+import {ensureDirectories, listReadableWikiPages, writeWikiPage} from "../wiki";
+import {_resetStorage} from "../storage";
 
 let tmpDir: string;
 let prevWiki: string | undefined;

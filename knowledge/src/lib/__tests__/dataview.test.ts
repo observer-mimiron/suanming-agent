@@ -1,16 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import {
-  queryByFrontmatter,
-  validateQuery,
-  type DataviewQuery,
-  type DataviewFilter,
-} from "../dataview";
-import { serializeFrontmatter } from "../frontmatter";
-import { ensureDirectories, updateIndex, writeWikiPage } from "../wiki";
-import type { IndexEntry } from "../types";
+import {type DataviewFilter, type DataviewQuery, queryByFrontmatter, validateQuery,} from "../dataview";
+import {serializeFrontmatter} from "../frontmatter";
+import {ensureDirectories, updateIndex, writeWikiPage} from "../wiki";
+import type {IndexEntry} from "../types";
 
 let tmpDir: string;
 let originalWikiDir: string | undefined;

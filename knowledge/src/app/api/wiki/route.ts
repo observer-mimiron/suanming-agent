@@ -1,16 +1,16 @@
-import { NextResponse } from "next/server";
+import {NextResponse} from "next/server";
 import {
-  validateSlug,
-  readWikiPage,
-  listReadableWikiPages,
-  serializeFrontmatter,
-  writeWikiPageWithSideEffects,
-  isAgentScopedType,
-  type Frontmatter,
+    type Frontmatter,
+    isAgentScopedType,
+    listReadableWikiPages,
+    readWikiPage,
+    serializeFrontmatter,
+    validateSlug,
+    writeWikiPageWithSideEffects,
 } from "@/lib/wiki";
-import { extractSummary } from "@/lib/ingest";
-import { getPrincipal, getServicePrincipal } from "@/lib/auth";
-import { getErrorMessage } from "@/lib/errors";
+import {extractSummary} from "@/lib/ingest";
+import {getPrincipal, getServicePrincipal} from "@/lib/auth";
+import {getErrorMessage} from "@/lib/errors";
 
 /**
  * GET /api/wiki

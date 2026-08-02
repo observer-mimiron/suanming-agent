@@ -1,5 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NextRequest } from "next/server";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {NextRequest} from "next/server";
+import {listReadableWikiPages} from "@/lib/wiki";
+import {resolveScopeSlugs} from "@/lib/search";
+import {selectPagesForQuery} from "@/lib/query";
+import {POST} from "@/app/api/query/stream/route";
 
 // ---------------------------------------------------------------------------
 // #413: the streaming query route must apply the SAME agent-scoped filter the
@@ -40,11 +44,6 @@ vi.mock("@/lib/query", () => ({
   buildContext: vi.fn(async () => ({ context: "ctx", slugs: ["concept-a"] })),
   buildQuerySystemPrompt: vi.fn(() => "system"),
 }));
-
-import { listReadableWikiPages } from "@/lib/wiki";
-import { resolveScopeSlugs } from "@/lib/search";
-import { selectPagesForQuery } from "@/lib/query";
-import { POST } from "@/app/api/query/stream/route";
 
 const mockedList = vi.mocked(listReadableWikiPages);
 const mockedScope = vi.mocked(resolveScopeSlugs);

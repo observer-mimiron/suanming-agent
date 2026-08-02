@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { parseArgs } from "../../cli";
+import {afterEach, beforeEach, describe, expect, it, type MockInstance, vi} from "vitest";
+import {parseArgs} from "../../cli";
 
 describe("CLI argument parsing", () => {
   describe("ingest command", () => {

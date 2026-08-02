@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import {useState} from "react";
 
 /**
  * Owner-only panel to manage an agent's credential (per-agent token). The token

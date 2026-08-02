@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Icon } from "@/components/folio/icons";
-import { logger } from "@/lib/logger";
+import {useState} from "react";
+import {Icon} from "@/components/folio/icons";
+import {logger} from "@/lib/logger";
 
 /**
  * "Share this page" — copies the page's full-screen share URL (`/share/...`) to

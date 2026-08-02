@@ -1,9 +1,9 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type {ReactNode} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { slugify } from "@/lib/slugify";
-import { resolveSlugPath, type SlugTenantMap } from "@/lib/links";
+import {slugify} from "@/lib/slugify";
+import {resolveSlugPath, type SlugTenantMap} from "@/lib/links";
 
 interface MarkdownRendererProps {
   content: string;

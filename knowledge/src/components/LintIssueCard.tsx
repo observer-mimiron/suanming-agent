@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { LintIssue } from "@/lib/types";
+import type {LintIssue} from "@/lib/types";
 
 const severityClasses: Record<
   LintIssue["severity"],

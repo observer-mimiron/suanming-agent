@@ -1,15 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import {
-  saveRawSource,
-  saveRawSourceFor,
-  listRawSources,
-  readRawSource,
-  readRawSourceById,
-} from "../raw";
-import { ensureDirectories } from "../wiki";
+import {listRawSources, readRawSource, readRawSourceById, saveRawSource, saveRawSourceFor,} from "../raw";
+import {ensureDirectories} from "../wiki";
 
 let tmpDir: string;
 let originalWikiDir: string | undefined;

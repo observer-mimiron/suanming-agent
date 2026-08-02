@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import {useEffect, useState} from "react";
+import {MarkdownRenderer} from "@/components/MarkdownRenderer";
 
 /**
  * Renders the agent-API guide by fetching the static `public/agent-api.md`

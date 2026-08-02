@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 
-import { commonsPath, pagePath, ownerToTenant } from "@/lib/links";
-import type { DataviewResultRow } from "./DataviewFilterRow";
+import {commonsPath, ownerToTenant, pagePath} from "@/lib/links";
+import type {DataviewResultRow} from "./DataviewFilterRow";
 
 /**
  * Resolve a dataview result row to its canonical URL. PUBLIC commons pages live

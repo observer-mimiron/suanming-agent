@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { migrateToTenants, getRedirectMap } from "../migrate-to-tenants";
-import { getCommonsIndex } from "../commons";
-import { ensureDirectories, writeWikiPage, rawRelPath } from "../wiki";
-import { createThread } from "../talk";
-import { getStorage, _resetStorage } from "../storage";
+import {getRedirectMap, migrateToTenants} from "../migrate-to-tenants";
+import {getCommonsIndex} from "../commons";
+import {ensureDirectories, rawRelPath, writeWikiPage} from "../wiki";
+import {createThread} from "../talk";
+import {_resetStorage, getStorage} from "../storage";
 
 let tmpDir: string;
 const saved: Record<string, string | undefined> = {};

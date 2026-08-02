@@ -1,7 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import {ingest, ingestImage} from "../ingest";
+import {callLLM, hasLLMKey} from "../llm";
+import {describeImage} from "../vision";
+import {fetchImageBytes, storeImageBytes} from "../fetch";
+import {readRawSourceById, readWikiPageWithFrontmatter} from "../wiki";
+import {parseSources} from "../sources";
+import {resetSourceIndex} from "../source-index";
+import {resetAliasIndex} from "../alias-index";
+import {_resetStorage} from "../storage";
 
 // LLM off — ingestImage uses generatedContent so the LLM is skipped anyway.
 vi.mock("../llm", () => ({ hasLLMKey: vi.fn(() => false), callLLM: vi.fn() }));
@@ -12,16 +21,6 @@ vi.mock("../fetch", async (orig) => {
   const actual = await orig<typeof import("../fetch")>();
   return { ...actual, fetchImageBytes: vi.fn(), storeImageBytes: vi.fn() };
 });
-
-import { ingest, ingestImage } from "../ingest";
-import { hasLLMKey, callLLM } from "../llm";
-import { describeImage } from "../vision";
-import { fetchImageBytes, storeImageBytes } from "../fetch";
-import { readWikiPageWithFrontmatter, readRawSourceById } from "../wiki";
-import { parseSources } from "../sources";
-import { resetSourceIndex } from "../source-index";
-import { resetAliasIndex } from "../alias-index";
-import { _resetStorage } from "../storage";
 
 const mockedDescribe = vi.mocked(describeImage);
 const mockedFetchBytes = vi.mocked(fetchImageBytes);

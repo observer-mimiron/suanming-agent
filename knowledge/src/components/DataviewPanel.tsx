@@ -1,15 +1,15 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import {useCallback, useState} from "react";
 
 import {
-  DataviewFilterRow,
-  makeFilter,
-  type DataviewOp,
-  type DataviewResultRow,
-  type FilterRow,
+    DataviewFilterRow,
+    type DataviewOp,
+    type DataviewResultRow,
+    type FilterRow,
+    makeFilter,
 } from "./DataviewFilterRow";
-import { DataviewResultsTable } from "./DataviewResultsTable";
+import {DataviewResultsTable} from "./DataviewResultsTable";
 
 // ---------------------------------------------------------------------------
 // Component

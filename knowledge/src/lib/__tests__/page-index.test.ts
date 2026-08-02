@@ -1,21 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import {
-  getPageIndex,
-  syncPageIndexForPage,
-  removePageIndexForSlug,
-  rebuildPageIndex,
-} from "../page-index";
-import {
-  listWikiPages,
-  scanWikiPagesUncached,
-  ensureDirectories,
-  writeWikiPage,
-} from "../wiki";
-import { _resetLocks } from "../lock";
-import { _resetStorage } from "../storage";
+import {getPageIndex, rebuildPageIndex, removePageIndexForSlug, syncPageIndexForPage,} from "../page-index";
+import {ensureDirectories, listWikiPages, scanWikiPagesUncached, writeWikiPage,} from "../wiki";
+import {_resetLocks} from "../lock";
+import {_resetStorage} from "../storage";
 
 let tmpDir: string;
 const saved: Record<string, string | undefined> = {};

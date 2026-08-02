@@ -1,15 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import {
-  getRecentIndex,
-  pushRecentEvent,
-  removeRecentForSlug,
-} from "../recent-index";
-import { getTrail, type TrailEvent } from "../trail";
-import { getStorage, _resetStorage } from "../storage";
-import { _resetLocks } from "../lock";
+import {getRecentIndex, pushRecentEvent, removeRecentForSlug,} from "../recent-index";
+import {getTrail, type TrailEvent} from "../trail";
+import {_resetStorage, getStorage} from "../storage";
+import {_resetLocks} from "../lock";
 
 let tmpDir: string;
 const saved: Record<string, string | undefined> = {};

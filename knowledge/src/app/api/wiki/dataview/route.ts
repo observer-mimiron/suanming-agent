@@ -1,11 +1,7 @@
-import { NextResponse } from "next/server";
-import {
-  queryByFrontmatter,
-  validateQuery,
-  type DataviewQuery,
-} from "@/lib/dataview";
-import { getPrincipal } from "@/lib/auth";
-import { getErrorMessage } from "@/lib/errors";
+import {NextResponse} from "next/server";
+import {type DataviewQuery, queryByFrontmatter, validateQuery,} from "@/lib/dataview";
+import {getPrincipal} from "@/lib/auth";
+import {getErrorMessage} from "@/lib/errors";
 
 /**
  * POST /api/wiki/dataview

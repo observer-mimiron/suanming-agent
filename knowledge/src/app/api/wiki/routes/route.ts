@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
-import { listReadableWikiPages, ownerToTenant } from "@/lib/wiki";
-import { getPrincipal } from "@/lib/auth";
+import {NextResponse} from "next/server";
+import {listReadableWikiPages, ownerToTenant} from "@/lib/wiki";
+import {getPrincipal} from "@/lib/auth";
 
 /**
  * slug → canonical tenant, over the caller's READABLE pages. Lets client
