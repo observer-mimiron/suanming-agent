@@ -1,3 +1,6 @@
+// This test file belongs to the trace projection layer.
+// It verifies Eino callback tracing and protects the related contract from regressions.
+// It projects runtime evidence; it must not change execution decisions.
 package tracing
 
 import (

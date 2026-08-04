@@ -1,3 +1,6 @@
+// This file belongs to the intent detection layer.
+// It owns intent utterance fixtures and matching for this package.
+// It classifies text signals; it must not mutate session state.
 package intent
 
 // RouteUtterances 是单个术数方法的正向和负向 utterance 集合。

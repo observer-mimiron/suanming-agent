@@ -1,3 +1,7 @@
+// Package runtime contains the manager-owned execution flow.
+//
+// This file records runtime-visible decisions and enforces the final output
+// boundary before text is emitted to the frontend.
 package runtime
 
 import (
@@ -32,6 +36,9 @@ func emitEventWithTrace(ctx context.Context, sink EventSink, evt Event, attrs ma
 	return nil
 }
 
+// guardFinalAnswerWithTrace is the final contract gate before user-visible text.
+// It blocks missing primary artifacts and obvious internal execution leakage,
+// annotating the trace so failures point to the runtime boundary that rejected them.
 func guardFinalAnswerWithTrace(ctx context.Context, route policy.ApprovedRoute, st *state.SessionState, finalText string) (turnType string, text string) {
 	sp := tracing.SpanFromContext(ctx, "contract_gate", tracing.KindChain)
 	sp.SetAttribute("primary_domain", route.PrimaryDomain)
@@ -85,6 +92,9 @@ func guardFinalAnswerWithTrace(ctx context.Context, route policy.ApprovedRoute, 
 	return "agent_reading", finalText
 }
 
+// primaryArtifactGuard ensures the final answer is backed by the primary domain asset.
+// This is a last-resort safety net; prefill and validatePlanArtifacts should have
+// satisfied the same contract before specialist dispatch.
 func primaryArtifactGuard(route policy.ApprovedRoute, st *state.SessionState) (bool, string) {
 	switch route.PrimaryDomain {
 	case "bazi":
@@ -107,6 +117,9 @@ func primaryArtifactGuard(route policy.ApprovedRoute, st *state.SessionState) (b
 	}
 }
 
+// outputBoundaryGuard blocks narrow, explicit internal-leak markers in final text.
+// It is not a general content-safety classifier; expanding this list should be tied
+// to runtime contract evidence, not broad natural-language censorship.
 func outputBoundaryGuard(finalText string) (bool, string) {
 	text := strings.ToLower(strings.TrimSpace(finalText))
 	if text == "" {
@@ -128,6 +141,7 @@ func outputBoundaryGuard(finalText string) (bool, string) {
 	return true, ""
 }
 
+// annotateApprovedRouteTrace records the approved route and gate projection for debugging.
 func annotateApprovedRouteTrace(ctx context.Context, st *state.SessionState, route policy.ApprovedRoute) {
 	tracing.SetTraceAttributes(ctx, map[string]any{
 		"approved_route.primary_domain":    route.PrimaryDomain,
@@ -146,6 +160,7 @@ func annotateApprovedRouteTrace(ctx context.Context, st *state.SessionState, rou
 	})
 }
 
+// decisionSourceForRoute reports whether the current route came from supervisor or cheap reuse.
 func decisionSourceForRoute(route policy.ApprovedRoute) string {
 	if route.Gate.Reason == "cheap_followup_reuse" {
 		return "cheap_followup_reuse"

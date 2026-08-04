@@ -1,3 +1,7 @@
+// Package runtime contains the manager-owned execution flow.
+//
+// This file defines the small state carriers that let Eino graph nodes share
+// request data, graph-local decisions, and final node outputs without globals.
 package runtime
 
 import (
@@ -48,34 +52,41 @@ type orchestrationInitCtxKey struct{}
 type orchestrationRuntimeCtxKey struct{}
 type orchestrationResultCtxKey struct{}
 
+// withOrchestrationInit attaches request-scoped immutable inputs to the graph context.
 func withOrchestrationInit(ctx context.Context, init *orchestrationInit) context.Context {
 	return context.WithValue(ctx, orchestrationInitCtxKey{}, init)
 }
 
+// getOrchestrationInit reads the request-scoped graph inputs from context.
 func getOrchestrationInit(ctx context.Context) *orchestrationInit {
 	init, _ := ctx.Value(orchestrationInitCtxKey{}).(*orchestrationInit)
 	return init
 }
 
+// withOrchestrationRuntime attaches non-serializable services needed by graph nodes.
 func withOrchestrationRuntime(ctx context.Context, rt *orchestrationRuntime) context.Context {
 	return context.WithValue(ctx, orchestrationRuntimeCtxKey{}, rt)
 }
 
+// getOrchestrationRuntime reads non-serializable graph services from context.
 func getOrchestrationRuntime(ctx context.Context) *orchestrationRuntime {
 	rt, _ := ctx.Value(orchestrationRuntimeCtxKey{}).(*orchestrationRuntime)
 	return rt
 }
 
+// withOrchestrationResult creates the side-channel result container used after graph invocation.
 func withOrchestrationResult(ctx context.Context) (context.Context, *orchestrationResult) {
 	r := &orchestrationResult{}
 	return context.WithValue(ctx, orchestrationResultCtxKey{}, r), r
 }
 
+// getOrchestrationResult reads the side-channel result container populated by terminal nodes.
 func getOrchestrationResult(ctx context.Context) *orchestrationResult {
 	r, _ := ctx.Value(orchestrationResultCtxKey{}).(*orchestrationResult)
 	return r
 }
 
+// genOrchestrationState seeds Eino local state with the route known at graph start.
 func genOrchestrationState(ctx context.Context) *orchestrationGraphState {
 	init := getOrchestrationInit(ctx)
 	if init != nil {
@@ -86,6 +97,7 @@ func genOrchestrationState(ctx context.Context) *orchestrationGraphState {
 	return &orchestrationGraphState{}
 }
 
+// init registers the graph-local state type so Eino can serialize and restore it.
 func init() {
 	schema.Register[orchestrationGraphState]()
 }

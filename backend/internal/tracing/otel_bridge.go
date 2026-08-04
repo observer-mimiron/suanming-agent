@@ -1,3 +1,6 @@
+// This file belongs to the trace projection layer.
+// It owns OpenTelemetry bridge behavior for this package.
+// It projects runtime evidence; it must not change execution decisions.
 package tracing
 
 import "context"

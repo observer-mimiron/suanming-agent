@@ -1,3 +1,6 @@
+// This test file belongs to the manager-owned runtime layer.
+// It verifies BaZi charter graph execution and protects the related contract from regressions.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -333,7 +336,12 @@ func TestBaziAuthorityGraph_RetrievalRequiredStateStillNeedsQueryPackets(t *test
 }
 
 func TestDefaultBaziEvidencePlan_StaticStageIncludesCaseValidationQuery(t *testing.T) {
-	plan := defaultBaziEvidencePlan("", baziAnalysisPlan{RetrievalStage: "static"})
+	plan := defaultBaziEvidencePlan("", baziAnalysisPlan{RetrievalStage: "static"}, baziCharterInput{
+		BaziResult: map[string]any{
+			"dayGan":  "甲",
+			"pillars": []map[string]any{{"name": "年柱", "stem": "癸", "branch": "酉"}, {"name": "月柱", "stem": "乙", "branch": "亥"}},
+		},
+	})
 
 	if !containsString(plan.EvidenceGaps, "同结构命例校验补证") {
 		t.Fatalf("static evidence gaps must include case validation gap, got %v", plan.EvidenceGaps)
@@ -349,6 +357,9 @@ func TestDefaultBaziEvidencePlan_StaticStageIncludesCaseValidationQuery(t *testi
 		case packet.Topic == "geju" && strings.Contains(packet.Query, "格局"):
 			hasTheoryGeju = true
 		case packet.Topic == "tiaohou" && strings.Contains(packet.Query, "调候"):
+			if !strings.Contains(packet.Query, "甲木") || !strings.Contains(packet.Query, "亥月") {
+				t.Fatalf("tiaohou query must include chart-specific day/month terms, got %q", packet.Query)
+			}
 			hasTheoryTiaohou = true
 		case packet.Topic == "bingyao" && strings.Contains(packet.Query, "病药"):
 			hasTheoryBingyao = true
@@ -561,6 +572,42 @@ func TestValidateStaticEvidenceCoverageBoundaryCapsMissingTopics(t *testing.T) {
 	}
 	if err := validateStaticEvidenceCoverageBoundary(state); err == nil {
 		t.Fatal("missing critical evidence must cap axis level")
+	}
+}
+
+func TestValidateStaticTiaohouEvidenceWordingRejectsMissingClaimWhenCovered(t *testing.T) {
+	state := baziCharterState{
+		EvidenceQuality: baziEvidenceQuality{CoveredTopics: []string{"tiaohou"}},
+		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
+	}
+	state.StaticSynthesis.TiaohouConstraint = "调候用神未定，需穷通宝鉴等证据。"
+	if err := validateStaticTiaohouEvidenceWording(state); err == nil {
+		t.Fatal("covered tiaohou evidence must reject missing-evidence wording")
+	}
+}
+
+func TestValidateStaticTiaohouEvidenceWordingRequiresConcreteAnchorWhenCovered(t *testing.T) {
+	state := baziCharterState{
+		EvidenceQuality: baziEvidenceQuality{CoveredTopics: []string{"tiaohou"}},
+		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
+	}
+	state.StaticSynthesis.TiaohouAnchor = "调候为环境约束，不直接决定格局成败。"
+	if err := validateStaticTiaohouEvidenceWording(state); err == nil {
+		t.Fatal("covered tiaohou evidence must require a concrete anchor verdict")
+	}
+	state.StaticSynthesis.TiaohouAnchor = "甲木生亥月，寒湿重，调候火有但弱，年支巳火被亥冲而受损。"
+	if err := validateStaticTiaohouEvidenceWording(state); err != nil {
+		t.Fatalf("concrete tiaohou anchor should pass: %v", err)
+	}
+}
+
+func TestBuildTiaohouConclusionUsesAnchorBeforeBoundary(t *testing.T) {
+	state := baziCharterState{StaticSynthesis: baziStaticSynthesis{
+		TiaohouAnchor:     "甲木生亥月，寒湿重，调候火有但弱。",
+		TiaohouConstraint: "调候为环境约束，不直接决定格局成败。",
+	}}
+	if got := buildTiaohouConclusion(state); got != "甲木生亥月，寒湿重，调候火有但弱。" {
+		t.Fatalf("tiaohou conclusion = %q", got)
 	}
 }
 

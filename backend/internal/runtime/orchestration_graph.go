@@ -1,3 +1,7 @@
+// Package runtime contains the manager-owned execution flow.
+//
+// This file wires the outer Eino orchestration graph:
+// preflight -> short_circuit | prefill -> agent -> final_guard.
 package runtime
 
 import (
@@ -18,6 +22,9 @@ type orchestrationCtx struct {
 	RT   *orchestrationRuntime
 }
 
+// loadOrchestrationCtx gathers the three state channels every graph node needs.
+// Eino local state is read through ProcessState; request inputs and runtime
+// services stay in context because they are not graph checkpoint payload.
 func loadOrchestrationCtx(ctx context.Context) (*orchestrationCtx, error) {
 	init := getOrchestrationInit(ctx)
 	rt := getOrchestrationRuntime(ctx)
@@ -32,6 +39,9 @@ func loadOrchestrationCtx(ctx context.Context) (*orchestrationCtx, error) {
 	return &orchestrationCtx{GS: gs, Init: init, RT: rt}, nil
 }
 
+// preflightNode runs deterministic front-door checks before any model-owned work.
+// It writes only graph-local PreflightResult; session mutation stays in Executor
+// so clarification, guided fallback, and normal execution share one owner.
 func preflightNode(ctx context.Context, in string) (string, error) {
 	oc, err := loadOrchestrationCtx(ctx)
 	if err != nil {
@@ -56,6 +66,8 @@ func preflightNode(ctx context.Context, in string) (string, error) {
 	return in, nil
 }
 
+// preflightBranch selects the graph edge after preflight.
+// The returned labels must match the branch map in buildOrchestrationGraph.
 func preflightBranch(ctx context.Context, _ string) (string, error) {
 	oc, err := loadOrchestrationCtx(ctx)
 	if err != nil {
@@ -67,6 +79,8 @@ func preflightBranch(ctx context.Context, _ string) (string, error) {
 	return "prefill", nil
 }
 
+// emitShortCircuitNode sends preflight's user-visible answer and stops execution.
+// This path covers clarification, missing-profile prompts, and direct follow-up reuse.
 func emitShortCircuitNode(ctx context.Context, in string) (string, error) {
 	oc, err := loadOrchestrationCtx(ctx)
 	if err != nil {
@@ -90,6 +104,9 @@ func emitShortCircuitNode(ctx context.Context, in string) (string, error) {
 	return oc.GS.PreflightResult.Text, nil
 }
 
+// prefillNode prepares deterministic assets required by the Manager's plan.
+// Guided fallback can replace the route after preflight, so this node rebuilds
+// the plan before touching artifacts when ForcedRoute is present.
 func prefillNode(ctx context.Context, in string) (string, error) {
 	oc, err := loadOrchestrationCtx(ctx)
 	if err != nil {
@@ -108,6 +125,9 @@ func prefillNode(ctx context.Context, in string) (string, error) {
 	return in, nil
 }
 
+// guardNode applies final output contracts and emits the buffered final text.
+// It is deliberately last so missing artifacts or internal leakage are blocked
+// after all specialist/manager composition has finished.
 func guardNode(ctx context.Context, finalText string) (string, error) {
 	oc, err := loadOrchestrationCtx(ctx)
 	if err != nil {
@@ -132,6 +152,9 @@ func guardNode(ctx context.Context, finalText string) (string, error) {
 	return guardedText, nil
 }
 
+// agentNode dispatches the manager-approved execution plan to the correct worker.
+// Pure BaZi uses the authority-first internal graph; other domains use bounded
+// specialist runners and then Manager compose, never free-form runtime tool choice.
 func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], error) {
 	oc, err := loadOrchestrationCtx(ctx)
 	if err != nil {
@@ -229,6 +252,9 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 	return sr, nil
 }
 
+// buildOrchestrationGraph compiles the outer runtime graph once per Executor.
+// The graph owns control flow only; concrete state mutation stays in Manager,
+// Executor, prefill, and final guard helpers called by the nodes.
 func buildOrchestrationGraph() (compose.Runnable[string, string], error) {
 	g := compose.NewGraph[string, string](compose.WithGenLocalState(genOrchestrationState))
 

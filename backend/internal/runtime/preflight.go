@@ -1,3 +1,6 @@
+// This file belongs to the manager-owned runtime layer.
+// It owns preflight behavior for this package.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -141,8 +144,9 @@ func preflightWithPlan(st *state.SessionState, plan ExecutionPlan, message strin
 		}
 	}
 
-	// 3. supervisor 明确要求澄清
-	if route.NeedsClarification {
+	// 3. supervisor 明确要求澄清。完整八字出生资料本身就是可执行请求，
+	// 不能因路由模型偶发追问“想看哪方面”而短路稳定性主链。
+	if route.NeedsClarification && !shouldBypassBaziBirthClarification(workingState, route, message) {
 		boundary := guidance.BoundaryClarificationFallback
 		if route.ClarificationQuestion == "" {
 			switch {
@@ -217,6 +221,24 @@ func preflightWithPlan(st *state.SessionState, plan ExecutionPlan, message strin
 
 	// 8. 放行
 	return preflightResult{}
+}
+
+// shouldBypassBaziBirthClarification lets a complete BaZi birth-data turn
+// proceed to the default full reading even when the route model asks a generic
+// topic clarification. Missing-profile or non-BaZi clarification still blocks.
+func shouldBypassBaziBirthClarification(st *state.SessionState, route policy.ApprovedRoute, message string) bool {
+	if st == nil || route.PrimaryDomain != "bazi" || !st.IsProfileComplete() {
+		return false
+	}
+	if !intent.ContainsBirthInfo(message) && len(route.Slots.Profile) == 0 {
+		return false
+	}
+	switch route.TaskIntent {
+	case "collect_profile", "amend_profile", "interpret_chart", "direct_bazi":
+		return true
+	default:
+		return false
+	}
 }
 
 // shouldHandleGuidance 判断本轮是否仍应由 guidance 接管。

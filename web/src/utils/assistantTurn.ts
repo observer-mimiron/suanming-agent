@@ -1,4 +1,8 @@
-import type { ChatMessage, DebugEvent, DebugTraceDigest, ExecutionTree, ProcessDigest } from '../types/chat'
+import type {
+  ChatMessage,
+  RunInspection,
+  TransportInspection,
+} from '../types/chat'
 
 export interface Passage {
   content: string
@@ -15,18 +19,19 @@ export interface EvidenceGroup {
   passages: string[]
 }
 
-export interface ProcessInfo {
-  digest: ProcessDigest
-  status: string
-  phaseCount: number
+export interface ThinkingEvent {
+  label: string
+  preview: string
+  agent?: string
 }
 
 export interface AssistantTurnViewModel {
   resultBlocks: ResultBlock[]
   answerBlocks: string[]
-  process: ProcessInfo | null
-  debugTrace: DebugTraceDigest | null
-  debugEvents: DebugEvent[]
+  routeDecision: unknown | null
+  runInspection: RunInspection | null
+  transportInspection: TransportInspection | null
+  thinkingEvents: ThinkingEvent[]
   evidence: EvidenceGroup[] | null
   errors: string[]
 }
@@ -36,26 +41,17 @@ export function buildAssistantTurnViewModel(message: ChatMessage): AssistantTurn
 
   const resultBlocks: ResultBlock[] = []
   const answerBlocks: string[] = []
-  let process: ProcessInfo | null = null
-  let debugTrace: DebugTraceDigest | null = null
+  let routeDecision: unknown | null = null
+  let runInspection: RunInspection | null = null
   let rawPassages: Passage[] = []
-  const debugEvents: DebugEvent[] = []
+  const thinkingEvents: ThinkingEvent[] = []
   const errors: string[] = []
 
   for (const seg of segments) {
     if (seg.type === 'text') {
       answerBlocks.push(seg.content)
     } else if (seg.type === 'thinking') {
-      debugEvents.push({ type: 'thinking', label: `思考 · ${seg.agent}`, preview: seg.text.slice(0, 200), agent: seg.agent })
-    } else if (seg.type === 'tool_call') {
-      const result = seg.result || ''
-      const resultDisplay = result.length > 300 ? result.slice(0, 300) + '...(' + result.length + '字符已截断)' : result
-      debugEvents.push({
-        type: 'tool_call',
-        label: `工具 · ${seg.tool}`,
-        preview: seg.params ? JSON.stringify(seg.params).slice(0, 200) : '',
-        result: resultDisplay,
-      })
+      thinkingEvents.push({ label: '思考 · ' + seg.agent, preview: seg.text.slice(0, 200), agent: seg.agent })
     } else if (seg.type === 'error') {
       errors.push(seg.message)
     } else if (seg.type === 'component') {
@@ -69,38 +65,20 @@ export function buildAssistantTurnViewModel(message: ChatMessage): AssistantTurn
         case 'ziwei-chart':
           resultBlocks.push({ type: 'ziwei-chart', payload: seg.payload })
           break
-        case 'process-panel':
-          process = {
-            digest: seg.payload as ProcessDigest,
-            status: (seg.payload as ProcessDigest)?.status ?? 'ok',
-            phaseCount: (seg.payload as ProcessDigest)?.phases?.length ?? 0,
-          }
+        case 'route-decision':
+          routeDecision = seg.payload
           break
-        case 'debug-trace':
-          debugTrace = seg.payload as DebugTraceDigest
+        case 'run-inspection':
+          runInspection = seg.payload as RunInspection
           break
-        case "execution-tree":
-          const priorRuntime = debugTrace?.runtime ?? {}
-          const nextRuntime = (seg.payload as ExecutionTree).runtime ?? {}
-          debugTrace = {
-            ...(debugTrace ?? {}),
-            ...(seg.payload as ExecutionTree),
-            root: (seg.payload as ExecutionTree).root,
-            runtime: {
-              ...priorRuntime,
-              ...nextRuntime,
-            },
-          } as DebugTraceDigest
-          break
-        case 'knowledge-sources': {
-          // Backend sends passages as a direct array, not wrapped in { passages: [...] }
+        case 'knowledge-sources':
+          // Backend sends passages as a direct array, not wrapped in { passages: [...] }.
           if (Array.isArray(seg.payload)) {
             rawPassages = seg.payload as Passage[]
           } else if (seg.payload && typeof seg.payload === 'object' && Array.isArray((seg.payload as any).passages)) {
             rawPassages = (seg.payload as any).passages as Passage[]
           }
           break
-        }
       }
     }
   }
@@ -110,9 +88,10 @@ export function buildAssistantTurnViewModel(message: ChatMessage): AssistantTurn
   return {
     resultBlocks,
     answerBlocks,
-    process,
-    debugTrace,
-    debugEvents,
+    routeDecision,
+    runInspection,
+    transportInspection: message.transportInspection ?? null,
+    thinkingEvents,
     evidence,
     errors,
   }

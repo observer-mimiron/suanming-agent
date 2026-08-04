@@ -1,3 +1,6 @@
+// This test file belongs to the bounded specialist layer.
+// It verifies runner behavior and protects the related contract from regressions.
+// It runs bounded workers; final composition stays with Manager.
 package specialists
 
 import (

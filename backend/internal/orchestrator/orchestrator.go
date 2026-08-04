@@ -112,6 +112,7 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 	return turnErr
 }
 
+// emitRuntimeError converts runtime failures into the public SSE error contract.
 func emitRuntimeError(ctx context.Context, sink EventSink, err error, stage string) {
 	if sink == nil || err == nil {
 		return
@@ -119,7 +120,10 @@ func emitRuntimeError(ctx context.Context, sink EventSink, err error, stage stri
 	sink.Emit(ctx, Event{Type: "error", Data: appRuntime.RuntimeFailureEventData(ctx, err, stage)})
 }
 
-// emitTracePanels 发送产品态 process panel 和显式 debug trace。
+// emitTracePanels emits the single frontend diagnostic contract.
+//
+// RunInspection is the chat-page debugging surface. Older process/debug/tree
+// projections were removed so troubleshooting has one source of truth.
 func (o *Orchestrator) emitTracePanels(ctx context.Context, sink EventSink, turnType string) {
 	t := tracing.TraceFromContext(ctx)
 	if t == nil {
@@ -128,22 +132,10 @@ func (o *Orchestrator) emitTracePanels(ctx context.Context, sink EventSink, turn
 	if t.TurnType == "" {
 		t.TurnType = turnType
 	}
-	process := t.BuildProcessDigest()
+	inspection := t.BuildRunInspection()
 	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
-		"type":    "process-panel",
-		"payload": process,
-	}})
-	debug := t.BuildDebugDigest()
-	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
-		"type":    "debug-trace",
-		"payload": debug,
-	}})
-
-	// 统一执行链路树（与 debug-trace 共存，前端渐进升级）
-	execTree := t.BuildExecutionTree()
-	sink.Emit(ctx, Event{Type: "component", Data: map[string]any{
-		"type":    "execution-tree",
-		"payload": execTree,
+		"type":    "run-inspection",
+		"payload": inspection,
 	}})
 }
 
@@ -171,6 +163,7 @@ func (o *Orchestrator) recordTurnAndMaintainContext(ctx context.Context, st *sta
 	st.RunningSummary = summary
 }
 
+// summarizeTraceMessage keeps trace attributes compact while preserving the original prefix.
 func summarizeTraceMessage(msg string) string {
 	msg = strings.TrimSpace(msg)
 	if len(msg) <= 120 {

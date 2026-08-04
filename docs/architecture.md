@@ -93,6 +93,10 @@ flowchart TD
 5. 纯八字单域进入 authority-first graph；其他受限场景进入 specialist runner(s)。
 6. Manager compose，final guard 校验后经 SSE 输出 `thinking / tool_call / component / text / done`。
 
+Run Inspector 是聊天页内唯一排障入口：后端在每轮结束时发送 `run-inspection` component，由本地 `TurnTrace` 投影出白名单 span、诊断结论和 runtime 摘要。旧 `process-panel / debug-trace / execution-tree` 前端展示链路已下线；原始追踪仍以 `TurnTrace` 和 OTel/Langfuse 为深挖来源。
+
+全量 trace 不进入 SSE 主链。聊天页只在本地 debug 模式下通过 `GET /api/debug/traces/:trace_id` 懒加载持久化的完整 `TurnTrace`；接口仅在 `DEBUG_HTTP=1` 时注册，数据来源依赖 `DEBUG_TRACE=1` 写入 `logs/traces/`。前端 Raw Trace 默认折叠 `user_message`、`input.value`、`output.value`、prompt preview 等敏感字段，需要手动切换才显示。
+
 ## 领域执行
 
 ### 八字
@@ -116,7 +120,8 @@ flowchart TD
 - `ExecutionPlan` 明确选择 `direct`、`reuse_artifact` 或 `rerun_specialist`；preflight、renderer 和领域 graph 不再次暗判。
 - 通用术语解释可由 Manager 直接答；依赖当前命盘结构的问题必须绑定资产并走领域链。
 - cheap gate 只复用窄范围同域普通追问，必须写入 `decision_source`、`gate_reason` 等观测信号，不能成为第二套路由器。
-- 会话恢复恢复当前 session 和最近一轮展示态；`ExecutionSnapshot` 是 debug/process 投影的来源。
+- 会话恢复恢复当前 session 和最近一轮展示态；`ExecutionSnapshot` 是 `RunInspection` 根 span 运行时摘要的来源。
+- 全局 Repair Harness 的目标设计见 `docs/repair-harness-implementation-plan.md`。落地前当前主链仍以现有 `RuntimeFailure`、领域恢复和 final guard 为准；实施时不得绕过 Manager-owned runtime、`ExecutionPlan`、Prefill 或 final guard。
 
 ## 当前非目标
 

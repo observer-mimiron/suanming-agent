@@ -1,3 +1,6 @@
+// This file belongs to the Zi Wei deterministic calculation layer.
+// It owns Zi Wei chart calculation for this package.
+// It computes reproducible Zi Wei facts; it must not compose user-facing readings.
 package ziwei
 
 import (

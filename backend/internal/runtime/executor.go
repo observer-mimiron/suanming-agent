@@ -1,3 +1,7 @@
+// Package runtime contains the manager-owned execution flow.
+//
+// This file owns Executor, the runtime entrypoint that turns an approved route
+// into a compiled graph invocation and applies the final session mutations.
 package runtime
 
 import (
@@ -40,6 +44,8 @@ type Executor struct {
 	router             intent.Router                    // semantic router，供 preflight/guidance_gate 用；nil 走 regex
 }
 
+// ExecutorConfig defines runtime wiring that is stable for the Executor lifetime.
+// Router may be nil; preflight then falls back to deterministic regex guidance.
 type ExecutorConfig struct {
 	LLMModel     string
 	HistoryLimit int
@@ -69,24 +75,28 @@ func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.
 	}, nil
 }
 
-// Execute 执行已批准的路由。
+// Execute 执行已批准的路由，并返回本轮 turn type 与最终文本。
 //
 // 流程：
-//  1. 更新路由快照
-//  2. 注入 orchestrationState 到 ctx
-//  3. 调用预编译 Graph（preflight → branch → {short_circuit | prefill → agent → guard}）
+//  1. 解析资产焦点，合并 supervisor 新抽取的出生资料。
+//  2. 由 Manager 生成 ExecutionPlan，并同步 route/debug snapshot。
+//  3. 注入 graph init/runtime/result state 到 ctx。
+//  4. 调用预编译 Graph（preflight → branch → {short_circuit | prefill → agent → guard}）。
+//  5. 保存 follow-up 资产，结束 Manager 本轮状态。
 //
 // preflight / guard 的 tracing span 在对应节点 Lambda 内创建，Execute 不再直接持有。
 func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.SessionState, route policy.ApprovedRoute, message string) (turnType string, assistantText string, err error) {
-	plan := e.manager.BuildExecutionPlan(st, route, message)
-	route = plan.Route
-
-	e.syncExecutionRoute(ctx, st, route, plan)
-
-	// 将 supervisor 提取的 Profile 写入当前对象的新资料版本，支持后续轮次精确复用。
+	route = resolveArtifactFocus(st, route, message)
+	// ProfileRevision is part of the artifact owner contract. Merge supervisor
+	// extracted birth data before building the plan, otherwise prefill writes a
+	// chart under a newer owner than the ArtifactRequirement expects.
 	if len(route.Slots.Profile) > 0 {
 		st.MergeProfile(route.Slots.Profile)
 	}
+	plan := e.manager.buildExecutionPlan(st, route, message, false)
+	route = plan.Route
+
+	e.syncExecutionRoute(ctx, st, route, plan)
 
 	// 构造本轮 specialist 运行所需的 SessionValues。
 	vals := e.buildSessionValues(st, route)
@@ -113,7 +123,8 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 		return "agent_error", finalText, classifyRuntimeFailure(route.PrimaryDomain, failureStageAgent, err)
 	}
 
-	// turnType 由 guardNode / emitShortCircuitNode 写入 result 容器
+	// turnType 由 guardNode / emitShortCircuitNode 写入 result 容器。
+	// Execute 只负责把 graph 输出整理成统一的 follow-up 资产与 Manager 状态。
 	finalRoute := route
 	if result.PrimaryDomain != "" {
 		finalRoute.PrimaryDomain = result.PrimaryDomain
@@ -141,6 +152,8 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 	return result.TurnType, finalText, nil
 }
 
+// updateGuidanceState 是 guidance session mutation 的唯一入口。
+// preflight 只返回下一状态，避免 graph 节点在澄清、fallback、正常执行之间分散写 session。
 func (e *Executor) updateGuidanceState(st *state.SessionState, route policy.ApprovedRoute, message string, result preflightResult) {
 	if st == nil {
 		return
@@ -171,6 +184,8 @@ func (e *Executor) updateGuidanceState(st *state.SessionState, route policy.Appr
 	st.Guidance = nil
 }
 
+// shouldPreserveGuidanceOnExecution keeps profile-collection guidance alive
+// until the user supplies a complete profile or the route leaves profile collection.
 func shouldPreserveGuidanceOnExecution(route policy.ApprovedRoute, st *state.SessionState) bool {
 	if st == nil || st.Guidance == nil {
 		return false

@@ -1,3 +1,6 @@
+// This file belongs to the BaZi deterministic calculation layer.
+// It owns YongShen calculation for this package.
+// It computes reproducible BaZi facts; it must not generate narrative readings.
 package bazi
 
 import (

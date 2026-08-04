@@ -2,7 +2,7 @@
   <div class="assistant-turn">
     <div class="turn-header">
       <span class="turn-role">命理大师</span>
-      <span class="turn-meta" v-if="vm.process">{{ fmtMs(vm.process.digest.total_ms) }}</span>
+      <span class="turn-meta" v-if="vm.runInspection">{{ fmtMs(vm.runInspection.total_ms) }}</span>
     </div>
 
     <!-- Structured results -->
@@ -16,10 +16,10 @@
     </section>
 
     <!-- Thinking -->
-    <section v-if="thinkingEvents.length" class="turn-zone">
+    <section v-if="vm.thinkingEvents.length" class="turn-zone">
       <n-collapse>
-        <n-collapse-item :title="'🧠 思考过程 (' + thinkingEvents.length + ' 步)'">
-          <ThinkingSegment v-for="(evt, i) in thinkingEvents" :key="'think-' + i" :text="evt.preview" :agent="evt.agent || ''" />
+        <n-collapse-item :title="'🧠 思考过程 (' + vm.thinkingEvents.length + ' 步)'">
+          <ThinkingSegment v-for="(evt, i) in vm.thinkingEvents" :key="'think-' + i" :text="evt.preview" :agent="evt.agent || ''" />
         </n-collapse-item>
       </n-collapse>
     </section>
@@ -35,19 +35,18 @@
       </div>
     </section>
 
-    <!-- Trace -->
-    <section v-if="vm.process" class="turn-zone">
-      <TracePanel :digest="vm.process.digest" />
-    </section>
-
     <!-- Evidence -->
     <section v-if="vm.evidence?.length" class="turn-zone">
       <KnowledgeSourceCard :groups="vm.evidence" />
     </section>
 
-    <!-- Debug -->
-    <section v-if="vm.debugTrace || vm.debugEvents.length" class="turn-zone">
-      <DebugTracePanel :digest="vm.debugTrace" :events="[]" />
+    <!-- Run Inspector -->
+    <section v-if="vm.runInspection || vm.transportInspection" class="turn-zone">
+      <RunInspector
+        :inspection="vm.runInspection"
+        :transport="vm.transportInspection"
+        :is-loading="isLoading"
+      />
     </section>
 
     <!-- Errors -->
@@ -80,17 +79,14 @@ import ResultBlock from './ResultBlock.vue'
 import BaziChartCard from './BaziChartCard.vue'
 import QimenChart from './QimenChart.vue'
 import ZiweiChartCard from './ZiweiChartCard.vue'
-import TracePanel from './TracePanel.vue'
-import DebugTracePanel from './DebugTracePanel.vue'
 import KnowledgeSourceCard from './KnowledgeSourceCard.vue'
+import RunInspector from './RunInspector.vue'
 import ThinkingSegment from './ThinkingSegment.vue'
 import { NCollapse, NCollapseItem } from 'naive-ui'
 
 const props = defineProps<{ message: ChatMessage; isLoading?: boolean }>()
 const md = new MarkdownIt({ html: false, breaks: true, linkify: true })
 const vm = computed(() => buildAssistantTurnViewModel(props.message))
-const thinkingEvents = computed(() => vm.value.debugEvents.filter(e => e.type === 'thinking'))
-// ponytail: nonThinkingDebugEvents removed — execution tree replaces raw debug events
 const renderedAnswer = computed(() => md.render(vm.value.answerBlocks.join('\n\n')))
 const copied = ref(false)
 

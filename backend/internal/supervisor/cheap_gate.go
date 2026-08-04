@@ -1,3 +1,6 @@
+// This file belongs to the route approval layer.
+// It owns cheap follow-up gate behavior for this package.
+// It approves routes; execution contracts are built later by Manager.
 package supervisor
 
 import (

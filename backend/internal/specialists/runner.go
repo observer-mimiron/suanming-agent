@@ -1,3 +1,6 @@
+// This file belongs to the bounded specialist layer.
+// It owns runner behavior for this package.
+// It runs bounded workers; final composition stays with Manager.
 package specialists
 
 import (

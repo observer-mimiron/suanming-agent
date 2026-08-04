@@ -1,3 +1,6 @@
+// This file belongs to the manager-owned runtime layer.
+// It owns BaZi validation recovery for this package.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -213,7 +216,7 @@ func strengthEvidenceSummary(yongshen map[string]any) string {
 
 func recoverDynamicSynthesis(state baziCharterState, candidate baziDynamicSynthesis, cause error) baziDynamicSynthesis {
 	_ = normalizeDynamicSynthesis(candidate)
-	recovered := buildFactsOnlyDynamicSynthesis(state.Input, state.StaticSynthesis, recoveryReasonText(cause, "动态综合未通过；本轮只展示大运和流年事实。"))
+	recovered := buildFactsOnlyDynamicSynthesis(state.Input, state.StaticSynthesis, recoveryReasonText(cause, "动态裁断受授权边界限制；本轮只展示大运和流年事实。"))
 	recovered.FieldAudit = append(recovered.FieldAudit, "dynamic_facts_only_degraded")
 	return recovered
 }
@@ -260,7 +263,7 @@ func sanitizeDynamicConsistencyFlags(flags []string) ([]string, bool) {
 }
 
 func hasDynamicHardBoundary(text string) bool {
-	return containsUnsupportedConcreteOutcome(text)
+	return containsUnsupportedConcreteOutcome(text) || containsAnyText([]string{text}, []string{"投资", "投资建议"})
 }
 
 func appendUniqueFlag(flags []string, flag string) []string {

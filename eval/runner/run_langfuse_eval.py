@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import sys
 import time
 import uuid
@@ -31,10 +32,27 @@ EVAL_SCORE_CONFIG_TYPES = {
 class SmokeCaseFailure(RuntimeError):
     """Carry trace context for a failed case so reports and scores remain diagnosable."""
 
-    def __init__(self, message: str, session_id: str = "", trace_id: str = ""):
+    def __init__(
+        self,
+        message: str,
+        session_id: str = "",
+        trace_id: str = "",
+        response_text: str = "",
+        quality_violations: list[str] | None = None,
+    ):
         super().__init__(message)
         self.session_id = session_id
         self.trace_id = trace_id
+        self.response_text = response_text
+        self.quality_violations = quality_violations or []
+
+
+class ResponseQualityFailure(RuntimeError):
+    """Report deterministic answer-quality violations as eval failures."""
+
+    def __init__(self, violations: list[str]):
+        super().__init__("response quality check failed: " + "; ".join(violations))
+        self.violations = violations
 
 
 def parse_csv_list(values: list[str]) -> list[str]:
@@ -45,6 +63,15 @@ def parse_csv_list(values: list[str]) -> list[str]:
             if part:
                 items.append(part)
     return items
+
+
+def parse_expected_any_values(value: Any) -> list[str]:
+    """Normalize one trace-attribute allowed-value declaration."""
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if value is None:
+        return []
+    return parse_csv_list([str(value)])
 
 
 def load_dataset(dataset_path: str) -> dict[str, Any]:
@@ -63,6 +90,73 @@ def invoke_chat(server_url: str, session_id: str, message: str, timeout_seconds:
     if status != 200:
         raise RuntimeError(f"chat status = {status}")
     return body
+
+
+def decode_sse_text_data(raw: str) -> str:
+    """Decode one text SSE data payload while accepting plain text chunks."""
+    raw = raw.strip()
+    if not raw:
+        return ""
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("text", "content", "delta", "message"):
+            value = payload.get(key)
+            if isinstance(value, str):
+                return value
+        nested = payload.get("payload")
+        if isinstance(nested, dict):
+            for key in ("text", "content", "delta", "message"):
+                value = nested.get(key)
+                if isinstance(value, str):
+                    return value
+    return ""
+
+
+def extract_response_text(chat_content: str) -> str:
+    """Extract user-visible text from an SSE response, falling back to raw body."""
+    event_name = ""
+    data_lines: list[str] = []
+    chunks: list[str] = []
+    saw_sse = False
+
+    def flush_event() -> None:
+        nonlocal event_name, data_lines
+        if event_name == "text" and data_lines:
+            chunks.append(decode_sse_text_data("\n".join(data_lines)))
+        event_name = ""
+        data_lines = []
+
+    for line in chat_content.splitlines():
+        stripped = line.strip()
+        if stripped == "":
+            flush_event()
+            continue
+        if stripped.startswith("event:"):
+            saw_sse = True
+            flush_event()
+            event_name = stripped.split(":", 1)[1].strip()
+            continue
+        if stripped.startswith("data:"):
+            saw_sse = True
+            data_lines.append(stripped.split(":", 1)[1].lstrip())
+    flush_event()
+
+    text = "".join(chunks).strip()
+    if text:
+        return text
+    if saw_sse:
+        fallback_lines = [
+            line
+            for line in chat_content.splitlines()
+            if line.strip() and not line.strip().startswith(("event:", "data:"))
+        ]
+        return "\n".join(fallback_lines).strip()
+    return chat_content.strip()
 
 
 def remaining_timeout_seconds(deadline: float) -> int:
@@ -102,6 +196,8 @@ def classify_failure(error: Exception) -> str:
         return "sse"
     if "response missing" in message or "forbidden content" in message:
         return "response_contract"
+    if "response quality check failed" in message:
+        return "response_quality"
     if "route_primary mismatch" in message:
         return "route"
     if "task_intent mismatch" in message:
@@ -112,9 +208,107 @@ def classify_failure(error: Exception) -> str:
         return "observation"
     if "trace attribute mismatch" in message:
         return "trace_attribute"
-    if "http" in message or "trace not found" in message or "service.name mismatch" in message:
+    if (
+        "http" in message
+        or "trace not found" in message
+        or "service.name mismatch" in message
+        or "connection refused" in message
+        or "urlopen error" in message
+    ):
         return "transport"
     return "unknown"
+
+
+def count_occurrences(text: str, phrase: str) -> int:
+    """Count non-overlapping occurrences of a configured phrase."""
+    phrase = str(phrase).strip()
+    if not phrase:
+        return 0
+    return text.count(phrase)
+
+
+def first_conclusion_in_section(text: str, heading: str) -> str:
+    """Return the first bold conclusion in one markdown section."""
+    section = markdown_section(text, heading)
+    match = re.search(r"\*\*结论：(.+?)\*\*", section, flags=re.S)
+    if not match:
+        return ""
+    return re.sub(r"\s+", " ", match.group(1)).strip()
+
+
+def markdown_section(text: str, heading: str) -> str:
+    """Return one markdown section body by its level-two heading."""
+    section_start = text.find(f"## {heading}")
+    if section_start < 0:
+        return text
+    next_start = text.find("\n## ", section_start + len(heading) + 3)
+    return text[section_start:] if next_start < 0 else text[section_start:next_start]
+
+
+def count_section_line_prefix(text: str, section: str, prefix: str) -> int:
+    """Count lines with a prefix inside one markdown section."""
+    section_text = markdown_section(text, section)
+    return sum(1 for line in section_text.splitlines() if line.startswith(prefix))
+
+
+def validate_response_quality(case: dict[str, Any], response_text: str) -> list[str]:
+    """Run deterministic answer-quality checks declared by one dataset case."""
+    checks = case.get("response_quality_checks") or {}
+    violations: list[str] = []
+
+    forbidden_terms = list(case.get("response_must_not_contain_any") or [])
+    forbidden_terms.extend(checks.get("must_not_contain_any") or [])
+    for forbidden in forbidden_terms:
+        forbidden = str(forbidden).strip()
+        if forbidden and forbidden in response_text:
+            violations.append(f"quality forbidden content: {forbidden}")
+
+    for phrase, max_allowed_raw in (checks.get("max_phrase_occurrences") or {}).items():
+        phrase = str(phrase)
+        max_allowed = int(max_allowed_raw)
+        actual = count_occurrences(response_text, phrase)
+        if actual > max_allowed:
+            violations.append(f"phrase {phrase!r} occurs {actual} times > {max_allowed}")
+
+    grouped_checks = checks.get("max_total_phrase_occurrences") or []
+    if isinstance(grouped_checks, dict):
+        grouped_checks = [grouped_checks]
+    for grouped in grouped_checks:
+        phrases = [str(item) for item in grouped.get("phrases") or []]
+        max_allowed = int(grouped.get("max", 0))
+        label = str(grouped.get("label") or "grouped phrases")
+        total = sum(count_occurrences(response_text, phrase) for phrase in phrases)
+        if total > max_allowed:
+            violations.append(f"{label} occurs {total} times > {max_allowed}")
+
+    if "max_overview_conclusion_semicolons" in checks:
+        max_allowed = int(checks["max_overview_conclusion_semicolons"])
+        conclusion = first_conclusion_in_section(response_text, "总览结论")
+        actual = conclusion.count("；") + conclusion.count(";")
+        if actual > max_allowed:
+            violations.append(f"overview conclusion has {actual} semicolons > {max_allowed}")
+
+    if "max_overview_conclusion_chars" in checks:
+        max_allowed = int(checks["max_overview_conclusion_chars"])
+        conclusion = first_conclusion_in_section(response_text, "总览结论")
+        actual = len(conclusion)
+        if actual > max_allowed:
+            violations.append(f"overview conclusion has {actual} chars > {max_allowed}")
+
+    section_heading_checks = checks.get("max_heading_occurrences_in_section") or []
+    if isinstance(section_heading_checks, dict):
+        section_heading_checks = [section_heading_checks]
+    for check in section_heading_checks:
+        section = str(check.get("section") or "").strip()
+        prefix = str(check.get("heading_prefix") or "").strip()
+        max_allowed = int(check.get("max", 0))
+        if not section or not prefix:
+            continue
+        actual = count_section_line_prefix(response_text, section, prefix)
+        if actual > max_allowed:
+            violations.append(f"{section} section has {actual} {prefix!r} headings > {max_allowed}")
+
+    return violations
 
 
 def write_case_scores(langfuse_url, headers, trace_id, score_config_ids, passed, error=None):
@@ -181,6 +375,7 @@ def smoke_case(
     max_polls: int,
     write_scores: bool,
     score_config_ids: dict[str, str] | None = None,
+    include_response: bool = False,
 ) -> dict[str, Any]:
     session_base = str(case.get("session_id") or f"eval-{case['id']}")
     session_id = unique_case_session_id(session_base)
@@ -224,6 +419,8 @@ def smoke_case(
     required_observations = parse_csv_list(list(case.get("required_observations") or ["preflight", "sse_emit"]))
     trace_id = ""
     trace_detail: dict[str, Any] = {}
+    response_text = extract_response_text(chat_content)
+    quality_violations: list[str] = []
     route_primary = ""
     task_intent = ""
     turn_type = ""
@@ -244,16 +441,19 @@ def smoke_case(
             raise RuntimeError("missing SSE done event")
 
         response_must_contain = str(case.get("response_must_contain") or "").strip()
-        if response_must_contain and response_must_contain not in chat_content:
+        if response_must_contain and response_must_contain not in response_text:
             raise RuntimeError(f"response missing expected content: {response_must_contain}")
         for expected in case.get("response_must_contain_all") or []:
             expected = str(expected).strip()
-            if expected and expected not in chat_content:
+            if expected and expected not in response_text:
                 raise RuntimeError(f"response missing expected content: {expected}")
         for forbidden in case.get("response_must_not_contain") or []:
             forbidden = str(forbidden).strip()
-            if forbidden and forbidden in chat_content:
+            if forbidden and forbidden in response_text:
                 raise RuntimeError(f"response contains forbidden content: {forbidden}")
+        quality_violations = validate_response_quality(case, response_text)
+        if quality_violations:
+            raise ResponseQualityFailure(quality_violations)
 
         while time.monotonic() < deadline:
             trace_detail = get_trace_detail(langfuse_url, headers, trace_id)
@@ -296,12 +496,19 @@ def smoke_case(
             if str(actual) != str(expected):
                 raise RuntimeError(f"trace attribute mismatch for {key}: {actual!r} != {expected!r}")
 
+        expected_trace_attribute_any = case.get("expected_trace_attribute_any") or {}
+        for key, allowed_raw in expected_trace_attribute_any.items():
+            allowed = parse_expected_any_values(allowed_raw)
+            actual = get_trace_field(trace_detail, str(key))
+            if allowed and str(actual) not in allowed:
+                raise RuntimeError(f"trace attribute mismatch for {key}: {actual!r} not in {allowed!r}")
+
         if write_scores:
             if not score_config_ids:
                 raise RuntimeError("missing resolved Langfuse ScoreConfig ids")
             write_case_scores(langfuse_url, headers, trace_id, score_config_ids, passed=True)
 
-        return {
+        result = {
             "id": str(case["id"]),
             "passed": True,
             "session_id": session_id,
@@ -313,15 +520,31 @@ def smoke_case(
             "trace_attributes": {
                 str(key): get_trace_field(trace_detail, str(key))
                 for key in expected_trace_attributes
+            }
+            | {
+                str(key): get_trace_field(trace_detail, str(key))
+                for key in expected_trace_attribute_any
             },
+            "quality_violations": [],
         }
+        if include_response or case.get("include_response") or case.get("store_response"):
+            result["response_text"] = response_text
+        return result
     except Exception as exc:
         if write_scores and score_config_ids:
             write_case_scores(langfuse_url, headers, trace_id, score_config_ids, passed=False, error=exc)
-        raise SmokeCaseFailure(str(exc), session_id=session_id, trace_id=trace_id) from exc
+        if isinstance(exc, ResponseQualityFailure):
+            quality_violations = exc.violations
+        raise SmokeCaseFailure(
+            str(exc),
+            session_id=session_id,
+            trace_id=trace_id,
+            response_text=response_text,
+            quality_violations=quality_violations,
+        ) from exc
 
 
-def failed_case_result(case_id: str, error: Exception) -> dict[str, Any]:
+def failed_case_result(case_id: str, error: Exception, include_response: bool = False) -> dict[str, Any]:
     """Build a report row for failures, preserving trace context when available."""
     result = {"id": case_id, "passed": False, "error": str(error)}
     if isinstance(error, SmokeCaseFailure):
@@ -330,7 +553,22 @@ def failed_case_result(case_id: str, error: Exception) -> dict[str, Any]:
         if error.trace_id:
             result["trace_id"] = error.trace_id
             result["failure_class"] = classify_failure(error)
+        if error.quality_violations:
+            result["quality_violations"] = error.quality_violations
+        if include_response and error.response_text:
+            result["response_text"] = error.response_text
     return result
+
+
+def failure_class_counts(results: list[dict[str, Any]]) -> dict[str, int]:
+    """Aggregate stable failure classes for repeated-case reports."""
+    counts: dict[str, int] = {}
+    for result in results:
+        if result.get("passed"):
+            continue
+        failure_class = str(result.get("failure_class") or classify_failure(RuntimeError(str(result.get("error") or ""))))
+        counts[failure_class] = counts.get(failure_class, 0) + 1
+    return counts
 
 
 def main() -> int:
@@ -343,7 +581,11 @@ def main() -> int:
     parser.add_argument("--poll-interval-seconds", type=int, default=3)
     parser.add_argument("--max-polls", type=int, default=20)
     parser.add_argument("--write-scores", action="store_true")
+    parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument("--include-response", action="store_true", help="Store extracted assistant text in the JSON report")
     args = parser.parse_args()
+    if args.repeats <= 0:
+        raise SystemExit("--repeats must be positive")
 
     payload = load_dataset(args.dataset_path)
     env_map = load_env_map()
@@ -352,26 +594,37 @@ def main() -> int:
 
     results: list[dict[str, Any]] = []
     for case in payload["cases"]:
-        try:
-            result = smoke_case(
-                case=case,
-                server_url=args.server_url,
-                langfuse_url=args.langfuse_url,
-                headers=headers,
-                timeout_seconds=args.timeout_seconds,
-                poll_interval_seconds=args.poll_interval_seconds,
-                max_polls=args.max_polls,
-                write_scores=args.write_scores,
-                score_config_ids=score_config_ids,
-            )
-            results.append(result)
-        except Exception as exc:  # noqa: BLE001
-            results.append(failed_case_result(str(case["id"]), exc))
+        for repeat in range(1, args.repeats + 1):
+            try:
+                result = smoke_case(
+                    case=case,
+                    server_url=args.server_url,
+                    langfuse_url=args.langfuse_url,
+                    headers=headers,
+                    timeout_seconds=args.timeout_seconds,
+                    poll_interval_seconds=args.poll_interval_seconds,
+                    max_polls=args.max_polls,
+                    write_scores=args.write_scores,
+                    score_config_ids=score_config_ids,
+                    include_response=args.include_response,
+                )
+                result["repeat"] = repeat
+                results.append(result)
+            except Exception as exc:  # noqa: BLE001
+                result = failed_case_result(str(case["id"]), exc, include_response=args.include_response)
+                result["repeat"] = repeat
+                results.append(result)
 
+    passed = sum(1 for item in results if item["passed"])
+    failed = sum(1 for item in results if not item["passed"])
+    total = passed + failed
     summary = {
         "dataset": str(payload["name"]),
-        "passed": sum(1 for item in results if item["passed"]),
-        "failed": sum(1 for item in results if not item["passed"]),
+        "repeats": args.repeats,
+        "passed": passed,
+        "failed": failed,
+        "pass_rate": 0 if total == 0 else passed / total,
+        "failure_classes": failure_class_counts(results),
         "results": results,
     }
 

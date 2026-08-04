@@ -1,3 +1,6 @@
+// This file belongs to the Zi Wei deterministic calculation layer.
+// It owns Zi Wei constants for this package.
+// It computes reproducible Zi Wei facts; it must not compose user-facing readings.
 package ziwei
 
 // 五行局枚举。紫微斗数以命宫干支纳音定五行局，五行局决定起运年龄和部分神煞的起始位置。

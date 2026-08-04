@@ -1,3 +1,7 @@
+// Package runtime contains the manager-owned execution flow.
+//
+// This file owns Manager decisions: route reconciliation, execution plan
+// construction, follow-up policy, and final cross-specialist composition.
 package runtime
 
 import (
@@ -14,7 +18,8 @@ import (
 )
 
 // Manager 是 runtime 中唯一的用户对话 owner。
-// 当前阶段先提供最终回复组合能力，后续再接入 structured specialist result 主链。
+// 它负责把批准路由落到当前对象、资产合同和最终回复；领域 worker 只产出受限结果，
+// 不能绕过 Manager 直接拥有最终答复权。
 type Manager struct {
 	flash llm.Chat
 }
@@ -27,6 +32,7 @@ func NewManager(flash llm.Chat) *Manager {
 // ReconcileRoute applies session-aware deterministic rewrites that should live with
 // the conversation owner instead of the outer route advisor.
 func (m *Manager) ReconcileRoute(st *state.SessionState, route policy.ApprovedRoute, message string) policy.ApprovedRoute {
+	route = dropImplicitZiweiSupplement(route, message)
 	if st == nil {
 		return route
 	}
@@ -54,9 +60,46 @@ func (m *Manager) ReconcileRoute(st *state.SessionState, route policy.ApprovedRo
 	return route
 }
 
+// dropImplicitZiweiSupplement prevents route-model enthusiasm from expanding a
+// plain BaZi birth-data turn into cross-domain synthesis. ZiWei remains available
+// when the user explicitly names it; the runtime should not infer it merely
+// because another chart could also be calculated from the same profile.
+func dropImplicitZiweiSupplement(route policy.ApprovedRoute, message string) policy.ApprovedRoute {
+	if route.PrimaryDomain != "bazi" || intent.MentionsZiweiMethod(message) {
+		return route
+	}
+	if !intent.ContainsBirthInfo(message) && route.TaskIntent != "collect_profile" && route.TaskIntent != "amend_profile" && route.TaskIntent != "direct_bazi" {
+		return route
+	}
+	route.SecondaryDomains = removeExecutionDomain(route.SecondaryDomains, "ziwei")
+	route.Gate.AllowedDomains = removeExecutionDomain(route.Gate.AllowedDomains, "ziwei")
+	return route
+}
+
+// removeExecutionDomain removes one domain from a route list while preserving order.
+func removeExecutionDomain(domains []string, target string) []string {
+	out := domains[:0]
+	for _, domain := range domains {
+		if strings.TrimSpace(domain) == target {
+			continue
+		}
+		out = append(out, domain)
+	}
+	return out
+}
+
 // BuildExecutionPlan converts an approved route into a manager-owned execution plan.
 func (m *Manager) BuildExecutionPlan(st *state.SessionState, route policy.ApprovedRoute, message string) ExecutionPlan {
-	route = resolveArtifactFocus(st, route, message)
+	return m.buildExecutionPlan(st, route, message, true)
+}
+
+// buildExecutionPlan converts an approved route into an execution plan. The
+// focus switch can be skipped when the caller has already resolved it before
+// mutating profile state; this keeps qimen case creation single-owned.
+func (m *Manager) buildExecutionPlan(st *state.SessionState, route policy.ApprovedRoute, message string, resolveFocus bool) ExecutionPlan {
+	if resolveFocus {
+		route = resolveArtifactFocus(st, route, message)
+	}
 	route = m.ReconcileRoute(st, route, message)
 	domains := selectDomains(route)
 	requirements := selectArtifactRequirements(st, domains)
@@ -136,6 +179,9 @@ func (m *Manager) ComposeFinalReply(userMessage string, result specialists.Resul
 	return fmt.Sprintf("基于当前问题“%s”，结合 %s 专家结果，%s", userMessage, result.Domain, brief)
 }
 
+// shouldUseManagerSynthesis decides when a fast model pass is worth using for final composition.
+// Single-domain plain summaries pass through unchanged; multi-domain or manager-briefed
+// results need synthesis so the user gets one answer instead of stitched worker text.
 func shouldUseManagerSynthesis(m *Manager, result specialists.Result) bool {
 	if m == nil || m.flash == nil {
 		return false
@@ -146,6 +192,8 @@ func shouldUseManagerSynthesis(m *Manager, result specialists.Result) bool {
 	return strings.TrimSpace(result.ManagerBrief) != ""
 }
 
+// synthesizeFinalReply asks the fast model to compress specialist outputs into the final answer.
+// It is best-effort: on empty input or model failure, ComposeFinalReply falls back to deterministic text.
 func (m *Manager) synthesizeFinalReply(userMessage string, result specialists.Result) string {
 	if m == nil || m.flash == nil {
 		return ""
@@ -179,6 +227,7 @@ func (m *Manager) synthesizeFinalReply(userMessage string, result specialists.Re
 	return strings.TrimSpace(reply)
 }
 
+// waitingOnForTurnType maps terminal turn types to the Manager's next expected user action.
 func waitingOnForTurnType(turnType string) string {
 	switch turnType {
 	case "clarification", "ask_missing_profile":
@@ -200,6 +249,7 @@ func domainContextFor(st *state.SessionState, domain string) *state.DomainContex
 	}
 }
 
+// firstNonEmpty returns the first non-empty value in order.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {

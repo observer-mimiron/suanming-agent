@@ -1,3 +1,6 @@
+// This test file belongs to the Zi Wei deterministic calculation layer.
+// It verifies Zi Wei integration behavior and protects the related contract from regressions.
+// It computes reproducible Zi Wei facts; it must not compose user-facing readings.
 package ziwei
 
 import (

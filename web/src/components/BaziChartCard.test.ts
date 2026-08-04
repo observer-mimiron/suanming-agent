@@ -25,10 +25,38 @@ describe('BaziChartCard', () => {
       },
     })
 
-    const headerText = wrapper.find('.bz-header').text().replace(/\s+/g, ' ').trim()
-    expect(headerText).toContain('日主 甲（木）')
+    const headerText = wrapper.find('.bz-hero').text().replace(/\s+/g, ' ').trim()
+    expect(headerText).toContain('日主 甲 · 木')
     expect(headerText).toContain('四柱 乙巳 · 丁亥 · 甲申 · 甲子')
     expect(headerText).toContain('农历 乙巳年丁亥月癸未日')
+  })
+
+  it('marks heavenly-stem and earthly-branch ten-god labels inline', () => {
+    const wrapper = mount(BaziChartCard, {
+      props: {
+        data: {
+          dayGan: '甲',
+          dayGanWuxing: '木',
+          pillars: [
+            {
+              name: '年柱',
+              stem: '戊',
+              branch: '辰',
+              shiShen: '偏财',
+              naYin: '大林木',
+              hideGan: ['戊', '乙', '癸'],
+              subShiShen: ['偏财', '劫财', '正印'],
+            },
+          ],
+        },
+      },
+    })
+
+    const marks = wrapper.findAll('.bz-god-mark').map((item) => item.text())
+    expect(marks).toEqual(['偏财', '偏财'])
+    expect(wrapper.find('.branch-main').text()).toBe('偏财')
+    const hiddenPairs = wrapper.findAll('.bz-hidden-pair').map((item) => item.text())
+    expect(hiddenPairs).toEqual(['戊偏财', '乙劫财', '癸正印'])
   })
 
   it('copies formatted markdown with geju information and shows copied feedback', async () => {

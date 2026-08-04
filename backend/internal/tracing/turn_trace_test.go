@@ -1,3 +1,6 @@
+// This test file belongs to the trace projection layer.
+// It verifies turn trace behavior and protects the related contract from regressions.
+// It projects runtime evidence; it must not change execution decisions.
 package tracing
 
 import (
@@ -161,10 +164,10 @@ func TestRealTracer_NoCollectorStillProvidesTrace(t *testing.T) {
 		t.Errorf("spans = %d, want at least 2 (root + child)", len(tr.Spans))
 	}
 
-	// Digest must be buildable
-	digest := tr.BuildProcessDigest()
-	if digest.TraceID == "" {
-		t.Error("digest has empty trace_id")
+	// RunInspection must be buildable even without a collector.
+	inspection := tr.BuildRunInspection()
+	if inspection.TraceID == "" {
+		t.Error("inspection has empty trace_id")
 	}
 }
 

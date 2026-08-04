@@ -1,3 +1,6 @@
+// This test file belongs to the manager-owned runtime layer.
+// It verifies BaZi eval fixture loading and protects the related contract from regressions.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (

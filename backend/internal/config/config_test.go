@@ -1,3 +1,6 @@
+// This test file belongs to the configuration layer.
+// It verifies configuration loading behavior and protects the related contract from regressions.
+// It parses environment input; runtime code should consume typed config, not raw env.
 package config
 
 import (

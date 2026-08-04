@@ -1,3 +1,6 @@
+// This file belongs to the manager-owned runtime layer.
+// It owns BaZi profile synthesis behavior for this package.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -97,11 +100,11 @@ func buildFactsOnlyDynamicSynthesis(input baziCharterInput, static baziStaticSyn
 		}
 	}
 	liunianLine := buildLiunianFactLine(input, liunian, liunianRelations)
-	recoveryReason := firstNonEmptyTrim(reason, "模型动态综合不可用；本轮只展示大运与流年事实。")
+	recoveryReason := firstNonEmptyTrim(reason, "动态裁断受授权边界限制；本轮只展示大运与流年事实。")
 	out := baziDynamicSynthesis{
 		Source:            baziSynthesisSourceFactsOnlyDegraded,
 		RecoveryReason:    recoveryReason,
-		CurrentTrend:      "动态综合未通过，本轮不输出大运趋势或吉凶裁断。",
+		CurrentTrend:      "受授权边界限制，本轮只展示可复算大运事实，不判吉凶趋势。",
 		ClaimStrength:     "保守判断",
 		SupportLevel:      "出现",
 		LimitationLevel:   "明显",
@@ -109,12 +112,12 @@ func buildFactsOnlyDynamicSynthesis(input baziCharterInput, static baziStaticSyn
 		ConsistencyFlags:  []string{dynamicFlagStructureOnly},
 		DayunPath:         dayunLines,
 		CurrentDayunIndex: currentDayunIndex,
-		LiunianFocus:      "流年综合未通过，本轮不输出流年应期裁断。",
+		LiunianFocus:      "流年只展示干支、十神和已计算关系，不展开现实应事。",
 		WindowLevel:       "仅事实",
 		TriggerSignals:    append(dayunRelations, liunianRelations...),
-		KeyWindows:        []string{"动态综合未通过，本轮不输出窗口期。"},
-		Risks:             []string{"动态综合未通过，本轮不输出风险判断。"},
-		ReasoningSummary:  "动态综合未通过；runtime 只格式化大运干支、十神、日期边界和已计算关系。",
+		KeyWindows:        []string{"只保留大运、流年边界和关系事实。"},
+		Risks:             []string{"本轮不输出风险判断。"},
+		ReasoningSummary:  "只格式化大运干支、十神、日期边界和已计算关系；不生成趋势或应事。",
 		ReasoningSteps: []string{
 			"静态来源：" + firstNonEmptyTrim(static.Source, "unknown"),
 			"当前大运事实：" + periodHeadline(currentDayunLine),

@@ -1,3 +1,6 @@
+// This test file belongs to the manager-owned runtime layer.
+// It verifies BaZi profile synthesis behavior and protects the related contract from regressions.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -77,7 +80,7 @@ func TestProfileDynamicSynthesis_FactsOnlyRendersDeclaredFacts(t *testing.T) {
 			t.Fatalf("facts-only dynamic output missing %q:\n%s", want, all)
 		}
 	}
-	for _, forbidden := range []string{"结构承接", "承托与压力", "**解读**", "大吉", "官非", "破财", "倾向有利"} {
+	for _, forbidden := range []string{"结构承接", "承托与压力", "**解读**", "大吉", "官非", "破财", "倾向有利", "动态综合未通过", "runtime", "模型动态综合不可用"} {
 		if strings.Contains(all, forbidden) {
 			t.Fatalf("facts-only dynamic output leaked synthesized wording %q:\n%s", forbidden, all)
 		}

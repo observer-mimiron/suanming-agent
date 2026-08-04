@@ -3,46 +3,48 @@ import { buildAssistantTurnViewModel } from './assistantTurn'
 import type { ChatMessage } from '../types/chat'
 
 describe('buildAssistantTurnViewModel', () => {
-  it('merges debug-trace and execution-tree runtime payloads', () => {
+  it('extracts route-decision, run-inspection, thinking, and transport inspection', () => {
     const message: ChatMessage = {
       id: 'assistant-1',
       role: 'assistant',
+      transportInspection: {
+        doneReceived: true,
+        componentTypesReceived: ['run-inspection'],
+        parseWarnings: [],
+      },
       segments: [
         {
-          type: 'component',
-          componentType: 'debug-trace',
-          payload: {
-            trace_id: 't1',
-            status: 'ok',
-            total_ms: 12,
-            runtime: { primary_domain: 'bazi', decision_source: 'cheap_followup_reuse', gate_reason: 'cheap_followup_reuse' },
-            steps: [],
-          },
+          type: 'thinking',
+          agent: 'bazi_graph',
+          text: '正在核对静态合同。',
         },
         {
           type: 'component',
-          componentType: 'execution-tree',
+          componentType: 'route-decision',
+          payload: { primary_domain: 'bazi' },
+        },
+        {
+          type: 'component',
+          componentType: 'run-inspection',
           payload: {
-            trace_id: 't1',
-            turn_type: 'agent_reading',
+            trace_id: 'trc_1',
+            session_id: 'sess_1',
             status: 'ok',
-            total_ms: 12,
-            runtime: { task_intent: 'direct_bazi' },
-            root: {
-              label: 'chat.turn',
-              kind: 'AGENT',
-              status: 'ok',
-              ms: 12,
-              children: [],
-            },
+            turn_type: 'agent_reading',
+            total_ms: 10,
+            summary: { inspection_text: '本轮运行未发现确定性异常。' },
+            diagnostics: [],
+            spans: [],
           },
         },
       ],
     }
 
     const vm = buildAssistantTurnViewModel(message)
-    expect(vm.debugTrace?.runtime?.task_intent).toBe('direct_bazi')
-    expect(vm.debugTrace?.runtime?.decision_source).toBe('cheap_followup_reuse')
-    expect(vm.debugTrace?.root?.label).toBe('chat.turn')
+    expect(vm.routeDecision).toEqual({ primary_domain: 'bazi' })
+    expect(vm.runInspection?.trace_id).toBe('trc_1')
+    expect(vm.transportInspection?.doneReceived).toBe(true)
+    expect(vm.thinkingEvents[0]?.preview).toBe('正在核对静态合同。')
   })
+
 })

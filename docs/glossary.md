@@ -424,7 +424,7 @@
 
 ### TurnTrace · 轮次追踪（原始包络）
 
-**是什么**：一次对话轮次的完整链路追踪记录。本地 `logs/traces/` 的唯一落盘 envelope，是 ProcessDigest / DebugTraceDigest 的共同事实来源。
+**是什么**：一次对话轮次的完整链路追踪记录。本地 `logs/traces/` 的唯一落盘 envelope，也是 RunInspection 的事实来源。
 
 **定义位置**：[internal/tracing/turn_trace.go](../internal/tracing/turn_trace.go)
 
@@ -440,27 +440,11 @@
 
 ---
 
-### ProcessDigest · 产品过程摘要
+### RunInspection · 单轮运行诊断
 
-**是什么**：TurnTrace 的用户可读投影。驱动前端 TracePanel 的「处理过程」主卡，只展示用户可读的阶段摘要，不暴露 raw span。
+**是什么**：TurnTrace 面向聊天页的白名单排障投影。它承载 trace_id、runtime 摘要、确定性诊断、span tree 和 span detail，帮助定位路由、资料、检索、领域 Agent、合同护栏或 SSE 传输问题。
 
-**定义位置**：[internal/tracing/process_digest.go](../internal/tracing/process_digest.go)
-
----
-
-### DebugTraceDigest · 调试追踪摘要
-
-**是什么**：TurnTrace 的调试投影。驱动前端 debug drawer，承载原始 span、状态、耗时与 meta，供排障使用。
-
-**定义位置**：[internal/tracing/debug_digest.go](../internal/tracing/debug_digest.go)
-
----
-
-### ExecutionTree · 执行链路树
-
-**是什么**：按语义阶段分组的 span 树。将 TurnTrace 的扁平 span 列表按 supervisor_decision → policy_gate → preflight → prefill → specialist_run → contract_gate → sse_emit 等阶段重新组织。
-
-**定义位置**：[internal/tracing/execution_tree.go](../internal/tracing/execution_tree.go)
+**定义位置**：[internal/tracing/run_inspection.go](../internal/tracing/run_inspection.go)
 
 ---
 
@@ -529,15 +513,15 @@
 
 ---
 
-### TracePanel · 处理过程面板
+### RunInspector · 单轮执行诊断台
 
-**是什么**：前端主视图的「处理过程」主卡。由 ProcessDigest 驱动，展示用户可读的阶段摘要。
+**是什么**：前端主视图的排障面板。由 RunInspection + 前端 transport inspection 驱动，展示首要诊断、agent 链路概览、span tree、span detail 和复制诊断 JSON。本地 debug 模式下可按 trace_id 懒加载 Raw Trace，查看完整 TurnTrace。
 
 ---
 
-### Debug Drawer · 调试抽屉
+### Raw Trace · 全量追踪 JSON
 
-**是什么**：前端侧边栏调试面板。由 DebugTraceDigest + SSE thinking/tool_call 事件驱动，展示原始 span、耗时、meta 等排障信息。
+**是什么**：RunInspector 内的懒加载调试视图。它通过 `GET /api/debug/traces/:trace_id` 读取 `logs/traces/` 中持久化的完整 TurnTrace；默认折叠用户原文、prompt preview、模型完整输出等敏感字段。
 
 ---
 
@@ -663,8 +647,7 @@ flowchart TD
     CG --> SSE["SSE → 前端"]
 
     EX --> TT["TurnTrace<br/>raw envelope"]
-    TT --> PD["ProcessDigest"]
-    TT --> DD["DebugTraceDigest"]
+    TT --> RI["RunInspection"]
     TT --> OT["OTel 标准层"]
 \`\`\`
 
@@ -701,13 +684,11 @@ flowchart TD
 | 路由标准化 | NormalizeApprovedRoute |
 | 轮次追踪 | TurnTrace |
 | 追踪子段 | TraceSpan |
-| 产品过程摘要 | ProcessDigest |
-| 调试追踪摘要 | DebugTraceDigest |
-| 执行链路树 | ExecutionTree |
+| 单轮运行诊断 | RunInspection |
+| 全量追踪 JSON | Raw Trace |
 | 服务端推送事件 | SSE |
 | 事件推送 | EventSink |
-| 处理过程面板 | TracePanel |
-| 调试抽屉 | Debug Drawer |
+| 单轮执行诊断台 | RunInspector |
 | Eino 回调 | Eino Callback |
 | 智能检索增强生成 | Agentic RAG |
 | 检索增强生成 | RAG |

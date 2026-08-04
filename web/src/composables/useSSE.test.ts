@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useSSE } from "./useSSE";
+import { createSSEChunkParser, useSSE } from "./useSSE";
 
 describe("useSSE", () => {
   beforeEach(() => {
@@ -53,5 +53,45 @@ describe("useSSE", () => {
         value: originalCrypto,
       });
     }
+  });
+
+  it("parses event and data split across chunks", () => {
+    const events: Array<{ event: string; data: any }> = [];
+    const warnings: string[] = [];
+    const parser = createSSEChunkParser(
+      (evt) => events.push(evt),
+      (warning) => warnings.push(warning),
+    );
+
+    parser.push('event: comp');
+    parser.push('onent\ndata: {"type":"run-inspection","payload":{"trace_id":"t1"}}\n');
+    parser.push('event: done\n');
+    parser.push('data: {}');
+    parser.finish();
+
+    expect(events).toEqual([
+      {
+        event: "component",
+        data: { type: "run-inspection", payload: { trace_id: "t1" } },
+      },
+      { event: "done", data: {} },
+    ]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("records parse warnings instead of silently swallowing invalid data", () => {
+    const events: Array<{ event: string; data: any }> = [];
+    const warnings: string[] = [];
+    const parser = createSSEChunkParser(
+      (evt) => events.push(evt),
+      (warning) => warnings.push(warning),
+    );
+
+    parser.push("event: component\n");
+    parser.push("data: {bad json}\n");
+
+    expect(events).toEqual([]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("无法解析 SSE component 数据");
   });
 });

@@ -1,3 +1,6 @@
+// This file belongs to the Zi Wei deterministic calculation layer.
+// It owns Zi Wei major-star placement for this package.
+// It computes reproducible Zi Wei facts; it must not compose user-facing readings.
 package ziwei
 
 // GetMajorStar 安主星（紫微星系 + 天府星系共14主星）。主星分布决定命盘的基本格局。

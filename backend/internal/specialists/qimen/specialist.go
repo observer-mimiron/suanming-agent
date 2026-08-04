@@ -1,3 +1,6 @@
+// This file belongs to the Qi Men specialist layer.
+// It owns domain specialist configuration for this package.
+// It configures Qi Men worker behavior; chart construction stays deterministic.
 package qimen
 
 import (

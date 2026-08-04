@@ -1,3 +1,6 @@
+// This test file belongs to the manager-owned runtime layer.
+// It verifies execution plan runner behavior and protects the related contract from regressions.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -194,7 +197,7 @@ func TestExecutor_RunExecutionPlan_ProvidesSharedEventSinkWithoutLegacyDeps(t *t
 
 	executor := &Executor{specialistRegistry: registry}
 	st := state.NewSession("s-sink")
-	st.BaziResult = map[string]any{"calendar_rule_version": "zi_zheng_v1"}
+	st.BaziResult = map[string]any{"calendar_rule_version": currentBaziCalendarRule()}
 	plan := ExecutionPlan{
 		Route:   policy.ApprovedRoute{PrimaryDomain: "bazi"},
 		Domains: []string{"bazi"},
@@ -214,7 +217,7 @@ func TestStoreFollowupArtifact_PersistsSingleDomainInterpretation(t *testing.T) 
 	st.MergeProfile(map[string]any{
 		"year": 1991.0, "month": 5.0, "day": 20.0, "hour": 8.0, "gender": "男",
 	})
-	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": "zi_zheng_v1"}, "test")
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": currentBaziCalendarRule()}, "test")
 	result := specialists.Result{
 		Domain:          "bazi",
 		DirectAnswer:    "整体以稳步推进为主。",

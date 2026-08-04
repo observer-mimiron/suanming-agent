@@ -1,3 +1,6 @@
+// This file belongs to the BaZi specialist layer.
+// It owns domain specialist configuration for this package.
+// It configures BaZi worker behavior; deterministic chart facts stay in tools/runtime.
 package bazi
 
 import (

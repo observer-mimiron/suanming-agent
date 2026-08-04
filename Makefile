@@ -4,7 +4,7 @@ SHELL := /bin/bash
         langfuse-start langfuse-stop langfuse-status langfuse-restart \
         knowledge-start knowledge-stop knowledge-status knowledge-restart \
         backend-start backend-stop backend-restart \
-        regression eval-smoke eval-suite eval-bazi-quality cheap-gate-report \
+        regression eval-smoke eval-suite eval-bazi-quality eval-bazi-stability eval-bazi-answer-quality cheap-gate-report \
         frontend-start frontend-stop frontend-status frontend-restart restart restart-core status \
         clean clean-logs clean-sessions
 
@@ -109,6 +109,12 @@ eval-suite:
 
 eval-bazi-quality:
 	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-quality-v1.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-quality-v1.json
+
+eval-bazi-stability:
+	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-stability-v1.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-stability-v1.json --repeats 10
+
+eval-bazi-answer-quality:
+	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-answer-quality-v1.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-answer-quality-v1.json --include-response
 
 cheap-gate-report:
 	@bash eval/runner/build-cheap-gate-report.sh

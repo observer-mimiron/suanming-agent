@@ -1,3 +1,6 @@
+// This test file belongs to the manager-owned runtime layer.
+// It verifies BaZi assertion-contract validation and protects the related contract from regressions.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -230,6 +233,68 @@ func TestValidateBaziContractAuditRejectsNonCompliantReview(t *testing.T) {
 		Compliant: false,
 		Findings:  []baziContractAuditFinding{{Code: "age_scope", Field: "dayun_judgments[0]", Reason: "unauthorized domain"}},
 	}), baziViolationSemanticContract)
+}
+
+func TestValidateBaziContractAuditPreservesFindingClassification(t *testing.T) {
+	err := validateBaziContractAudit("dynamic", baziContractAudit{
+		Compliant: false,
+		Findings: []baziContractAuditFinding{{
+			Code:           "outcome_domain_mismatch",
+			Field:          "dynamic.dayun_judgments[0].interpretation",
+			DetectedDomain: "finance",
+			Reason:         "未授权财务领域",
+		}},
+	})
+	assertBaziViolationCode(t, err, baziViolationSemanticContract)
+	failure, ok := baziContractFailureFromError("dynamic_synthesis", err)
+	if !ok {
+		t.Fatalf("expected classified contract failure, got %v", err)
+	}
+	if failure.FindingCode != "outcome_domain_mismatch" || failure.Field != "dynamic.dayun_judgments[0].interpretation" {
+		t.Fatalf("finding metadata not preserved: %+v", failure)
+	}
+	if failure.Class != baziContractFailureDomainUnauthorized || failure.RecoveryPolicy != baziRecoveryPolicyDynamicFactsOnly {
+		t.Fatalf("unexpected failure classification: %+v", failure)
+	}
+}
+
+func TestValidateStaticTierWithheldBoundaryRejectsHardTier(t *testing.T) {
+	static := validStaticSynthesisForConsistencyTests()
+	static.TierJudgment = "中上"
+	static.TierBasis = "主轴可立，层次中上。"
+	state := baziCharterState{
+		EvidenceQuality: baziEvidenceQuality{
+			RequiredTopics: []string{"geju", "bingyao"},
+			CoveredTopics:  []string{"geju"},
+			MissingTopics:  []string{"bingyao"},
+		},
+		StaticSynthesis: static,
+	}
+
+	err := validateStaticAssertions(state)
+	assertBaziViolationCode(t, err, baziViolationEvidenceTopicMissing)
+	failure, ok := baziContractFailureFromError("static_synthesis", err)
+	if !ok || failure.Class != baziContractFailureEvidenceOverclaim {
+		t.Fatalf("expected evidence overclaim classification, got %+v / %v", failure, err)
+	}
+}
+
+func TestValidateStaticTierWithheldBoundaryAllowsBoundedConservativeTier(t *testing.T) {
+	static := validStaticSynthesisForConsistencyTests()
+	static.TierJudgment = "命格层次中等（保守定位）"
+	static.TierBasis = "按保守定级标准：病药救应链条尚未完全闭合，层次封顶为中等，不上推中上或上等。"
+	state := baziCharterState{
+		EvidenceQuality: baziEvidenceQuality{
+			RequiredTopics: []string{"geju", "bingyao"},
+			CoveredTopics:  []string{"geju"},
+			MissingTopics:  []string{"bingyao"},
+		},
+		StaticSynthesis: static,
+	}
+
+	if err := validateStaticAssertions(state); err != nil {
+		t.Fatalf("bounded conservative tier should pass, got %v", err)
+	}
 }
 
 func TestBaziContractAuditSummaryMarksMissingAuditAsNotRun(t *testing.T) {

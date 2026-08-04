@@ -1,3 +1,6 @@
+// This test file belongs to the Qi Men specialist layer.
+// It verifies domain specialist configuration and protects the related contract from regressions.
+// It configures Qi Men worker behavior; chart construction stays deterministic.
 package qimen
 
 import "testing"

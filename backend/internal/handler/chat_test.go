@@ -1,3 +1,6 @@
+// This test file belongs to the HTTP and SSE adapter layer.
+// It verifies chat request handling and protects the related contract from regressions.
+// It adapts HTTP/SSE; route approval and domain execution stay below this layer.
 package handler
 
 import "testing"

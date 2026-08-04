@@ -27,7 +27,9 @@
 1. 月令候选是否被仅凭“不透干”单一理由排除。
 2. 藏支组合若被选为主轴，是否真的完成了结构化比较，并有对应格局主题证据。
 3. `pattern_adjudication`、`main_axis`、`pattern_basis`、`axis_consistency` 和主轴 assertion 是否表达同一套取舍。
-4. 缺失证据主题对应的 assertion 是否已声明 `withheld_missing_evidence`；若已声明暂缓，正文不得继续作确定性病药、清浊或层次硬断。
+4. 缺失证据主题对应的 assertion 是否已声明 `withheld_missing_evidence`；若已声明缺证据，正文不得继续作确定性病药、清浊或高层次硬断。
+   - 若 `static.tier` 已被派生为 `withheld_missing_evidence`，`tier_judgment`、`tier_basis` 和 `kind=tier` assertion 必须给出保守等级，并说明封顶标准；允许“命格层次中等（保守定位）”“层次封顶为中等，不上推中上或上等”。
+   - 若上述字段继续输出“中上 / 上等 / 中等偏上 / 可以拔高”等正向高等级，或写“暂不定级”不回答层次，使用 `evidence_topic_overclaim`。
 5. 正文是否把候选、季节提示或工程分数越级写成已授权规则结论。
 
 ## 动态阶段

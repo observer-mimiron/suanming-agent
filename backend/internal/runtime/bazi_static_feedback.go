@@ -1,3 +1,6 @@
+// This file belongs to the manager-owned runtime layer.
+// It owns BaZi static feedback shaping for this package.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -23,7 +26,7 @@ func (e *Executor) runStaticSynthesisWithFeedback(chartState baziCharterState, r
 		output.Source = "model"
 		return output, nil
 	} else {
-		payload["static_feedback"] = buildStaticSynthesisFeedback(output, err)
+		payload["static_feedback"] = buildStaticSynthesisFeedback(chartState, output, err)
 	}
 
 	output, err = run(payload)
@@ -35,10 +38,34 @@ func (e *Executor) runStaticSynthesisWithFeedback(chartState baziCharterState, r
 		if partial, ok := acceptPartialStaticSynthesisAfterRetry(chartState, output, err); ok {
 			return partial, nil
 		}
+		if recovered, recoverErr := recoverStaticSynthesisAfterRetry(chartState, output, err); recoverErr == nil {
+			return recovered, nil
+		}
 		return baziStaticSynthesis{}, err
 	}
 	output.Source = "model"
 	return output, nil
+}
+
+// recoverStaticSynthesisAfterRetry replaces a retry candidate that still fails
+// fatal semantic contracts with deterministic chart facts. The candidate text is
+// discarded; this path only prevents user-visible hard errors for parseable
+// model output that could not be safely shown.
+func recoverStaticSynthesisAfterRetry(chartState baziCharterState, output baziStaticSynthesis, cause error) (baziStaticSynthesis, error) {
+	failure, ok := baziContractFailureFromError("static_synthesis", cause)
+	if !ok || failure.RecoveryPolicy != baziRecoveryPolicyStaticFactsOnly {
+		return baziStaticSynthesis{}, cause
+	}
+	recovered := recoverStaticSynthesis(chartState, output, cause)
+	recovered.ContractAudit = output.ContractAudit
+	recovered.FieldAudit = append(recovered.FieldAudit,
+		"contract_failure_class:"+failure.Class,
+		"recovery_policy:"+failure.RecoveryPolicy,
+	)
+	if err := validateStaticSynthesisResult(chartState, recovered); err != nil {
+		return baziStaticSynthesis{}, err
+	}
+	return recovered, nil
 }
 
 // acceptPartialStaticSynthesisAfterRetry keeps a usable model reading when the
@@ -120,11 +147,22 @@ func validateStaticStrengthAgainstEvidence(state baziCharterState) error {
 	return nil
 }
 
-func buildStaticSynthesisFeedback(output baziStaticSynthesis, cause error) string {
+func buildStaticSynthesisFeedback(chartState baziCharterState, output baziStaticSynthesis, cause error) string {
 	lines := []string{
 		"请严格按当前结构化裁定重写静态综合，不得保留与 axis_level / axis_ceiling 冲突的升级措辞。",
 		"若某条路线只到“结构信号”或“受限路线”，main_axis、pattern_outcome、tier_basis 就不得再写成“化杀为权”“贵格已成”“可以拔高”或同级升级结论。",
 		"若存在调候冲突、病点放大或忌神方向放大，必须把限制写进 pattern_outcome、counter_evidence、tier_basis，明确落成“方向成立但力度受限”“不宜拔高”“只能作受限路线参考”。",
+	}
+	if failure, ok := baziContractFailureFromError("static_synthesis", cause); ok && failure.Class == baziContractFailureEvidenceOverclaim {
+		lines = append(lines,
+			fmt.Sprintf("本轮 evidence_quality.enough=%t；missing_topics=%s。缺失主题不能支持确定性病药、清浊或命格层次硬断。", chartState.EvidenceQuality.Enough, strings.Join(chartState.EvidenceQuality.MissingTopics, "、")),
+			"若问题字段是 static.tier 或 kind=tier assertion：必须同时重写 tier_judgment、tier_basis、assertions[].verdict、assertions[].boundary。",
+			"允许写法：tier_judgment 写“命格层次中等（保守定位）”或更低；tier_basis 写明缺失主题与保守封顶标准。",
+			"禁止写法：不得输出“中上”“上等”“中等偏上”“可以拔高”等正向高层次，也不得写“暂不定级”回避用户要的层次判断。",
+		)
+		if failure.Field != "" {
+			lines = append(lines, "本次证据越权字段："+failure.Field)
+		}
 	}
 	if ceiling := strings.TrimSpace(output.AxisCeiling); ceiling != "" {
 		lines = append(lines, fmt.Sprintf("本轮你自己给出的 axis_ceiling 是“%s”，自然语言结论必须服从这一天花板。", ceiling))

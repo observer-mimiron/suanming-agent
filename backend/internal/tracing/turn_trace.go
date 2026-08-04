@@ -53,9 +53,6 @@ type TurnTrace struct {
 // AddSpan 向追踪追加一个子 span。
 func (t *TurnTrace) AddSpan(s TraceSpan) { t.Spans = append(t.Spans, s) }
 
-// BuildDigest 从 TurnTrace 生成 legacy TraceDigest。
-// 它保留原有步骤摘要契约用于兼容旧消费方，但不再是新的产品展示模型。
-
 // stepLabel 根据 span 名称返回用户可读的中文标签。
 func stepLabel(name string) string {
 	m := map[string]string{
@@ -92,8 +89,3 @@ func stepLabel(name string) string {
 	}
 	return name
 }
-
-// TraceDigest 是旧版 trace 摘要契约。
-// 新的产品过程展示应改用 ProcessDigest；调试展示应改用 DebugTraceDigest。
-
-// TraceStepDigest 是 TraceDigest 中的一个用户可见步骤。

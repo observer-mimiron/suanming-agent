@@ -1,3 +1,6 @@
+// This test file belongs to the session orchestration layer.
+// It verifies legacy turn-loop manager coverage and protects the related contract from regressions.
+// It owns turn lifecycle; domain reasoning stays in runtime and tools.
 package orchestrator
 
 import (

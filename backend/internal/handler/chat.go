@@ -26,6 +26,7 @@ type sseEventSink struct {
 	sessionID string
 }
 
+// Emit writes one orchestrator event to SSE and optionally mirrors it into debug JSONL.
 func (s *sseEventSink) Emit(ctx context.Context, evt orchestrator.Event) error {
 	if s.dbgEnc != nil {
 		tid := tracing.TraceIDFromContext(ctx)
@@ -40,6 +41,7 @@ func (s *sseEventSink) Emit(ctx context.Context, evt orchestrator.Event) error {
 	return s.sw.Send(evt.Type, evt.Data)
 }
 
+// debugEntry is the per-SSE-event debug record written when HTTP debug mode is enabled.
 type debugEntry struct {
 	Timestamp string `json:"timestamp"`
 	SessionID string `json:"session_id"`
@@ -61,6 +63,7 @@ func NewChatHandler(orch *orchestrator.Orchestrator, debugHTTP bool, debugDir st
 	return &ChatHandler{orch: orch, debugHTTP: debugHTTP, debugDir: debugDir}
 }
 
+// resolveSessionID normalizes optional client session IDs and rejects unsafe path-like IDs.
 func resolveSessionID(raw string) (string, error) {
 	id := strings.TrimSpace(raw)
 	if id == "" {

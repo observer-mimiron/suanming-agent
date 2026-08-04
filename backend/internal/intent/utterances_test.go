@@ -1,3 +1,6 @@
+// This test file belongs to the intent detection layer.
+// It verifies intent utterance fixtures and matching and protects the related contract from regressions.
+// It classifies text signals; it must not mutate session state.
 package intent
 
 import "testing"

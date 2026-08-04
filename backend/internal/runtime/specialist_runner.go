@@ -1,3 +1,7 @@
+// Package runtime contains the manager-owned execution flow.
+//
+// This file adapts manager-approved ExecutionPlan work into bounded ADK
+// specialist execution and validates required artifacts before dispatch.
 package runtime
 
 import (
@@ -20,6 +24,8 @@ type ADKSpecialistRunner struct {
 	Executor *Executor
 }
 
+// Run builds the configured specialist agent, streams its ADK events to SSE,
+// stores tool results back into session state, and returns a normalized result.
 func (r *ADKSpecialistRunner) Run(ctx context.Context, req specialists.Request) (specialists.Result, error) {
 	if r == nil || r.Executor == nil {
 		return specialists.Result{}, fmt.Errorf("adk specialist runner requires executor")
@@ -64,6 +70,8 @@ func (r *ADKSpecialistRunner) Run(ctx context.Context, req specialists.Request) 
 	}, nil
 }
 
+// validatePlanArtifacts blocks specialist dispatch unless prefill satisfied every
+// exact ArtifactRequirement from the Manager's plan.
 func validatePlanArtifacts(st *state.SessionState, plan ExecutionPlan) error {
 	for _, requirement := range plan.Requirements {
 		if hasRequiredAsset(st, requirement) {
@@ -74,6 +82,8 @@ func validatePlanArtifacts(st *state.SessionState, plan ExecutionPlan) error {
 	return nil
 }
 
+// hasRequiredAsset checks active focus refs first, then verifies the underlying
+// asset owner, subject set, and calendar rule match the requirement.
 func hasRequiredAsset(st *state.SessionState, requirement ArtifactRequirement) bool {
 	if st == nil {
 		return false
@@ -92,6 +102,7 @@ func hasRequiredAsset(st *state.SessionState, requirement ArtifactRequirement) b
 	return false
 }
 
+// assetMatchesRequirement verifies one persisted asset against a precise plan requirement.
 func assetMatchesRequirement(asset state.DomainAsset, requirement ArtifactRequirement) bool {
 	if asset.OwnerKind != requirement.OwnerRef.Kind || asset.OwnerID != requirement.OwnerRef.ID {
 		return false
@@ -114,11 +125,13 @@ func assetMatchesRequirement(asset state.DomainAsset, requirement ArtifactRequir
 	return true
 }
 
+// artifactMissingFailure maps a missing plan artifact into a user-visible runtime failure.
 func artifactMissingFailure(plan ExecutionPlan, artifact string) error {
 	domain := firstNonEmpty(plan.Route.PrimaryDomain, firstNonEmpty(plan.Domains...), "bazi")
 	return artifactMissingFailureForDomain(domain, artifact)
 }
 
+// artifactMissingFailureForDomain builds the concrete prefill failure reported to handler/SSE.
 func artifactMissingFailureForDomain(domain, artifact string) error {
 	return &RuntimeFailure{
 		Class:       failureClassArtifactMissing,

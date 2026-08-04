@@ -1,3 +1,6 @@
+// This file belongs to the manager-owned runtime layer.
+// It owns structured runtime failure handling for this package.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -128,6 +131,9 @@ func publicRuntimeFailureMessage(rf *RuntimeFailure) string {
 	case failureClassArtifactMissing:
 		return "本轮没有拿到必需的命盘或问事盘结果，无法继续解释。请稍后重试。"
 	case failureClassModelContractViolation:
+		if message := strings.TrimSpace(rf.Message); message != "" {
+			return message
+		}
 		return "本轮输出未通过最终合同校验，已停止展示不稳定内容。请稍后重试。"
 	}
 	if rf.UserVisible {

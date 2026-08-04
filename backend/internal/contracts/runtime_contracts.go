@@ -1,3 +1,6 @@
+// This file belongs to the runtime/frontend contract layer.
+// It owns shared runtime contract shapes for this package.
+// It defines shared DTOs; execution policy stays in runtime and orchestrator.
 package contracts
 
 // LastInputState records the user-facing input choices that are useful for

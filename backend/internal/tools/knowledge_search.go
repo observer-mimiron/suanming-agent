@@ -1,3 +1,6 @@
+// This file belongs to the deterministic tool layer.
+// It owns knowledge search tool behavior for this package.
+// It executes governed tools; user-facing synthesis stays in runtime.
 package tools
 
 import (

@@ -1,3 +1,6 @@
+// This test file belongs to the deterministic tool layer.
+// It verifies tool registry behavior and protects the related contract from regressions.
+// It executes governed tools; user-facing synthesis stays in runtime.
 package tools
 
 import (

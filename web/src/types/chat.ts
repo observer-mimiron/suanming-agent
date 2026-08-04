@@ -2,6 +2,7 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   segments: Segment[];
+  transportInspection?: TransportInspection;
 }
 export type Segment =
   | { type: "text"; content: string }
@@ -15,86 +16,53 @@ export type Segment =
   | { type: "component"; componentType: string; payload: any }
   | { type: "error"; message: string };
 
-export interface ProcessPhase {
-  key: string;
-  label: string;
-  ms: number;
-  status: "ok" | "degraded" | "fallback" | "error";
-  summary?: string;
-  meta?: {
-    model?: string;
-    hits?: number;
-    artifact_present?: boolean;
-    guardrail_result?: string;
-  };
-}
-
-export interface RuntimeDigestMeta {
-  primary_domain?: string;
-  domains?: string[];
-  task_intent?: string;
-  required_artifacts?: string[];
-  execution_mode?: string;
-  gate_reason?: string;
-  followup_policy?: string;
-  decision_source?: string;
-  reuse_cached_result?: boolean;
-  reuse_session_profile?: boolean;
-  needs_clarification?: boolean;
-}
-
-export interface ProcessDigest {
-  trace_id?: string;
-  turn_type?: string;
-  status: "ok" | "degraded" | "fallback" | "error";
+export interface RunInspection {
+  trace_id: string;
+  session_id: string;
+  status: "ok" | "degraded" | "fallback" | "error" | string;
+  turn_type: string;
   total_ms: number;
-  runtime?: RuntimeDigestMeta;
-  phases: ProcessPhase[];
+  summary: RunSummary;
+  diagnostics: RunDiagnostic[];
+  spans: RunSpan[];
 }
 
-export interface DebugTraceStep {
+export interface RunSummary {
+  primary_domain?: string;
+  task_intent?: string;
+  decision_source?: string;
+  gate_reason?: string;
+  inspection_text: string;
+}
+
+export interface RunDiagnostic {
+  severity: "info" | "warn" | "error" | string;
+  stage: string;
+  code: string;
+  title: string;
+  evidence?: string[];
+  next_action?: string;
+  span_id?: string;
+}
+
+export interface RunSpan {
+  span_id: string;
+  parent_span_id?: string;
   name: string;
   label: string;
   kind: string;
-  ms: number;
-  status: "ok" | "degraded" | "fallback" | "error";
-  meta?: Record<string, any>;
-}
-
-export interface DebugTraceDigest {
-  trace_id?: string;
-  turn_type?: string;
-  status: "ok" | "degraded" | "fallback" | "error";
-  total_ms: number;
-  runtime?: RuntimeDigestMeta;
-  steps?: DebugTraceStep[]; // legacy flat format; optional when root is present
-  root?: ExecutionNode; // unified execution tree (from execution-tree component event)
-}
-
-export interface DebugEvent {
-  type: "thinking" | "tool_call";
-  label: string;
-  preview: string;
-  agent?: string;
-  result?: string;
-}
-
-export interface ExecutionNode {
-  label: string;
-  kind: string;
+  category: string;
   status: string;
-  ms: number;
-  meta?: Record<string, any>;
-  children?: ExecutionNode[];
+  duration_ms: number;
+  error?: string;
+  attributes?: Record<string, any>;
 }
 
-export interface ExecutionTree {
-  trace_id: string;
-  turn_type: string;
-  total_ms: number;
-  status: string;
-  runtime?: RuntimeDigestMeta;
-  root: ExecutionNode;
+export interface TransportInspection {
+  doneReceived: boolean;
+  componentTypesReceived: string[];
+  parseWarnings: string[];
+  requestError?: string;
 }
 
 export interface SessionMessageSnapshot {

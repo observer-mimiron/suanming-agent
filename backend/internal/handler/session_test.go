@@ -1,3 +1,6 @@
+// This test file belongs to the HTTP and SSE adapter layer.
+// It verifies session API behavior and protects the related contract from regressions.
+// It adapts HTTP/SSE; route approval and domain execution stay below this layer.
 package handler
 
 import (
@@ -111,7 +114,7 @@ func TestBuildSessionSnapshot_RestoresLatestAssistantSegmentsFromDebugLog(t *tes
 	raw := strings.Join([]string{
 		`{"session_id":"sess-restore","event_type":"thinking","payload":{"agent":"bazi_graph","text":"先核对格局。"}}`,
 		`{"session_id":"sess-restore","event_type":"text","payload":{"content":"## 直接回答\n"}}`,
-		`{"session_id":"sess-restore","event_type":"component","payload":{"type":"process-panel","payload":{"status":"ok","total_ms":12,"phases":[]}}}`,
+		`{"session_id":"sess-restore","event_type":"component","payload":{"type":"run-inspection","payload":{"trace_id":"trc_restore","status":"ok","total_ms":12,"summary":{"inspection_text":"本轮运行未发现确定性异常。"},"diagnostics":[],"spans":[]}}}`,
 		`{"session_id":"sess-restore","event_type":"done","payload":{}}`,
 	}, "\n") + "\n"
 	if err := os.WriteFile(logPath, []byte(raw), 0o644); err != nil {
@@ -129,7 +132,7 @@ func TestBuildSessionSnapshot_RestoresLatestAssistantSegmentsFromDebugLog(t *tes
 	if got.Segments[0].Type != "thinking" {
 		t.Fatalf("segment 0 type = %q, want thinking", got.Segments[0].Type)
 	}
-	if got.Segments[2].ComponentType != "process-panel" {
-		t.Fatalf("segment 2 component_type = %q, want process-panel", got.Segments[2].ComponentType)
+	if got.Segments[2].ComponentType != "run-inspection" {
+		t.Fatalf("segment 2 component_type = %q, want run-inspection", got.Segments[2].ComponentType)
 	}
 }

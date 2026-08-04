@@ -1,3 +1,6 @@
+// This file belongs to the manager-owned runtime layer.
+// It owns BaZi assertion-contract validation for this package.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -214,6 +217,9 @@ func validateStaticAssertions(state baziCharterState) error {
 	if err := validateStaticAssertionEvidenceTopics(state, static.Assertions); err != nil {
 		return err
 	}
+	if err := validateStaticTierWithheldBoundary(state, static); err != nil {
+		return err
+	}
 	return validateBaziAssertions(state, static.Assertions)
 }
 
@@ -365,6 +371,83 @@ func validateStaticAssertionEvidenceTopics(state baziCharterState, assertions []
 		}
 	}
 	return nil
+}
+
+// validateStaticTierWithheldBoundary makes missing-evidence tier handling
+// deterministic. Missing A-tier topics cap the level judgment instead of
+// removing it, because users asked the product to grade with a clear standard.
+func validateStaticTierWithheldBoundary(state baziCharterState, static baziStaticSynthesis) error {
+	if len(state.EvidenceQuality.RequiredTopics) == 0 {
+		return nil
+	}
+	for _, assertion := range static.Assertions {
+		if assertion.Kind != baziAssertionTier || assertion.EvidenceStatus != baziEvidenceWithheld {
+			continue
+		}
+		checks := []struct {
+			field string
+			text  string
+		}{
+			{field: "static.tier_judgment", text: static.TierJudgment},
+			{field: "static.tier_basis", text: static.TierBasis},
+			{field: "static.assertions.tier.verdict", text: assertion.Verdict},
+			{field: "static.assertions.tier.boundary", text: assertion.Boundary},
+		}
+		for _, check := range checks {
+			if !withheldTierTextIsSafe(check.text) {
+				return baziViolationError(
+					baziViolationEvidenceTopicMissing,
+					check.field,
+					assertion.ID,
+					"tier assertion is withheld_missing_evidence and must use a bounded conservative tier judgment",
+					state.EvidenceQuality.MissingTopics,
+					[]string{"命格层次中等（保守定位）", "层次封顶为中等，不上推中上或上等"},
+				)
+			}
+		}
+	}
+	return nil
+}
+
+// withheldTierTextIsSafe allows only bounded tier text when required topics are
+// missing; it blocks unbounded high-rank claims while still returning a grade.
+func withheldTierTextIsSafe(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	if strings.Contains(text, "暂不定级") {
+		return false
+	}
+	allowed := []string{"保守定位", "封顶", "不上推", "不拔高", "不能拔高", "不宜拔高", "受限"}
+	if !containsAnyText([]string{text}, allowed) {
+		return false
+	}
+	if containsHighTierAssertion(text) {
+		return false
+	}
+	return true
+}
+
+// containsHighTierAssertion detects positive high-rank language while allowing
+// explicit cap wording such as “不上推中上或上等”.
+func containsHighTierAssertion(text string) bool {
+	positivePatterns := []string{
+		"命格层次上等", "命格层次中上", "命格层次中等偏上",
+		"层次上等", "层次中上", "层次中等偏上",
+		"可以拔高", "可拔高", "足以拔高",
+	}
+	if containsAnyText([]string{text}, positivePatterns) {
+		return true
+	}
+	highMarkers := []string{"上等", "中上", "中等偏上", "可以拔高", "可拔高", "拔高"}
+	capMarkers := []string{"不上推", "不拔高", "不能拔高", "不宜拔高", "不足以拔高", "不进入", "不升至", "封顶"}
+	for _, marker := range highMarkers {
+		if strings.Contains(text, marker) && !containsAnyText([]string{text}, capMarkers) {
+			return true
+		}
+	}
+	return false
 }
 
 // requiredTopicsForStaticAssertion maps methodology claims to authority topics;

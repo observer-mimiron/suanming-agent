@@ -1,3 +1,6 @@
+// This file belongs to the manager-owned runtime layer.
+// It owns BaZi charter agent wiring for this package.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -37,6 +40,10 @@ func baziStaticSynthesisConfig() specialists.Config {
 
 func baziDynamicSynthesisConfig() specialists.Config {
 	return newBaziCharterConfig("bazi_dynamic_synthesis", "八字动态综合器", prompts.BaziDynamicSynthesisInstruction, false, true)
+}
+
+func baziCanonicalSynthesisConfig() specialists.Config {
+	return newBaziCharterConfig("bazi_canonical_synthesis", "八字最小裁断综合器", prompts.BaziCanonicalSynthesisInstruction, false, true)
 }
 
 // baziContractAuditConfig builds an independent fast-model reviewer that only

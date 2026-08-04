@@ -169,12 +169,15 @@ const (
 // baziValidationViolation gives recovery and feedback a machine-readable reason
 // instead of forcing them to infer semantics from Chinese output phrases.
 type baziValidationViolation struct {
-	Code        baziViolationCode `json:"code"`
-	Field       string            `json:"field,omitempty"`
-	Message     string            `json:"message"`
-	AssertionID string            `json:"assertion_id,omitempty"`
-	MissingRefs []string          `json:"missing_refs,omitempty"`
-	AllowedRefs []string          `json:"allowed_refs,omitempty"`
+	Code                baziViolationCode `json:"code"`
+	Field               string            `json:"field,omitempty"`
+	Message             string            `json:"message"`
+	AssertionID         string            `json:"assertion_id,omitempty"`
+	MissingRefs         []string          `json:"missing_refs,omitempty"`
+	AllowedRefs         []string          `json:"allowed_refs,omitempty"`
+	ContractFindingCode string            `json:"contract_finding_code,omitempty"`
+	DetectedDomain      string            `json:"detected_domain,omitempty"`
+	Excerpt             string            `json:"excerpt,omitempty"`
 }
 
 type baziAnalysisPlan struct {
@@ -185,6 +188,56 @@ type baziAnalysisPlan struct {
 	WriterTemplate string   `json:"writer_template"`
 	TopicMode      string   `json:"topic_mode,omitempty"`
 	StageSummary   string   `json:"stage_summary"`
+}
+
+// baziCanonicalUnit is the smallest model-owned BaZi judgment. Evidence state,
+// legacy fields and display text are derived by runtime code from this unit.
+type baziCanonicalUnit struct {
+	Kind           string   `json:"kind"`
+	Verdict        string   `json:"verdict"`
+	Boundary       string   `json:"boundary,omitempty"`
+	FactRefs       []string `json:"fact_refs,omitempty"`
+	ClaimRefs      []string `json:"claim_refs,omitempty"`
+	EvidenceTopics []string `json:"evidence_topics,omitempty"`
+	Confidence     string   `json:"confidence,omitempty"`
+}
+
+// baziCanonicalDayunUnit keeps model-owned luck-period interpretation separate
+// from deterministic period facts such as gan-zhi, ages and calendar bounds.
+type baziCanonicalDayunUnit struct {
+	Index          *int     `json:"index,omitempty"`
+	GanZhi         string   `json:"gan_zhi,omitempty"`
+	Verdict        string   `json:"verdict"`
+	Boundary       string   `json:"boundary,omitempty"`
+	FactRefs       []string `json:"fact_refs,omitempty"`
+	ClaimRefs      []string `json:"claim_refs,omitempty"`
+	EvidenceTopics []string `json:"evidence_topics,omitempty"`
+	Confidence     string   `json:"confidence,omitempty"`
+}
+
+// baziCanonicalSynthesis is the single bounded expert synthesis result for the
+// BaZi graph. It deliberately does not carry legacy renderer fields or
+// self-declared evidence status; those are runtime-owned projections.
+type baziCanonicalSynthesis struct {
+	Source         string   `json:"source,omitempty"`
+	RecoveryReason string   `json:"recovery_reason,omitempty"`
+	FieldAudit     []string `json:"-"`
+
+	MainAxis       baziCanonicalUnit        `json:"main_axis"`
+	Strength       baziCanonicalUnit        `json:"strength"`
+	Tiaohou        baziCanonicalUnit        `json:"tiaohou"`
+	Pattern        baziCanonicalUnit        `json:"pattern"`
+	Tier           baziCanonicalUnit        `json:"tier"`
+	DayunOverview  baziCanonicalUnit        `json:"dayun_overview"`
+	DayunPeriods   []baziCanonicalDayunUnit `json:"dayun_periods,omitempty"`
+	Liunian        baziCanonicalUnit        `json:"liunian"`
+	Limitations    []string                 `json:"limitations,omitempty"`
+	Advantages     []string                 `json:"advantages,omitempty"`
+	Risks          []string                 `json:"risks,omitempty"`
+	ReasoningSteps []string                 `json:"reasoning_steps,omitempty"`
+	AdviceBoundary string                   `json:"advice_boundary,omitempty"`
+	Citations      []baziCitation           `json:"citations,omitempty"`
+	ContractAudit  baziContractAudit        `json:"-"`
 }
 
 // baziStrengthJudgment keeps the model's whole-chart strength conclusion

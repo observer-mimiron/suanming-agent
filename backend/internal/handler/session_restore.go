@@ -1,3 +1,6 @@
+// This file belongs to the HTTP and SSE adapter layer.
+// It owns session restore payloads for this package.
+// It adapts HTTP/SSE; route approval and domain execution stay below this layer.
 package handler
 
 import (

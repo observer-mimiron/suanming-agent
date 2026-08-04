@@ -1,3 +1,6 @@
+// This file belongs to the LLM adapter layer.
+// It owns Eino chat-model adapter behavior for this package.
+// It wraps model providers; domain prompts and contracts stay outside this package.
 package llm
 
 import (

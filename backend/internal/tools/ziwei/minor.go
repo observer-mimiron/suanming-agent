@@ -1,3 +1,6 @@
+// This file belongs to the Zi Wei deterministic calculation layer.
+// It owns Zi Wei minor-star placement for this package.
+// It computes reproducible Zi Wei facts; it must not compose user-facing readings.
 package ziwei
 
 // GetMinorStar 安14辅星。辅星与主星配合解读命盘，影响主星的吉凶程度和具体应事。

@@ -1,3 +1,6 @@
+// This file belongs to the Zi Wei deterministic calculation layer.
+// It owns Zi Wei adjective tables for this package.
+// It computes reproducible Zi Wei facts; it must not compose user-facing readings.
 package ziwei
 
 // GetAdjectiveStar 安杂曜（年系、月系、日系、时系杂曜的汇总）。杂曜种类繁多，按推算基准分为四类：

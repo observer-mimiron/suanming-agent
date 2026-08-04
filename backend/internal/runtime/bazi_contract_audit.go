@@ -27,7 +27,10 @@ func buildBaziContractAuditPayload(stage string, chartState baziCharterState, ca
 		"candidate":        candidate,
 		"evidence_quality": chartState.EvidenceQuality,
 	}
-	input := map[string]any{"core_chart": buildCoreChartView(chartState.Input)}
+	input := map[string]any{
+		"core_chart":      buildCoreChartView(chartState.Input),
+		"subject_context": buildBaziSubjectContext(chartState.Input),
+	}
 	if stage == "dynamic" {
 		input["dynamic_facts"] = buildDynamicFactsView(chartState.Input)
 		input["subject_context"] = buildBaziSubjectContext(chartState.Input)
@@ -42,14 +45,25 @@ func validateBaziContractAudit(stage string, audit baziContractAudit) error {
 	if audit.Compliant && len(audit.Findings) == 0 {
 		return nil
 	}
-	message := "independent synthesis contract audit failed"
-	field := strings.TrimSpace(stage)
 	if len(audit.Findings) > 0 {
-		finding := audit.Findings[0]
-		field = firstNonEmptyTrim(finding.Field, field)
-		message = firstNonEmptyTrim(finding.Reason, finding.Code, message)
+		return baziContractAuditError(stage, audit.Findings[0])
 	}
-	return baziViolationError(baziViolationSemanticContract, field, "", message, nil, nil)
+	return baziViolationError(baziViolationSemanticContract, strings.TrimSpace(stage), "", "independent synthesis contract audit failed", nil, nil)
+}
+
+// baziContractAuditError preserves the audit finding code and field so retry,
+// recovery and trace reporting do not infer failure classes from prose.
+func baziContractAuditError(stage string, finding baziContractAuditFinding) error {
+	field := firstNonEmptyTrim(finding.Field, strings.TrimSpace(stage))
+	message := firstNonEmptyTrim(finding.Reason, finding.Code, "independent synthesis contract audit failed")
+	return baziValidationError{Violation: baziValidationViolation{
+		Code:                baziViolationSemanticContract,
+		Field:               field,
+		Message:             message,
+		ContractFindingCode: strings.TrimSpace(finding.Code),
+		DetectedDomain:      strings.TrimSpace(finding.DetectedDomain),
+		Excerpt:             strings.TrimSpace(finding.Excerpt),
+	}}
 }
 
 // baziContractAuditSummary returns a compact trace value without retaining the

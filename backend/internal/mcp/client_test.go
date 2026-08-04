@@ -1,3 +1,6 @@
+// This test file belongs to the knowledge MCP client layer.
+// It verifies external client behavior and protects the related contract from regressions.
+// It calls the knowledge service; interpretation remains in runtime and specialists.
 package mcp
 
 import (

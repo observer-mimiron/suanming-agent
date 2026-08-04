@@ -1,3 +1,6 @@
+// This test file belongs to the dependency wiring layer.
+// It verifies dependency assembly behavior and protects the related contract from regressions.
+// It assembles dependencies; business rules stay in orchestrator, runtime, and tools.
 package container
 
 import (

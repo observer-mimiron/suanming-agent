@@ -1,3 +1,6 @@
+// This file belongs to the Zi Wei deterministic calculation layer.
+// It owns Zi Wei calculation helpers for this package.
+// It computes reproducible Zi Wei facts; it must not compose user-facing readings.
 package ziwei
 
 // FixIndex 循环索引修正。将任意整数锁定在 0~(max-1) 范围内，支持正负多轮循环。

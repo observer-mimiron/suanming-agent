@@ -1,3 +1,6 @@
+// This file belongs to the BaZi deterministic calculation layer.
+// It owns ShenSha calculation for this package.
+// It computes reproducible BaZi facts; it must not generate narrative readings.
 package bazi
 
 // ShenshaItem 神煞。表示命盘某一柱上的单个神煞，包含名称、吉凶属性（吉/凶/平）、推算依据和中文描述。

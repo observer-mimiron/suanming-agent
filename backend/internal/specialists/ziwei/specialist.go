@@ -1,3 +1,6 @@
+// This file belongs to the Zi Wei specialist layer.
+// It owns domain specialist configuration for this package.
+// It configures Zi Wei worker behavior; final answer ownership stays with Manager.
 package ziwei
 
 import (

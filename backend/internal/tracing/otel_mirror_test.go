@@ -1,3 +1,6 @@
+// This test file belongs to the trace projection layer.
+// It verifies OpenTelemetry mirror behavior and protects the related contract from regressions.
+// It projects runtime evidence; it must not change execution decisions.
 package tracing
 
 import (
@@ -51,9 +54,9 @@ func TestRealTracer_OTelMirrorReceivesRootAndChildSpans(t *testing.T) {
 	ctx, trace := rt.StartTrace(context.Background(), "chat.turn")
 
 	SetTraceAttributes(ctx, map[string]any{
-		"session_id": "sess-otel",
-		"turn_type":  "agent_reading",
-		"input.value": "帮我分析八字",
+		"session_id":   "sess-otel",
+		"turn_type":    "agent_reading",
+		"input.value":  "帮我分析八字",
 		"output.value": "这是最终回答",
 	})
 

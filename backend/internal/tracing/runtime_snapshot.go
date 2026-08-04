@@ -1,3 +1,6 @@
+// This file belongs to the trace projection layer.
+// It owns runtime snapshot projection for this package.
+// It projects runtime evidence; it must not change execution decisions.
 package tracing
 
 import "github.com/observer-mimiron/suanming-agent/internal/contracts"

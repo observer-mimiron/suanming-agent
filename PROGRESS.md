@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-- **最后更新：** 2026-08-01
+- **最后更新：** 2026-08-05
 - **阶段：** v1.5 收口；Eino 迁移完成；多对象资产解析 Phase 1-3 已落地。
-- **当前任务：** 收口八字候选裁定、证据主题状态、逐运领域授权与独立语义审计。
+- **当前任务：** 全局 Repair Harness 方案已落文档；下一步按 `docs/repair-harness-implementation-plan.md` 分阶段实现。
 - **代码原则：** 普通命理分歧进 `eval/` 数据集和 Langfuse trace，不进运行时专项分支。
 
 ## 已验证事实
@@ -15,10 +15,14 @@
 - `Manager` 是 runtime 内唯一 conversation owner；负责会话焦点、追问策略、执行计划、通用直答和最终综合，不持有完整 ReAct 工具循环。
 - checkpoint/resume 从未接入 handler、container 或 server 启动路径，已移除；运行时不维护无调用方的 Eino checkpoint store。
 - `ExecutionPlan` 只保留带 owner、subject 和历法规则的 `ArtifactRequirement`；`ExecutionSnapshot.RequiredArtifacts` 仅是 handler、trace 与调试的观测投影。
+- runtime 先解析对象、合并 ProfileRevision，再生成 ExecutionPlan；prefill 写入资产的 owner 必须与 ArtifactRequirement 对齐。
+- target_subject 只允许切换明确人物或既有非主题对象；婚姻、事业、财运等问题范围进入 question_text/current_topic，不能创建新的 Subject。
+- 八字资产合同使用 tools/bazi.CalendarRuleVersion 作为历法规则单一来源；validatePlanArtifacts 继续严格匹配 owner、subject 和 calendar rule。
 - 八字、奇门、紫微已接入同一 runtime；specialist 只返回领域结果，不能直接拥有最终答复权。
 - 资产合同为 `Subject -> ProfileRevision / Case -> DomainAsset -> ActiveFocus -> ArtifactRequirement -> Prefill`；自己、孩子、资料修订和新的奇门问事相互隔离。
 - follow-up 解读复用 `InterpretationAsset`，必须绑定当前精确命盘引用；不能按领域复用其他对象、旧资料版本或旧 Case 摘要。
 - 本地开发入口：`make dev`（含 Langfuse）或 `make dev-core`（三服务）；检查用 `make status`，重启用 `make restart` / `make restart-core`。
+- 聊天页排障入口统一为 Run Inspector：后端只发送 `run-inspection` component；旧 `process-panel / debug-trace / execution-tree` 投影和前端旧面板已下线。全量 TurnTrace 通过本地 `GET /api/debug/traces/:trace_id` 懒加载，需 `DEBUG_HTTP=1` 且依赖 `DEBUG_TRACE=1` 落盘。
 - 当前主工作区已迁到 WSL：`/home/huang/workspace/suanming-agent`；关联资料在 `/home/huang/workspace/research`，Agent 技能库在 `/home/huang/workspace/agent-engineering-guide`。
 - 官方回归入口：`make regression`；八字质量合同入口为 `make eval-bazi-quality`，并已纳入 `make eval-suite`。
 - 后端配置来源为 `backend/.env`；Docker 应用入口为 `deploy/app/`。
@@ -27,21 +31,29 @@
 
 ## 八字主链事实
 
-- 八字单域采用 authority-first：`chart_facts -> rule_materials -> static/dynamic synthesis -> minimal_guard -> renderer -> eval`。
+- 八字单域采用 authority-first：`chart_facts -> rule_materials -> canonical_synthesis -> runtime projection -> contract guards -> renderer -> eval`。
+- 八字单域在外层 `agent` 节点内运行内部 Eino Graph；外层 `preflight -> prefill -> agent -> final_guard`、Manager owner 和 SSE wire shape 不变。
+- 内部 graph 节点为 bootstrap、analysis_plan、evidence、evidence_reflection、evidence_validation、dynamic_evidence、canonical_synthesis、projection、static_validation、dynamic_validation、recovery_decision、render、done。
 - 排盘、藏干、透干、大运边界和标准关系可复算；runtime 不注入默认 rule profile，也不从 Go 代码生成 claim。
-- 静态/动态综合输出裁断；renderer 只转写上游 verdict 或 partial 可展示字段，不替失败综合生成兜底解读。
+- canonical synthesis 只让模型输出最小裁断单元：主轴、强弱、调候、格局、层次、岁运总纲、关键大运、流年、限制和证据引用。
+- runtime 派生 evidence status、legacy 展示字段、tier 暂缓文案和大运事实对齐；renderer 只转写结构化投影，不重新裁断。
 - 证据质量按 A 级主题逐题验收，输出 `required_topics / covered_topics / missing_topics / degraded_topics`；B 级命例不能替代格局、调候、病药等主证。
 - 反思仅重试缺失或高冲突的 A 级主题；查询采用稳定的“典籍 + 主题”并与首轮证据合并。
 - 静态综合不得以“月令本气未透”单因推出暗格、清浊或层次降级；候选路线必须比较透干、藏干层级、根气、时令与结构闭环。
 - 静态综合保留 `pattern_adjudication` 候选矩阵；月令候选不能仅因未透被拒，藏支组合不能无完整比较越级。
-- 静态 assertion 绑定 `evidence_topics / evidence_status`；缺失 A 级主题只能 withheld。
+- 静态 assertion 绑定 `evidence_topics / evidence_status`；缺失 A 级主题只能 withheld，tier 缺证据时由 runtime 固定为“证据不足，暂不定级”。
 - 静态和动态综合通过确定性校验后，各自经过独立 fast-model 二值合同审计；严重合同错误返回 `RuntimeFailure`，展示性缺漏可保留为 `model_partial`。
 - 动态综合接收由出生年和目标流年推导的 `subject_context`，并以 `allowed_outcome_domains / outcome_domains` 做结构化授权。
 - 未成年人只允许结构、成长环境、照护节奏和可观察发展；遗漏或越权进入 violation 重试，不能靠扩张自然语言禁词表兜底。
-- 动态每步大运声明 `outcome_domains`；每个已计算大运 period 都必须有 assertion，并引用 `dayun[index].gan_zhi` 或 `dayun[index].relations`。
+- 动态每步大运声明 `outcome_domains`；canonical 关键大运优先按 `gan_zhi` 对齐已计算 period，`index` 只作明确补充，避免空 index 默认绑定第一步大运。
 - 冲、刑、害只作 relation trigger 事实，不直接推出医疗、法律、财务事故等具体应事。
 - `bazi_rule_profile.go` 已删除；不存在 `defaultBaziRuleProfile`、`applyZipingBasicClaims`、`applyZipingMonthJieClaim` 或运行时调候 overlay。
-- synthesis 不可用或 hard validation 重试后仍严重失败时，runtime 返回合同错误；facts-only 不再作为失败综合自动恢复路径。
+- recovery_decision 使用显式状态机：canonical parse failure 可全量 facts-only；静态仅证据越权可 facts-only；动态仅领域越权可 facts-only；事实冲突和方法合同冲突默认 hard error。
+- facts-only 输出由 runtime 生成并标记 clean contract audit；候选模型文本被丢弃，FieldAudit / RecoveryReason 保留降级原因。
+- 未成年人静态 projection 会把未授权成人现实落点收束为结构、成长环境、照护节奏和可观察发展，不让候选文本进入 static renderer。
+- 动态合同把投资建议类文本视为未授权财务建议，触发 dynamic facts-only 或硬错路径，不保留违规候选文本。
+- trace 记录 `bazi.internal_graph.node / branch / recovery_state`，并保留 `bazi.contract.finding_code / failure_class / recovery_policy`、`bazi.static.source`、`bazi.dynamic.source`、`bazi.final.audit_result`。
+- 普通出生资料八字请求不会因 supervisor 猜测自动扩展到紫微；只有用户显式提到紫微时才保留八字+紫微多域执行。
 
 ## 历法与确定性事实
 
@@ -57,10 +69,17 @@
 
 - `Executor` 将裸 graph error 归一为 `RuntimeFailure`；`Orchestrator` 对非取消、非等待确认的失败统一发 `error` 后再发 `done`。
 - `RuntimeFailure` 包含 code、retryable、degraded 和用户可见消息。
+- 最近一次 REQUIRED_ARTIFACT_UNAVAILABLE 已修复：旧污染 session 回放「紫薇斗数 看一下 婚姻」与「那本月运气如何」均返回 text + done 且无 error；新 session 单轮带资料紫微婚姻也通过。
+- 最近一次八字稳定性问题已修复：原输入「1994年1月21日20点30分 女 南京」连续 10 次真实 `/api/chat` 全部返回 text + done，`bazi.final.audit_result=clean`，无 error。
+- 最近一次静态调候投影失败已修复：调候锚点不够具体时保留合同校验，但进入 static facts-only 降级，不再返回 `BAZI_STATIC_PROJECTION_FAILED` SSE error。
+- 全局 Repair Harness 实施方案已写入 `docs/repair-harness-implementation-plan.md`：先做 runtime 通用错误分类、有限 repair、learning hint、trace 和 `runtime-repair-v1` eval；八字作为首个接入验证，奇门/紫微后续接同一接口。
+- 新增 `make eval-bazi-stability`，底层使用 `bazi-stability-v1` 和 `--repeats 10`，报告写入 `eval/reports/bazi-stability-v1.json`。
 - 八字 `consistency_flags` 固定为 `吉中有阻 / 机会伴随强变动 / 限制仍在 / 仅作结构观察`；二次仍非法时 runtime 本地收束为保守结构观察。
 - `bazi_validation_recovery.go` 不包含命理专项短语触发的修复分支，不保留违规候选文本；具体样例进 eval fixture。
 - 已固化“自己 -> 孩子 -> 修订孩子时辰 -> 回到自己 -> 两次奇门新问”回归，覆盖对象隔离、修订失效、解读来源和 Case 隔离。
-- 最新 `bazi-quality-v1` 报告已通过，trace 属性为 `bazi.static.contract_audit=clean`、`bazi.dynamic.contract_audit=clean`。
+- 最新目标验证已通过：`go test ./backend/internal/runtime -count=1`、`go test ./backend/... -count=1`、`go build ./backend/cmd/server/`、`make restart-core`、`make eval-bazi-quality`、`make eval-bazi-stability`、`make regression`。
+- 最新 `bazi-quality-v1` 报告已通过，trace 属性为 `bazi.static.contract_audit=clean`、`bazi.dynamic.contract_audit=clean`、`bazi.final.audit_result=clean`。
+- 新增 `make eval-bazi-answer-quality`，使用 `bazi-answer-quality-v1` 的确定性质量检查拦截内部状态泄露、保守话术过密、未成年人越权和 facts-only 冒充完整解读；runner 可用 `--include-response` 在报告中保存抽取后的正文。
 - Langfuse 评测体检入口：`python3 eval/runner/check_langfuse_setup.py`；本机 `eval_*` 与 `answer_*` ScoreConfig 类型已通过校验。
 - 本地 Langfuse v3 支持 `/api/public/llm-connections`，但当前 `LLM Connections` 数量为 0；Python `langfuse` SDK 未安装。
 - 答案质量 judge 入口：`python3 eval/runner/run_answer_quality_judge.py`；默认只写 JSON 报告，人工确认后才用 `--write-scores` 写 `judge_*` score。
@@ -69,26 +88,28 @@
 ## 当前风险与待证实项
 
 - `bazi-quality-v1` 是运行时合同评测，不等于完整命理文本质量或用户满意度评测。
+- `bazi-answer-quality-v1` 当前只完成离线 runner 单测和数据集校验；真实在线评测需后端 :8080 启动后再跑。
 - 动态 baseline 已删除完整趋势生成：模型动态综合失败时，每步大运只展示干支、年龄、日期边界、运干十神和已计算关系。
 - `current_dayun` 为空或过期时仍按透传日期边界回补；若目标时刻早于首步交运，明确显示“尚未交入第一步大运”。
 - cheap gate 仅允许保守的同域普通追问复用；继续扩面前要看 `eval/reports/cheap-gate-summary.json`。
 - 规则材料来自 prompt、知识库检索和未来数据驱动规则表；Go runtime 不承担子平、穷通或逐运趋势 claim provider 职责。
-- 字段审计已从自然语言词表扩张收窄为合同校验；普通关系解释和命理表达进 soft audit 或 eval，不得因词面被清洗。
+- 字段审计已从自然语言词表扩张收窄为合同校验；`canonical_tier_withheld_by_runtime` 是安全投影 note，不计入 `bazi.final.audit_result` repaired。
 - `case_005_2025_topic_coverage_and_age_scope` 只验证证据主题覆盖、主轴一致性、子正换日分钟与幼儿年龄边界；运行时代码不包含该命盘、session、trace 或目标格局分支。
 
 ## 下一步
 
+- 按 `docs/repair-harness-implementation-plan.md` 实施 Phase 0 / 1 / 3 / 4 / 6，先完成八字 repair 闭环和 `make eval-repair`。
 - 让 specialist 返回 Claim 与来源引用，前端命盘卡显示对象、资料版本和奇门起局时间。
 - 若要恢复子平、穷通或盲派规则，先做数据驱动规则表与 eval fixture，再接入 synthesis 输入；不得新增 Go runtime 专项 case。
 - 增加真实的多对象比较合同，不能用单个 `ActiveFocus` 冒充比较。
-- 为 assertion 与 synthesis 投影选择唯一 canonical schema 后，再删除旧字段桥接；不得由 renderer 暗中兼容两套语义。
+- 继续把旧 static/dynamic synthesis 桥接字段从 renderer 路径中收缩到 projection 兼容层；不得让模型同时维护 canonical 与 legacy 双轨语义。
 - 继续增加 mixed-domain 与复杂追问回归，特别覆盖 rule-profile 未实现范围的降级输出。
 
 ## 核心入口
 
 - 运行时：`backend/internal/runtime/manager.go`、`orchestration_graph.go`、`artifact_resolver.go`、`specialist_runner.go`、`observability.go`。
 - 资产状态：`backend/internal/state/session.go`、`assets.go`。
-- 八字：`backend/internal/runtime/bazi_charter_graph.go`、`bazi_final_renderer.go`；确定性排盘在 `backend/internal/tools/bazi/`。
+- 八字：`backend/internal/runtime/bazi_charter_graph.go`、`bazi_internal_graph.go`、`bazi_canonical_synthesis.go`、`bazi_final_renderer.go`；确定性排盘在 `backend/internal/tools/bazi/`。
 - 评测：`eval/datasets/*.json`、`eval/runner/run-agent-regression.sh`、`eval/runner/run_langfuse_eval.py`、`eval/README.md`。
 - 架构与验收：`docs/architecture.md`、`docs/acceptance-criteria.md`、`eval/README.md`。
 

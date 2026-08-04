@@ -1,82 +1,113 @@
+<!--
+  QimenChart renders the Qi Men Dun Jia nine-palace board.
+  It owns palace-level visual layering only; the backend remains responsible for
+  casting the chart and deciding which symbols belong in each palace.
+-->
 <template>
   <div class="qimen-card">
-    <div class="qm-header">
-      <div class="qm-kicker">奇门遁甲九宫盘</div>
+    <header class="qm-header">
+      <div>
+        <div class="qm-kicker">奇门遁甲</div>
+        <div class="qm-title">九宫三盘</div>
+      </div>
       <div class="qm-info">
         <span class="qm-info-chip">{{ data.ju_text || '局数未定' }}</span>
-        <span class="qm-info-chip qm-info-chip-accent">{{ data.duty_text || '值符值使未定' }}</span>
+        <span class="qm-info-chip accent">{{ data.duty_text || '值符值使未定' }}</span>
         <span class="qm-info-chip">{{ data.question_time || '未提供起局时间' }}</span>
       </div>
-    </div>
+    </header>
 
-    <div class="qm-grid">
-      <div
-        v-for="cell in gridCells" :key="cell.palace"
+    <section class="qm-board" aria-label="奇门九宫盘">
+      <article
+        v-for="cell in gridCells"
+        :key="cell.palace"
         class="qm-cell"
-        :class="{
-          'qm-duty': cell.palace === dutyPalace && cell.palace !== '中',
-          'qm-center': cell.palace === '中',
-          'qm-dummy-cell': cell.isCenterDummy
-        }"
+        :class="[
+          'qm-' + palaceElement(cell.palace),
+          {
+            'is-duty': cell.palace === dutyPalace && cell.palace !== '中',
+            'is-center': cell.palace === '中',
+            'is-empty-center': cell.isCenterDummy,
+          },
+        ]"
         :style="{ animationDelay: cellDelay(cell.palace) + 'ms' }"
-        @mousemove="handleTilt"
-        @mouseleave="resetTilt"
       >
-        <span class="corner-dot tl"></span>
-        <span class="corner-dot tr"></span>
-        <span class="corner-dot bl"></span>
-        <span class="corner-dot br"></span>
-
         <template v-if="cell.isCenterDummy">
-          <div class="qm-center-dummy">
-            <svg class="taiji-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+          <div class="qm-center-mark">
+            <svg class="qm-taiji" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10" />
               <path d="M12 2a5 5 0 0 0 0 10 5 5 0 0 1 0 10" />
               <circle cx="12" cy="7" r="1.5" fill="currentColor" />
               <circle cx="12" cy="17" r="1.5" fill="none" stroke="currentColor" />
             </svg>
-            <span class="qm-dummy-label">中宫定盘</span>
+            <span>中宫</span>
+            <em>寄宫定盘</em>
           </div>
         </template>
 
         <template v-else>
-          <div class="qm-cell-header">
-            <div class="qm-palace-badge" :class="'wx-badge-' + palaceElement(cell.palace)">
-              <ElementSprite :element="palaceElement(cell.palace)" :size="11" class="qm-badge-icon" />
-              <span class="qm-palace-name">{{ cell.palace }}宫</span>
-              <span class="qm-palace-wx">{{ palaceWuxingZh[cell.palace] }}</span>
+          <div class="qm-palace-head">
+            <div class="qm-palace-name">
+              <strong>{{ cell.palace }}</strong>
+              <span>{{ palaceNumber[cell.palace] }}</span>
+            </div>
+            <div class="qm-palace-meta">
+              <span>{{ palaceDirection[cell.palace] }}</span>
+              <span>{{ palaceWuxingZh[cell.palace] }}</span>
             </div>
           </div>
 
-          <div class="qm-god">{{ cell.god || '—' }}</div>
+          <div class="qm-symbol-row top">
+            <span class="qm-layer-label">神</span>
+            <strong class="qm-god">{{ cell.god || '—' }}</strong>
+            <span v-if="cell.palace === dutyPalace" class="qm-duty-badge">值</span>
+          </div>
 
-          <div class="qm-core-pair">
-            <div class="qm-star-wrap">
-              <span class="qm-label">星</span>
-              <span class="qm-star">{{ cell.star || '—' }}</span>
+          <div class="qm-main-layer">
+            <div :class="['qm-door-token', doorClass(cell.door)]">
+              <span>门</span>
+              <strong>{{ cell.door || '—' }}</strong>
             </div>
-            <div class="qm-door-wrap">
-              <span class="qm-label">门</span>
-              <span class="qm-door">{{ cell.door || '—' }}</span>
+            <div class="qm-star-token">
+              <span>星</span>
+              <strong>{{ cell.star || '—' }}</strong>
             </div>
           </div>
 
-          <div class="qm-gans-matrix">
-            <span class="qm-gan-cell guest">{{ cell.guest_gan || '—' }}</span>
-            <span class="qm-gan-divider">/</span>
-            <span class="qm-gan-cell host">{{ cell.host_gan || '—' }}</span>
+          <div class="qm-stem-stack">
+            <div>
+              <span>天盘</span>
+              <strong>{{ cell.guest_gan || '—' }}</strong>
+            </div>
+            <div>
+              <span>地盘</span>
+              <strong>{{ cell.host_gan || '—' }}</strong>
+            </div>
           </div>
         </template>
-      </div>
+      </article>
+    </section>
+
+    <div class="qm-legend">
+      <span><i class="qm-dot duty"></i>值符/值使所在宫</span>
+      <span><i class="qm-dot door"></i>八门为行动入口</span>
+      <span><i class="qm-dot star"></i>九星为天时性质</span>
+      <span><i class="qm-dot stem"></i>天盘干 / 地盘干看组合</span>
+    </div>
+
+    <div class="qm-actions">
+      <button type="button" class="qm-copy-btn" @click="copyMarkdown">
+        {{ copied ? '已复制' : '复制命盘' }}
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import ElementSprite from './sprites/ElementSprite.vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps<{ data: any }>()
+const copied = ref(false)
 
 const gridLayoutPalaces = ['巽', '离', '坤', '震', '中', '兑', '艮', '坎', '乾']
 
@@ -87,11 +118,11 @@ const gridCells = computed(() => {
     map.set(c.palace, c)
   }
 
-  return gridLayoutPalaces.map(name => {
+  return gridLayoutPalaces.map((name) => {
     if (map.has(name)) {
       return {
         ...map.get(name),
-        isCenterDummy: false
+        isCenterDummy: false,
       }
     }
     return {
@@ -101,7 +132,7 @@ const gridCells = computed(() => {
       door: '',
       guest_gan: '',
       host_gan: '',
-      isCenterDummy: true
+      isCenterDummy: true,
     }
   })
 })
@@ -109,76 +140,163 @@ const gridCells = computed(() => {
 const dutyPalace = computed(() => props.data?.duty_palace || '')
 
 const palaceWuxingZh: Record<string, string> = {
-  坎: '水', 坤: '土', 震: '木', 巽: '木',
-  中: '土', 乾: '金', 兑: '金', 艮: '土', 离: '火',
+  坎: '水',
+  坤: '土',
+  震: '木',
+  巽: '木',
+  中: '土',
+  乾: '金',
+  兑: '金',
+  艮: '土',
+  离: '火',
 }
 
-const palaceWuxing: Record<string, 'wood'|'fire'|'earth'|'metal'|'water'> = {
-  坎: 'water', 坤: 'earth', 震: 'wood', 巽: 'wood',
-  中: 'earth', 乾: 'metal', 兑: 'metal', 艮: 'earth', 离: 'fire',
+const palaceWuxing: Record<string, 'wood' | 'fire' | 'earth' | 'metal' | 'water'> = {
+  坎: 'water',
+  坤: 'earth',
+  震: 'wood',
+  巽: 'wood',
+  中: 'earth',
+  乾: 'metal',
+  兑: 'metal',
+  艮: 'earth',
+  离: 'fire',
 }
 
+const palaceNumber: Record<string, string> = {
+  坎: '一',
+  坤: '二',
+  震: '三',
+  巽: '四',
+  中: '五',
+  乾: '六',
+  兑: '七',
+  艮: '八',
+  离: '九',
+}
+
+const palaceDirection: Record<string, string> = {
+  坎: '北',
+  坤: '西南',
+  震: '东',
+  巽: '东南',
+  中: '中',
+  乾: '西北',
+  兑: '西',
+  艮: '东北',
+  离: '南',
+}
+
+const displayOrder: Record<string, number> = {
+  中: 0,
+  坎: 1,
+  离: 1,
+  震: 1,
+  兑: 1,
+  坤: 2,
+  乾: 2,
+  艮: 2,
+  巽: 2,
+}
+
+// palaceElement returns the five-element class for each palace.
 function palaceElement(palace: string) {
   return palaceWuxing[palace] || 'earth'
 }
 
-const displayOrder: Record<string, number> = {
-  中: 0, 坎: 1, 离: 1, 震: 1, 兑: 1,
-  坤: 2, 乾: 2, 艮: 2, 巽: 2,
-}
-
+// cellDelay keeps the board reveal centered instead of strictly row-based.
 function cellDelay(palace: string) {
-  return (displayOrder[palace] ?? 2) * 60
+  return (displayOrder[palace] ?? 2) * 48
 }
 
-function handleTilt(e: MouseEvent) {
-  const el = e.currentTarget as HTMLElement
-  const rect = el.getBoundingClientRect()
-  const x = e.clientX - rect.left
-  const y = e.clientY - rect.top
-  const xc = rect.width / 2
-  const yc = rect.height / 2
-  const rotateY = ((x - xc) / xc) * 8
-  const rotateX = -((y - yc) / yc) * 8
-  el.style.transform = `perspective(600px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-4px)`
-  el.style.boxShadow = `0 10px 20px rgba(0, 0, 0, 0.12), 0 0 12px var(--accent-bg)`
+// doorClass gives the Eight Gates quick visual tone without changing facts.
+function doorClass(door?: string) {
+  if (!door) return 'door-neutral'
+  if (door.includes('开') || door.includes('休') || door.includes('生')) return 'door-open'
+  if (door.includes('死') || door.includes('惊') || door.includes('伤')) return 'door-tense'
+  return 'door-neutral'
 }
 
-function resetTilt(e: MouseEvent) {
-  const el = e.currentTarget as HTMLElement
-  el.style.transform = `perspective(600px) rotateX(0deg) rotateY(0deg) translateY(0)`
-  el.style.boxShadow = ``
+// copyMarkdown copies the complete Qi Men board as readable Markdown.
+async function copyMarkdown() {
+  await navigator.clipboard.writeText(formatQimenMarkdown(props.data || {}))
+  copied.value = true
+  window.setTimeout(() => {
+    copied.value = false
+  }, 2000)
+}
+
+// formatQimenMarkdown keeps the copied board in the visible nine-palace order.
+function formatQimenMarkdown(data: any): string {
+  const cellMap = new Map<string, any>()
+  for (const cell of data.cells || []) cellMap.set(cell.palace, cell)
+
+  const lines = ['# 奇门遁甲命盘', '', '## 基本信息']
+  lines.push('- 局数：' + field(data.ju_text))
+  lines.push('- 值符值使：' + field(data.duty_text))
+  lines.push('- 值符/值使宫：' + field(data.duty_palace))
+  lines.push('- 起局时间：' + field(data.question_time))
+  lines.push('', '## 九宫')
+
+  for (const palace of gridLayoutPalaces) {
+    const cell = cellMap.get(palace) || { palace }
+    lines.push('### ' + palace + '宫（' + palaceDirection[palace] + ' · ' + palaceWuxingZh[palace] + '）')
+    if (palace === data.duty_palace) lines.push('- 标记：值符/值使所在宫')
+    lines.push('- 神：' + field(cell.god))
+    lines.push('- 门：' + field(cell.door))
+    lines.push('- 星：' + field(cell.star))
+    lines.push('- 天盘干：' + field(cell.guest_gan))
+    lines.push('- 地盘干：' + field(cell.host_gan))
+  }
+  return lines.join('\n')
+}
+
+// field normalizes absent copied fields to an em dash.
+function field(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '—'
+  return String(value)
 }
 </script>
 
 <style scoped>
 .qimen-card {
-  text-align: left;
   max-width: 100%;
   padding: 18px;
+  border: 1px solid rgba(184, 149, 106, 0.18);
   border-radius: 20px;
   background:
-    radial-gradient(circle at top, rgba(26, 38, 53, 0.96), rgba(22, 27, 39, 0.98)),
+    radial-gradient(circle at top, rgba(30, 39, 49, 0.98), rgba(17, 22, 31, 0.99)),
     linear-gradient(180deg, rgba(184, 149, 106, 0.08), transparent 28%);
   color: #f3ecdf;
-  border: 1px solid rgba(184, 149, 106, 0.18);
+  text-align: left;
 }
 
 .qm-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
   margin-bottom: 16px;
 }
 
 .qm-kicker {
+  color: rgba(243, 236, 223, 0.68);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+
+.qm-title {
+  margin-top: 2px;
   font-family: var(--serif);
-  font-size: 17px;
-  font-weight: 700;
   color: #f0ddba;
-  margin-bottom: 10px;
+  font-size: 22px;
+  font-weight: 800;
 }
 
 .qm-info {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -186,373 +304,322 @@ function resetTilt(e: MouseEvent) {
   display: inline-flex;
   align-items: center;
   padding: 5px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  color: rgba(243, 236, 223, 0.82);
-  background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(240, 221, 186, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(243, 236, 223, 0.82);
+  font-size: 11px;
 }
 
-.qm-info-chip-accent {
+.qm-info-chip.accent {
+  border-color: rgba(184, 149, 106, 0.28);
+  background: rgba(184, 149, 106, 0.14);
   color: #f3e0b7;
-  background: rgba(184, 149, 106, 0.12);
-  border-color: rgba(184, 149, 106, 0.24);
 }
 
-.qm-grid {
+.qm-board {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  padding: 16px;
+  padding: 14px;
   border: 1px solid rgba(240, 221, 186, 0.12);
   border-radius: 18px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)),
-    radial-gradient(circle at center, rgba(184, 149, 106, 0.06), transparent 68%);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+    linear-gradient(90deg, rgba(240, 221, 186, 0.04) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(240, 221, 186, 0.04) 1px, transparent 1px),
+    radial-gradient(circle at center, rgba(184, 149, 106, 0.08), transparent 68%);
+  background-size: 33.33% 33.33%, 33.33% 33.33%, auto;
 }
 
 .qm-cell {
   position: relative;
-  background: rgba(248, 244, 235, 0.05);
-  border: 1px solid rgba(240, 221, 186, 0.12);
-  border-radius: 16px;
-  padding: 14px 10px;
-  text-align: center;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  min-height: 140px;
+  gap: 9px;
+  min-height: 154px;
+  padding: 12px;
+  border: 1px solid rgba(240, 221, 186, 0.12);
+  border-radius: 16px;
+  background: rgba(248, 244, 235, 0.05);
   opacity: 0;
   overflow: hidden;
-  transform-style: preserve-3d;
-  animation: cell-in 0.3s cubic-bezier(0.22,0.61,0.36,1) forwards;
-  transition: transform 0.25s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.25s ease;
-  background-image: radial-gradient(circle at center, transparent 40%, rgba(184, 149, 106, 0.02) 41%, rgba(184, 149, 106, 0.02) 43%, transparent 44%),
-                    radial-gradient(circle at center, transparent 65%, rgba(184, 149, 106, 0.015) 66%, rgba(184, 149, 106, 0.015) 67%, transparent 68%);
+  animation: qm-cell-in 0.3s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
 }
 
-.qm-cell::after {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(
-    115deg,
-    transparent 40%,
-    rgba(212, 175, 55, 0.08) 48%,
-    rgba(255, 255, 255, 0.15) 50%,
-    rgba(212, 175, 55, 0.08) 52%,
-    transparent 60%
-  );
-  transform: translate(-30%, -30%);
-  pointer-events: none;
-  opacity: 0;
-}
-
-.qm-cell:hover::after {
-  transform: translate(15%, 15%);
-  transition: transform 0.8s cubic-bezier(0.19, 1, 0.22, 1);
-  opacity: 1;
-}
-
-.qm-cell:hover {
-  z-index: 2;
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.12), 0 0 12px var(--accent-bg);
-}
-
-@keyframes cell-in {
-  from { opacity: 0; transform: scale(0.92); }
+@keyframes qm-cell-in {
+  from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }
 }
 
-.qm-cell.qm-duty {
-  border-color: #d8b97d !important;
-  background: rgba(184, 149, 106, 0.1) !important;
-  animation: duty-glow-cells 3s infinite ease-in-out;
-}
-
-@keyframes duty-glow-cells {
-  0%, 100% {
-    box-shadow: 0 0 12px rgba(184, 149, 106, 0.18), 0 0 0 1px #d8b97d;
-  }
-  50% {
-    box-shadow: 0 0 24px rgba(184, 149, 106, 0.25), 0 0 0 1.5px #d8b97d;
-  }
-}
-
-.qm-cell.qm-center {
-  background: rgba(248, 244, 235, 0.03);
-  border-color: rgba(240, 221, 186, 0.12);
-}
-
-.corner-dot {
+.qm-cell::before {
+  content: "";
   position: absolute;
-  width: 6px;
-  height: 6px;
+  inset: 0;
+  border-left: 4px solid transparent;
   pointer-events: none;
-  transition: opacity 0.25s ease;
-  opacity: 0.3;
 }
 
-.corner-dot.tl {
-  top: 6px;
-  left: 6px;
-  border-top: 1px solid #c7a76f;
-  border-left: 1px solid #c7a76f;
+.qm-water::before { border-left-color: rgba(107, 138, 168, 0.75); }
+.qm-wood::before { border-left-color: rgba(122, 158, 126, 0.75); }
+.qm-fire::before { border-left-color: rgba(196, 122, 106, 0.8); }
+.qm-earth::before { border-left-color: rgba(184, 149, 106, 0.78); }
+.qm-metal::before { border-left-color: rgba(196, 169, 106, 0.78); }
+
+.qm-cell.is-duty {
+  border-color: #d8b97d;
+  background: rgba(184, 149, 106, 0.12);
+  box-shadow: 0 0 0 1px rgba(216, 185, 125, 0.52), 0 0 22px rgba(184, 149, 106, 0.2);
 }
 
-.corner-dot.tr {
-  top: 6px;
-  right: 6px;
-  border-top: 1px solid #c7a76f;
-  border-right: 1px solid #c7a76f;
+.qm-cell.is-center {
+  justify-content: center;
+  border-style: dashed;
+  background: rgba(248, 244, 235, 0.035);
 }
 
-.corner-dot.bl {
-  bottom: 6px;
-  left: 6px;
-  border-bottom: 1px solid #c7a76f;
-  border-left: 1px solid #c7a76f;
-}
-
-.corner-dot.br {
-  bottom: 6px;
-  right: 6px;
-  border-bottom: 1px solid #c7a76f;
-  border-right: 1px solid #c7a76f;
-}
-
-.qm-cell.qm-duty .corner-dot,
-.qm-cell:hover .corner-dot {
-  opacity: 0.8;
-}
-
-.qm-cell-header {
+.qm-center-mark {
   display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  width: 100%;
-  border-bottom: 1px dashed rgba(240, 221, 186, 0.14);
-  padding-bottom: 8px;
-  margin-bottom: 12px;
-}
-
-.qm-palace-badge {
-  display: inline-flex;
+  flex-direction: column;
   align-items: center;
   gap: 5px;
-  padding: 2px 7px 2px 6px;
-  border-radius: 20px;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.01);
-  transition: transform 0.2s;
+  color: rgba(243, 236, 223, 0.7);
+  text-align: center;
 }
 
-.qm-cell:hover .qm-palace-badge {
-  transform: scale(1.02);
+.qm-taiji {
+  width: 42px;
+  height: 42px;
+  color: #e2c48d;
 }
 
-.qm-badge-icon {
-  opacity: 0.95;
-  display: block;
+.qm-center-mark span {
+  color: #f0ddba;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
-.qm-badge-icon :deep(rect) {
-  fill: none !important;
-  stroke: none !important;
+.qm-center-mark em {
+  color: rgba(243, 236, 223, 0.5);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.qm-palace-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(240, 221, 186, 0.12);
 }
 
 .qm-palace-name {
-  font-family: var(--sans);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
 }
 
-.qm-palace-wx {
-  opacity: 0.75;
-  font-weight: 500;
+.qm-palace-name strong {
+  font-family: var(--serif);
+  color: #fff3d8;
+  font-size: 20px;
 }
 
-.wx-badge-water {
-  background: rgba(107, 138, 168, 0.08);
-  color: #8bb2d5;
-  border: 1px solid rgba(107, 138, 168, 0.22);
+.qm-palace-name span,
+.qm-palace-meta {
+  color: rgba(243, 236, 223, 0.58);
+  font-size: 10px;
 }
 
-.wx-badge-wood {
-  background: rgba(122, 158, 126, 0.08);
-  color: #9cc69f;
-  border: 1px solid rgba(122, 158, 126, 0.22);
-}
-
-.wx-badge-fire {
-  background: rgba(196, 122, 106, 0.08);
-  color: #efb0a2;
-  border: 1px solid rgba(196, 122, 106, 0.22);
-}
-
-.wx-badge-earth {
-  background: rgba(184, 149, 106, 0.08);
-  color: #e0c18e;
-  border: 1px solid rgba(184, 149, 106, 0.22);
-}
-
-.wx-badge-metal {
-  background: rgba(196, 169, 106, 0.08);
-  color: #efd597;
-  border: 1px solid rgba(196, 169, 106, 0.22);
-}
-
-.qm-center-dummy {
+.qm-palace-meta {
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.qm-symbol-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.qm-layer-label {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-top: auto;
-  margin-bottom: auto;
-  color: rgba(243, 236, 223, 0.62);
-  opacity: 0.45;
-  transition: opacity 0.25s, transform 0.25s;
-}
-
-.qm-cell:hover .qm-center-dummy {
-  opacity: 0.85;
-  transform: scale(1.05);
-}
-
-.taiji-icon {
-  width: 38px;
-  height: 38px;
-  color: #e2c48d;
-  margin-bottom: 10px;
-  animation: rotate-taiji 20s linear infinite;
-}
-
-.qm-dummy-label {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(243, 236, 223, 0.54);
   font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 1px;
-}
-
-.qm-dummy-cell {
-  background: rgba(248, 244, 235, 0.03) !important;
-  border: 1px dashed rgba(240, 221, 186, 0.14) !important;
-}
-
-@keyframes rotate-taiji {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }
 
 .qm-god {
-  position: relative;
-  z-index: 2;
-  transform: translateZ(10px);
-  font-size: 11px;
-  font-weight: 600;
   color: #f2d8a1;
-  letter-spacing: 2px;
-  margin-bottom: 8px;
-  margin-top: 2px;
-  transition: transform 0.25s;
+  font-size: 13px;
+  letter-spacing: 0.12em;
 }
 
-.qm-cell:hover .qm-god {
-  transform: translateZ(18px);
+.qm-duty-badge {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(216, 185, 125, 0.16);
+  color: #f0d49b;
+  font-size: 10px;
+  font-weight: 800;
 }
 
-.qm-core-pair {
-  position: relative;
-  z-index: 2;
-  transform: translateZ(10px);
-  display: flex;
-  width: 100%;
-  justify-content: space-around;
-  margin-bottom: 8px;
-  gap: 12px;
-  transition: transform 0.25s;
+.qm-main-layer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
-.qm-cell:hover .qm-core-pair {
-  transform: translateZ(18px);
-}
-
-.qm-star-wrap,
-.qm-door-wrap {
+.qm-door-token,
+.qm-star-token {
   display: flex;
   flex-direction: column;
-  align-items: center;
-}
-
-.qm-label {
-  font-size: 8px;
-  color: rgba(243, 236, 223, 0.54);
-  text-transform: uppercase;
-  margin-bottom: 2px;
-}
-
-.qm-star {
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff8eb;
-}
-
-.qm-door {
-  font-size: 13px;
-  font-weight: 600;
-  color: #f0c878;
-}
-
-.qm-gans-matrix {
-  position: relative;
-  z-index: 2;
-  transform: translateZ(10px);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-family: var(--mono);
-  color: rgba(243, 236, 223, 0.66);
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 8px;
+  border-radius: 12px;
   background: rgba(0, 0, 0, 0.18);
-  padding: 2px 8px;
-  border-radius: 6px;
+  border: 1px solid rgba(240, 221, 186, 0.1);
+}
+
+.qm-door-token span,
+.qm-star-token span,
+.qm-stem-stack span {
+  color: rgba(243, 236, 223, 0.54);
+  font-size: 10px;
+}
+
+.qm-door-token strong,
+.qm-star-token strong {
+  color: #fff8eb;
+  font-size: 15px;
+}
+
+.qm-door-token.door-open {
+  border-color: rgba(122, 158, 126, 0.28);
+  background: rgba(122, 158, 126, 0.12);
+}
+
+.qm-door-token.door-tense {
+  border-color: rgba(196, 122, 106, 0.28);
+  background: rgba(196, 122, 106, 0.12);
+}
+
+.qm-door-token.door-neutral {
+  border-color: rgba(196, 169, 106, 0.22);
+  background: rgba(196, 169, 106, 0.08);
+}
+
+.qm-star-token {
+  background: rgba(107, 138, 168, 0.1);
+}
+
+.qm-stem-stack {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
   margin-top: auto;
-  border: 1px solid rgba(240, 221, 186, 0.12);
-  transition: transform 0.25s;
 }
 
-.qm-cell:hover .qm-gans-matrix {
-  transform: translateZ(16px);
+.qm-stem-stack div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 7px;
+  border: 1px solid rgba(240, 221, 186, 0.1);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.qm-gan-cell {
-  font-weight: 600;
+.qm-stem-stack strong {
   color: #f4ead4;
+  font-family: var(--mono);
+  font-size: 13px;
 }
 
-.qm-gan-divider {
-  opacity: 0.4;
-  font-size: 9px;
+.qm-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-top: 14px;
+  color: rgba(243, 236, 223, 0.66);
+  font-size: 11px;
 }
 
-@media (max-width: 640px) {
+.qm-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qm-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.qm-dot.duty { background: #d8b97d; }
+.qm-dot.door { background: #7a9e7e; }
+.qm-dot.star { background: #6b8aa8; }
+.qm-dot.stem { background: #c4a96a; }
+
+.qm-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.qm-copy-btn {
+  border: 1px solid rgba(240, 221, 186, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(243, 236, 223, 0.82);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.qm-copy-btn:hover {
+  background: rgba(184, 149, 106, 0.14);
+  border-color: rgba(184, 149, 106, 0.42);
+  color: #f3e0b7;
+}
+
+@media (max-width: 760px) {
+  .qm-header {
+    flex-direction: column;
+  }
+
+  .qm-info {
+    justify-content: flex-start;
+  }
+
+  .qm-board {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
   .qimen-card {
     padding: 14px;
     border-radius: 16px;
   }
 
-  .qm-grid {
-    gap: 8px;
-    padding: 10px;
-  }
-
-  .qm-cell {
-    min-height: 124px;
-    padding: 12px 8px;
+  .qm-main-layer,
+  .qm-stem-stack {
+    grid-template-columns: 1fr;
   }
 }
 </style>

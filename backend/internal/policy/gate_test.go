@@ -1,3 +1,6 @@
+// This test file belongs to the deterministic policy layer.
+// It verifies policy gate behavior and protects the related contract from regressions.
+// It applies deterministic route policy; model calls stay outside this package.
 package policy
 
 import (

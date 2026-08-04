@@ -1,3 +1,6 @@
+// This file belongs to the BaZi deterministic calculation layer.
+// It owns BaZi lookup tables for this package.
+// It computes reproducible BaZi facts; it must not generate narrative readings.
 package bazi
 
 // 共享查表——天干五行、地支藏干、五行相克、十神速查。

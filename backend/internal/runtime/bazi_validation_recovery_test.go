@@ -1,3 +1,6 @@
+// This test file belongs to the manager-owned runtime layer.
+// It verifies BaZi validation recovery and protects the related contract from regressions.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -196,6 +199,24 @@ func TestValidateDynamicStage_RejectsUnsupportedBoundaryTerms(t *testing.T) {
 	}
 }
 
+func TestValidateDynamicStage_RejectsInvestmentAdviceWording(t *testing.T) {
+	state := baziCharterState{DynamicSynthesis: baziDynamicSynthesis{
+		CurrentTrend:     "当前仅作结构观察。",
+		ClaimStrength:    "倾向成立",
+		SupportLevel:     "有气",
+		LimitationLevel:  "明显",
+		WordingCap:       "中性",
+		DayunPath:        []string{"己巳运只能说明结构触发，不能推断投资建议。"},
+		LiunianFocus:     "这一年仅作结构观察。",
+		WindowLevel:      "窗口年",
+		ReasoningSummary: "只按结构观察。",
+		ReasoningSteps:   []string{"先看大运和流年关系。"},
+	}}
+	if err := validateDynamicStage(state); err == nil {
+		t.Fatal("expected investment advice wording to fail validation")
+	}
+}
+
 func TestValidateDynamicStage_AllowsOrdinaryBaziInterpretiveLanguage(t *testing.T) {
 	state := baziCharterState{DynamicSynthesis: baziDynamicSynthesis{
 		CurrentTrend:     "当前承接与扰动并存。",
@@ -214,28 +235,83 @@ func TestValidateDynamicStage_AllowsOrdinaryBaziInterpretiveLanguage(t *testing.
 	}
 }
 
-func TestRunStaticSynthesisWithFeedback_ErrorsAfterRepeatedFatalValidationFailure(t *testing.T) {
-	executor := &Executor{}
-	chartState := baziCharterState{}
-	invalid := validStaticSynthesisForConsistencyTests()
-	invalid.AxisLevel = "可以拔高"
-	invalid.AxisCeiling = "结构信号"
-	invalid.PatternOutcome = "这条路线已经贵格已成，可以拔高。"
-	invalid.TierBasis = "已经具备拔高到上等的条件。"
-
-	calls := 0
-	out, err := executor.runStaticSynthesisWithFeedback(chartState, func(payload map[string]any) (baziStaticSynthesis, error) {
-		calls++
-		return invalid, nil
+func TestRecoverStaticSynthesisAfterRetry_RecoversEvidenceOverclaimOnly(t *testing.T) {
+	chartState := baziCharterState{
+		EvidenceQuality: baziEvidenceQuality{
+			RequiredTopics: []string{"geju", "bingyao"},
+			CoveredTopics:  []string{"geju"},
+			MissingTopics:  []string{"bingyao"},
+		},
+	}
+	candidate := validStaticSynthesisForConsistencyTests()
+	candidate.TierJudgment = "中上"
+	candidate.TierBasis = "已经具备拔高到上等的条件。"
+	cause := baziContractAuditError("static", baziContractAuditFinding{
+		Code:    "evidence_topic_overclaim",
+		Field:   "static.tier",
+		Excerpt: "中上",
+		Reason:  "static.tier 已声明 withheld_missing_evidence 但继续硬断层次",
 	})
-	if err == nil {
-		t.Fatalf("expected fatal validation failure after retry, got output %+v", out)
+
+	out, err := recoverStaticSynthesisAfterRetry(chartState, candidate, cause)
+	if err != nil {
+		t.Fatalf("expected evidence overclaim to recover as facts-only, got %v", err)
 	}
-	if calls != 2 {
-		t.Fatalf("static synthesis calls = %d, want 2", calls)
+	if out.Source != baziSynthesisSourceFactsOnlyDegraded {
+		t.Fatalf("source = %q, want facts-only degraded", out.Source)
 	}
-	if out.Source == baziSynthesisSourceFactsOnlyDegraded {
-		t.Fatalf("fatal retry failure must not return facts-only degraded output: %+v", out)
+	if !containsString(out.FieldAudit, "contract_failure_class:"+baziContractFailureEvidenceOverclaim) ||
+		!containsString(out.FieldAudit, "recovery_policy:"+baziRecoveryPolicyStaticFactsOnly) {
+		t.Fatalf("facts-only recovery must record classification, got %v", out.FieldAudit)
+	}
+	text := strings.Join([]string{out.MainAxis, out.PatternOutcome, out.TierBasis, out.ReasoningSummary}, "\n")
+	if containsAnyText([]string{text}, []string{"中上", "可以拔高", "拔高到上等"}) {
+		t.Fatalf("facts-only recovery must discard invalid candidate text, got %+v", out)
+	}
+}
+
+func TestRecoverStaticSynthesisAfterRetry_RejectsMethodContractFailure(t *testing.T) {
+	chartState := baziCharterState{}
+	candidate := validStaticSynthesisForConsistencyTests()
+	cause := baziContractAuditError("static", baziContractAuditFinding{
+		Code:   "hidden_axis_uncompared",
+		Field:  "static.pattern_adjudication",
+		Reason: "hidden axis selected without complete comparison",
+	})
+
+	if _, err := recoverStaticSynthesisAfterRetry(chartState, candidate, cause); err == nil {
+		t.Fatal("method-contract failures must not silently become facts-only")
+	}
+}
+
+func TestBuildStaticSynthesisFeedback_RepeatsTierEvidenceBoundary(t *testing.T) {
+	chartState := baziCharterState{
+		EvidenceQuality: baziEvidenceQuality{
+			RequiredTopics: []string{"geju", "bingyao"},
+			CoveredTopics:  []string{"geju"},
+			MissingTopics:  []string{"bingyao"},
+		},
+	}
+	cause := baziContractAuditError("static", baziContractAuditFinding{
+		Code:   "evidence_topic_overclaim",
+		Field:  "static.tier",
+		Reason: "tier overclaim",
+	})
+
+	feedback := buildStaticSynthesisFeedback(chartState, validStaticSynthesisForConsistencyTests(), cause)
+	for _, want := range []string{
+		"missing_topics=bingyao",
+		"static.tier",
+		"tier_judgment",
+		"tier_basis",
+		"assertions[].verdict",
+		"命格层次中等（保守定位）",
+		"暂不定级",
+		"不得输出“中上”",
+	} {
+		if !strings.Contains(feedback, want) {
+			t.Fatalf("static feedback missing %q in %s", want, feedback)
+		}
 	}
 }
 
@@ -375,11 +451,105 @@ func TestRecoverDynamicSynthesis_ReturnsFactsOnlyAndDropsCandidateText(t *testin
 	if err := validateDynamicStage(state); err != nil {
 		t.Fatalf("expected facts-only dynamic synthesis to pass stage validation, got %v", err)
 	}
-	text := strings.Join(append([]string{out.CurrentTrend, out.LiunianFocus, out.ReasoningSummary}, out.DayunPath...), "\n")
+	textParts := append([]string{out.CurrentTrend, out.LiunianFocus, out.ReasoningSummary}, out.DayunPath...)
+	textParts = append(textParts, out.TriggerSignals...)
+	textParts = append(textParts, out.ReasoningSteps...)
+	text := strings.Join(textParts, "\n")
 	if containsAnyText([]string{text}, []string{"一路顺", "明显起飞", "官非", "一飞冲天", "彻底起势"}) {
 		t.Fatalf("facts-only dynamic recovery must drop candidate judgment text, got %+v", out)
 	}
 	if !strings.Contains(text, "甲午") || !strings.Contains(text, "午午自刑") {
 		t.Fatalf("facts-only dynamic recovery must retain computed dayun facts, got %+v", out)
+	}
+}
+
+func TestRecoverDynamicSynthesisAfterRetry_ReplacesUnauthorizedAdultOutcome(t *testing.T) {
+	state := baziCharterState{
+		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
+		Input: baziCharterInput{
+			BaziResult: map[string]any{"birthday": "1994-01-21 20:15"},
+			Dayun: map[string]any{"dayun_analyzed": []map[string]any{{
+				"ganZhi": "戊辰", "tenGod": "伤官", "dayun_chonghe": []map[string]any{{"description": "大运辰戌冲时柱戌"}},
+			}}},
+			Liunian: map[string]any{
+				"liunian_year":     2026,
+				"liunian_ganzhi":   "丙午",
+				"liunian_shi_shen": "劫财",
+				"liunian_chonghe":  []map[string]any{{"description": "流年丑午害月柱丑"}},
+			},
+		},
+	}
+	candidate := baziDynamicSynthesis{
+		CurrentTrend:      "当前财务机会明显，可考虑投资与收入兑现。",
+		ClaimStrength:     "倾向成立",
+		SupportLevel:      "有气",
+		LimitationLevel:   "明显",
+		WordingCap:        "中性",
+		ConsistencyFlags:  []string{dynamicFlagStructureOnly},
+		DayunPath:         []string{"戊辰运：财务建议更积极，适合投资。"},
+		CurrentDayunIndex: 0,
+		LiunianFocus:      "丙午流年利收入。",
+		WindowLevel:       "窗口年",
+		OutcomeDomains:    []string{"structure", "user_requested_authorized_domain"},
+		ReasoningSummary:  "候选越过了用户未授权的财务领域。",
+		ReasoningSteps:    []string{"先看财务机会。"},
+	}
+
+	out, err := recoverDynamicSynthesisAfterRetry(state, candidate, baziContractAuditError("dynamic", baziContractAuditFinding{
+		Code:           "outcome_domain_mismatch",
+		Field:          "dynamic.dayun_judgments[0].interpretation",
+		DetectedDomain: "finance",
+		Reason:         "未授权财务领域",
+	}))
+	if err != nil {
+		t.Fatalf("expected dynamic retry recovery to be valid, got %v", err)
+	}
+	if out.Source != baziSynthesisSourceFactsOnlyDegraded {
+		t.Fatalf("dynamic retry recovery source = %q, want facts-only degraded", out.Source)
+	}
+	state.DynamicSynthesis = out
+	if err := validateDynamicSynthesisResult(state, out); err != nil {
+		t.Fatalf("recovered dynamic synthesis must pass validation, got %v", err)
+	}
+	textParts := append([]string{out.CurrentTrend, out.LiunianFocus, out.ReasoningSummary}, out.DayunPath...)
+	textParts = append(textParts, out.TriggerSignals...)
+	textParts = append(textParts, out.ReasoningSteps...)
+	text := strings.Join(textParts, "\n")
+	if containsAnyText([]string{text}, []string{"财务机会", "投资", "收入兑现", "利收入"}) {
+		t.Fatalf("retry recovery must discard unauthorized candidate text, got %+v", out)
+	}
+	if !strings.Contains(text, "戊辰") || !strings.Contains(text, "辰戌冲") || !strings.Contains(text, "丙午") {
+		t.Fatalf("retry recovery must retain computed dynamic facts, got %+v", out)
+	}
+}
+
+func TestRecoverDynamicSynthesisAfterRetry_RejectsBranchTenGodConflict(t *testing.T) {
+	state := baziCharterState{
+		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
+		Input: baziCharterInput{Dayun: map[string]any{"dayun_analyzed": []map[string]any{{
+			"ganZhi": "戊辰", "tenGod": "伤官",
+		}}}},
+	}
+	candidate := baziDynamicSynthesis{
+		CurrentTrend:     "仅作结构观察。",
+		ClaimStrength:    "保守判断",
+		SupportLevel:     "出现",
+		LimitationLevel:  "明显",
+		WordingCap:       "保守",
+		ConsistencyFlags: []string{dynamicFlagStructureOnly},
+		DayunPath:        []string{"戊辰运：仅作结构观察。"},
+		LiunianFocus:     "仅作结构观察。",
+		WindowLevel:      "扰动年",
+		ReasoningSummary: "仅作结构观察。",
+		ReasoningSteps:   []string{"先看戊辰运。"},
+	}
+	cause := baziContractAuditError("dynamic", baziContractAuditFinding{
+		Code:   "branch_tengod_conflict",
+		Field:  "dynamic.dayun_judgments[0].evidence",
+		Reason: "地支本气十神与输入不一致",
+	})
+
+	if _, err := recoverDynamicSynthesisAfterRetry(state, candidate, cause); err == nil {
+		t.Fatal("branch ten-god conflicts must not default to facts-only recovery")
 	}
 }

@@ -1,3 +1,6 @@
+// This test file belongs to the local observability layer.
+// It verifies cheap-gate summary aggregation and protects the related contract from regressions.
+// It summarizes evidence for operators; it is not an acceptance source by itself.
 package observability
 
 import (

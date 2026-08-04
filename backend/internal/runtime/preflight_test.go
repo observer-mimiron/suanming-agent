@@ -1,3 +1,6 @@
+// This test file belongs to the manager-owned runtime layer.
+// It verifies preflight behavior and protects the related contract from regressions.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -113,6 +116,26 @@ func TestPreflight_ClarificationRouteShortCircuits(t *testing.T) {
 	})
 	if result.Text != want {
 		t.Fatalf("Text: got %q, want %q", result.Text, want)
+	}
+}
+
+func TestPreflight_BaziCompleteBirthInputIgnoresGenericClarification(t *testing.T) {
+	st := state.NewSession("test-session")
+	route := routeWithHints("bazi", "amend_profile", "none", "full")
+	route.NeedsClarification = true
+	route.ClarificationQuestion = "请问您想咨询哪方面？"
+	route.Slots.Profile = map[string]any{
+		"birthplace": "南京",
+		"year":       1994.0,
+		"month":      1.0,
+		"day":        21.0,
+		"hour":       20.0,
+		"gender":     "女",
+	}
+
+	result := preflight(st, route, "1994年1月21日20点30分 女 南京", nil)
+	if result.ShortCircuit {
+		t.Fatalf("complete bazi birth input should execute, got TurnType=%q Text=%q", result.TurnType, result.Text)
 	}
 }
 
@@ -474,7 +497,7 @@ func TestPreflight_BaziGlossaryFollowupDoesNotHijackCrossDomain(t *testing.T) {
 
 func TestPreflight_ReusedArtifactFollowupShortCircuitsDirectly(t *testing.T) {
 	st := makeSession(true, true, false)
-	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": "zi_zheng_v1"}, "test")
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": currentBaziCalendarRule()}, "test")
 	st.StoreInterpretation("bazi", map[string]any{
 		"domain":  "bazi",
 		"summary": "上轮已经判断事业主线可走稳。",

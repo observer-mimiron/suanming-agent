@@ -1,3 +1,6 @@
+// This test file belongs to the manager-owned runtime layer.
+// It verifies asset focus resolution and protects the related contract from regressions.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -73,6 +76,95 @@ func TestResolveArtifactFocus_SingleSubjectPronounKeepsActiveFocus(t *testing.T)
 	}
 }
 
+func TestResolveArtifactFocus_TopicTargetDoesNotCreateSubject(t *testing.T) {
+	st := state.NewSession("resolver-topic")
+	st.MergeProfile(completeProfileForResolver(1994))
+
+	plan := (&Manager{}).BuildExecutionPlan(st, policy.ApprovedRoute{
+		PrimaryDomain: "ziwei",
+		TaskIntent:    "interpret_chart",
+		Slots:         schemas.DecisionSlots{TargetSubject: "婚姻"},
+	}, "紫薇斗数 看一下 婚姻")
+
+	if got := st.ActiveSubject().Display; got != "自己" {
+		t.Fatalf("active subject = %q, want 自己", got)
+	}
+	if len(st.Subjects) != 1 {
+		t.Fatalf("subject count = %d, want only existing self subject: %+v", len(st.Subjects), st.Subjects)
+	}
+	if plan.Route.Slots.TargetSubject != "" {
+		t.Fatalf("TargetSubject = %q, want cleared topic", plan.Route.Slots.TargetSubject)
+	}
+	if plan.Route.Slots.QuestionText != "婚姻" {
+		t.Fatalf("QuestionText = %q, want 婚姻", plan.Route.Slots.QuestionText)
+	}
+	if len(plan.Requirements) != 2 || plan.Requirements[0].SubjectIDs[0] != st.ActiveSubject().ID {
+		t.Fatalf("requirements = %+v, want assets bound to self", plan.Requirements)
+	}
+}
+
+func TestResolveArtifactFocus_TopicTargetRepairsPollutedActiveSubject(t *testing.T) {
+	st := state.NewSession("resolver-polluted-topic")
+	st.MergeProfile(completeProfileForResolver(1994))
+	st.SetActiveSubject("婚姻")
+	st.MergeProfile(completeProfileForResolver(1994))
+
+	plan := (&Manager{}).BuildExecutionPlan(st, policy.ApprovedRoute{
+		PrimaryDomain: "ziwei",
+		TaskIntent:    "interpret_chart",
+		Slots:         schemas.DecisionSlots{TargetSubject: "婚姻"},
+	}, "紫薇斗数 看一下 婚姻")
+
+	if got := st.ActiveSubject().Display; got != "自己" {
+		t.Fatalf("active subject = %q, want repaired self focus", got)
+	}
+	if plan.Requirements[0].SubjectIDs[0] != st.ActiveSubject().ID {
+		t.Fatalf("requirements = %+v, want repaired self subject", plan.Requirements)
+	}
+}
+
+func TestBuildExecutionPlan_ProfileMergeBeforePlanUsesCurrentOwner(t *testing.T) {
+	st := state.NewSession("resolver-profile-before-plan")
+	manager := &Manager{}
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "ziwei",
+		TaskIntent:    "interpret_chart",
+		Slots: schemas.DecisionSlots{
+			TargetSubject: "婚姻",
+			Profile:       completeProfileForResolver(1994),
+		},
+	}
+
+	route = resolveArtifactFocus(st, route, "紫薇斗数 看一下 婚姻")
+	st.MergeProfile(route.Slots.Profile)
+	plan := manager.buildExecutionPlan(st, route, "紫薇斗数 看一下 婚姻", false)
+
+	if got := st.ActiveSubject().Display; got != "自己" {
+		t.Fatalf("active subject = %q, want 自己", got)
+	}
+	if plan.Route.Slots.TargetSubject != "" {
+		t.Fatalf("TargetSubject = %q, want topic cleared", plan.Route.Slots.TargetSubject)
+	}
+	profileID := st.ActiveFocus.ProfileRevisionID
+	if profileID == "" {
+		t.Fatal("active profile revision is empty after merge")
+	}
+	for _, requirement := range plan.Requirements {
+		if requirement.Kind == artifactQimenChart {
+			continue
+		}
+		if requirement.OwnerRef.ID != profileID {
+			t.Fatalf("requirement owner = %+v, want active profile %q", requirement.OwnerRef, profileID)
+		}
+	}
+
+	st.StoreChart(state.AssetKindZiweiChart, map[string]any{"solar_time_version": "true_solar_v2"}, "test")
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": currentBaziCalendarRule()}, "test")
+	if err := validatePlanArtifacts(st, plan); err != nil {
+		t.Fatalf("fresh charts should satisfy profile-owned plan: %v", err)
+	}
+}
+
 func TestResolveArtifactFocus_QimenPrimaryCreatesFreshCase(t *testing.T) {
 	st := state.NewSession("resolver-qimen")
 	manager := &Manager{}
@@ -100,7 +192,7 @@ func TestValidatePlanArtifacts_RejectsChartOwnedByAnotherSubject(t *testing.T) {
 	st := state.NewSession("resolver-owner")
 	st.MergeProfile(completeProfileForResolver(1991))
 	selfRef := st.StoreChart(state.AssetKindBaziChart, map[string]any{
-		"calendar_rule_version": "zi_zheng_v1",
+		"calendar_rule_version": currentBaziCalendarRule(),
 	}, "test")
 	st.SetActiveSubject("孩子")
 	st.MergeProfile(completeProfileForResolver(2020))
@@ -118,7 +210,7 @@ func TestValidatePlanArtifacts_RejectsChartOwnedByAnotherSubject(t *testing.T) {
 	}
 
 	st.StoreChart(state.AssetKindBaziChart, map[string]any{
-		"calendar_rule_version": "zi_zheng_v1",
+		"calendar_rule_version": currentBaziCalendarRule(),
 	}, "test")
 	if err := validatePlanArtifacts(st, plan); err != nil {
 		t.Fatalf("child chart should satisfy exact requirement: %v", err)
@@ -128,7 +220,7 @@ func TestValidatePlanArtifacts_RejectsChartOwnedByAnotherSubject(t *testing.T) {
 func TestFollowupInterpretation_IsBoundToActiveSubjectChart(t *testing.T) {
 	st := state.NewSession("followup-subject")
 	st.MergeProfile(completeProfileForResolver(1991))
-	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": "zi_zheng_v1"}, "test")
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": currentBaziCalendarRule()}, "test")
 	storeFollowupArtifact(st, policy.ApprovedRoute{PrimaryDomain: "bazi"}, specialists.Result{
 		Domain: "bazi", Summary: "自己的旧解读",
 	}, "自己的旧解读", "自己事业如何", "agent_reading")
@@ -138,7 +230,7 @@ func TestFollowupInterpretation_IsBoundToActiveSubjectChart(t *testing.T) {
 
 	st.SetActiveSubject("孩子")
 	st.MergeProfile(completeProfileForResolver(2020))
-	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": "zi_zheng_v1"}, "test")
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": currentBaziCalendarRule()}, "test")
 	if _, ok := loadFollowupArtifact(st, "bazi"); ok {
 		t.Fatal("child chart reused self interpretation")
 	}
@@ -160,7 +252,7 @@ func TestExecutionPlan_SubjectAssetConversationRegression(t *testing.T) {
 	// "我" has a chart and an interpretation that later follow-ups may reuse.
 	st.MergeProfile(completeProfileForResolver(1991))
 	selfChart := st.StoreChart(state.AssetKindBaziChart, map[string]any{
-		"calendar_rule_version": "zi_zheng_v1", "pillars": "self-v1",
+		"calendar_rule_version": currentBaziCalendarRule(), "pillars": "self-v1",
 	}, "test")
 	storeFollowupArtifact(st, policy.ApprovedRoute{PrimaryDomain: "bazi"}, specialists.Result{
 		Domain: "bazi", Summary: "自己的事业解读",
@@ -171,7 +263,7 @@ func TestExecutionPlan_SubjectAssetConversationRegression(t *testing.T) {
 	st.SetActiveSubject("孩子")
 	st.MergeProfile(completeProfileForResolver(2020))
 	childV1 := st.StoreChart(state.AssetKindBaziChart, map[string]any{
-		"calendar_rule_version": "zi_zheng_v1", "pillars": "child-v1",
+		"calendar_rule_version": currentBaziCalendarRule(), "pillars": "child-v1",
 	}, "test")
 	childPlan := manager.BuildExecutionPlan(st, policy.ApprovedRoute{
 		PrimaryDomain: "bazi", TaskIntent: "fortune_followup",
@@ -200,7 +292,7 @@ func TestExecutionPlan_SubjectAssetConversationRegression(t *testing.T) {
 		t.Fatal("corrected child profile reused its old chart")
 	}
 	childV2 := st.StoreChart(state.AssetKindBaziChart, map[string]any{
-		"calendar_rule_version": "zi_zheng_v1", "pillars": "child-v2",
+		"calendar_rule_version": currentBaziCalendarRule(), "pillars": "child-v2",
 	}, "test")
 	if childV1 == childV2 {
 		t.Fatal("corrected child profile overwrote its original chart")

@@ -1,3 +1,6 @@
+// This file belongs to the BaZi deterministic calculation layer.
+// It owns Ten-God calculation for this package.
+// It computes reproducible BaZi facts; it must not generate narrative readings.
 package bazi
 
 // shishen.go 十神相关计算：天干阴阳、十神关系、十神力量统计。

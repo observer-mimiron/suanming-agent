@@ -1,3 +1,6 @@
+// This file belongs to the server bootstrap layer.
+// It owns the command entrypoint for this package.
+// It wires dependencies and routes; domain decisions stay under internal packages.
 package main
 
 import (
@@ -30,7 +33,7 @@ func main() {
 			}
 			ctx.JSON(200, gin.H{"sessions": list})
 		})
-		c.Router.GET("/api/debug/:file", func(ctx *gin.Context) {
+		c.Router.GET("/api/debug/files/:file", func(ctx *gin.Context) {
 			ctx.File(debugDir + "/" + ctx.Param("file"))
 		})
 	}

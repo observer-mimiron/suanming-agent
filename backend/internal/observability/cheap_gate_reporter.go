@@ -1,3 +1,6 @@
+// This file belongs to the local observability layer.
+// It owns cheap-gate reporting for this package.
+// It summarizes evidence for operators; it is not an acceptance source by itself.
 package observability
 
 import (

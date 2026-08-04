@@ -4,9 +4,73 @@ import type {
   Segment,
   SessionSegmentSnapshot,
   SessionSnapshot,
+  TransportInspection,
 } from "../types/chat";
 
 const SESSION_STORAGE_KEY = "suanming-agent.session-id";
+
+export interface ParsedSSEEvent {
+  event: string;
+  data: any;
+}
+
+export function createSSEChunkParser(
+  onEvent: (evt: ParsedSSEEvent) => void,
+  onWarning: (warning: string) => void = () => {},
+) {
+  let currentEvent = "";
+  let lineBuffer = "";
+
+  function processLine(rawLine: string) {
+    const line = rawLine.replace(/\r$/, "");
+    if (!line) return;
+    if (line.startsWith("event:")) {
+      currentEvent = line.slice(6).trim();
+      return;
+    }
+    if (!line.startsWith("data:")) return;
+
+    const rawData = line.slice(5).trimStart();
+    try {
+      onEvent({ event: currentEvent, data: JSON.parse(rawData || "{}") });
+    } catch {
+      onWarning(
+        `无法解析 SSE ${currentEvent || "unknown"} 数据：${rawData.slice(0, 80)}`,
+      );
+    }
+  }
+
+  return {
+    push(chunk: string) {
+      if (!chunk) return;
+      lineBuffer += chunk;
+      const lines = lineBuffer.split("\n");
+      lineBuffer = lines.pop() ?? "";
+      for (const line of lines) processLine(line);
+    },
+    finish() {
+      if (lineBuffer) {
+        processLine(lineBuffer);
+        lineBuffer = "";
+      }
+    },
+  };
+}
+
+function createTransportInspection(): TransportInspection {
+  return {
+    doneReceived: false,
+    componentTypesReceived: [],
+    parseWarnings: [],
+  };
+}
+
+function recordComponentType(transport: TransportInspection | undefined, type: string) {
+  if (!transport || !type) return;
+  if (!transport.componentTypesReceived.includes(type)) {
+    transport.componentTypesReceived.push(type);
+  }
+}
 
 function generateSessionId(): string {
   const cryptoApi = globalThis.crypto;
@@ -146,6 +210,7 @@ export function useSSE() {
       id: (Date.now() + 1).toString(),
       role: "assistant",
       segments: [],
+      transportInspection: createTransportInspection(),
     });
     isLoading.value = true;
 
@@ -154,62 +219,58 @@ export function useSSE() {
     xhr.setRequestHeader("Content-Type", "application/json");
     let prevLen = 0;
     let timer: ReturnType<typeof setInterval> | null = null;
+    const target = msgs[assistIdx];
+    const parser = createSSEChunkParser(
+      ({ event, data }) => {
+        const transport = target.transportInspection;
+        if (event === "thinking") {
+          target.segments.push({
+            type: "thinking",
+            text: data.text,
+            agent: data.agent,
+          });
+        } else if (event === "tool_call") {
+          target.segments.push({
+            type: "tool_call",
+            tool: data.tool,
+            params: data.params,
+            result: data.result,
+          });
+        } else if (event === "component") {
+          recordComponentType(transport, data.type);
+          target.segments.push({
+            type: "component",
+            componentType: data.type,
+            payload: data.payload,
+          });
+        } else if (event === "error") {
+          target.segments.push({ type: "error", message: data.message });
+        } else if (event === "text") {
+          const segs = target.segments;
+          const lastIdx = segs.length - 1;
+          if (lastIdx >= 0 && segs[lastIdx].type === "text") {
+            segs[lastIdx] = {
+              ...segs[lastIdx],
+              content: segs[lastIdx].content + data.content,
+            };
+          } else {
+            segs.push({ type: "text", content: data.content });
+          }
+        } else if (event === "done" && transport) {
+          transport.doneReceived = true;
+        }
+      },
+      (warning) => {
+        target.transportInspection?.parseWarnings.push(warning);
+      },
+    );
 
     const parseChunk = () => {
       const raw = xhr.responseText;
       if (!raw || raw.length <= prevLen) return;
       const chunk = raw.substring(prevLen);
       prevLen = raw.length;
-
-      let currentEvent = "";
-      const lines = chunk.split("\n");
-      const target = msgs[assistIdx];
-      for (const line of lines) {
-        if (!line) continue;
-        if (line.startsWith("event: ")) {
-          currentEvent = line.slice(7).trim();
-          continue;
-        }
-        if (!line.startsWith("data: ")) continue;
-        try {
-          const data = JSON.parse(line.slice(6));
-          if (currentEvent === "thinking") {
-            target.segments.push({
-              type: "thinking",
-              text: data.text,
-              agent: data.agent,
-            });
-          } else if (currentEvent === "tool_call") {
-            target.segments.push({
-              type: "tool_call",
-              tool: data.tool,
-              params: data.params,
-              result: data.result,
-            });
-          } else if (currentEvent === "component") {
-            target.segments.push({
-              type: "component",
-              componentType: data.type,
-              payload: data.payload,
-            });
-          } else if (currentEvent === "error") {
-            target.segments.push({ type: "error", message: data.message });
-          } else if (currentEvent === "text") {
-            const segs = target.segments;
-            const lastIdx = segs.length - 1;
-            if (lastIdx >= 0 && segs[lastIdx].type === "text") {
-              segs[lastIdx] = {
-                ...segs[lastIdx],
-                content: segs[lastIdx].content + data.content,
-              };
-            } else {
-              segs.push({ type: "text", content: data.content });
-            }
-          }
-        } catch {
-          /* skip */
-        }
-      }
+      parser.push(chunk);
     };
 
     xhr.onreadystatechange = () => {
@@ -223,6 +284,7 @@ export function useSSE() {
           timer = null;
         }
         parseChunk();
+        parser.finish();
         isLoading.value = false;
       }
     };
@@ -232,6 +294,10 @@ export function useSSE() {
         clearInterval(timer);
         timer = null;
       }
+      msgs[assistIdx].transportInspection = {
+        ...(msgs[assistIdx].transportInspection ?? createTransportInspection()),
+        requestError: "网络请求失败",
+      };
       msgs[assistIdx].segments.push({ type: "error", message: "网络请求失败" });
       isLoading.value = false;
     };

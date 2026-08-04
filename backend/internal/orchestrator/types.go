@@ -1,3 +1,6 @@
+// This file belongs to the session orchestration layer.
+// It owns shared model-facing types for this package.
+// It owns turn lifecycle; domain reasoning stays in runtime and tools.
 package orchestrator
 
 import (

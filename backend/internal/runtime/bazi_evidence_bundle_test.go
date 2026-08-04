@@ -1,3 +1,6 @@
+// This test file belongs to the manager-owned runtime layer.
+// It verifies BaZi evidence bundle behavior and protects the related contract from regressions.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -142,6 +145,62 @@ func TestBuildEvidenceRetryPlan_RetriesCriticalTopicsOnHighConflict(t *testing.T
 	retry := buildEvidenceRetryPlan(plan, baziEvidenceQuality{Enough: true, ConflictScore: "high"})
 	if len(retry.QueryPackets) != 1 || retry.QueryPackets[0].Query == plan.QueryPackets[0].Query {
 		t.Fatalf("high-conflict retry must simplify critical queries: %+v", retry.QueryPackets)
+	}
+}
+
+func TestNormalizeBaziEvidencePlan_SpecializesTiaohouQuery(t *testing.T) {
+	plan := baziEvidencePlan{
+		Stage: "static",
+		QueryPackets: []baziQueryPacket{{
+			Topic:            "tiaohou",
+			Query:            "穷通宝鉴 调候 丁火 酉月",
+			PreferredSources: []string{"穷通宝鉴"},
+			SourceTier:       "A",
+		}},
+	}
+	input := baziCharterInput{BaziResult: map[string]any{
+		"dayGan":  "丁",
+		"pillars": []map[string]any{{"name": "年柱", "stem": "甲", "branch": "戌"}, {"name": "月柱", "stem": "辛", "branch": "酉"}},
+	}}
+
+	out := normalizeBaziEvidencePlan(plan, input, baziAnalysisPlan{RetrievalStage: "static"})
+	if len(out.QueryPackets) != 1 {
+		t.Fatalf("query packets = %+v", out.QueryPackets)
+	}
+	query := out.QueryPackets[0].Query
+	if !strings.Contains(query, "丁火") || !strings.Contains(query, "酉月") || !strings.Contains(query, "八月丁火") {
+		t.Fatalf("specialized tiaohou query missing chart terms: %q", query)
+	}
+}
+
+// TestExtractAuthorityClassic_MapsKnowledgeSlugToClassic protects the retrieval
+// source contract: local wiki slugs must still count as their canonical classics.
+func TestExtractAuthorityClassic_MapsKnowledgeSlugToClassic(t *testing.T) {
+	source := "knowledge://ref-bazi-qiongtong-s001 (五行总论)"
+	classic := extractAuthorityClassic(source)
+	if classic != "穷通宝鉴" {
+		t.Fatalf("classic = %q, want 穷通宝鉴", classic)
+	}
+
+	plan := baziEvidencePlan{QueryPackets: []baziQueryPacket{{Topic: "tiaohou", SourceTier: "A"}}}
+	bundle := baziEvidenceBundle{
+		Stage: "static",
+		CriticalTopicBuckets: map[string][]baziCitation{
+			"tiaohou": {{Classic: classic}},
+		},
+	}
+	quality := evaluateEvidenceBundleQuality(plan, bundle)
+	if !quality.Enough || !containsString(quality.CoveredTopics, "tiaohou") {
+		t.Fatalf("qiongtong slug should satisfy tiaohou authority coverage: %+v", quality)
+	}
+}
+
+func TestBaziTiaohouCoverage_UsesEvidenceStatus(t *testing.T) {
+	if got := baziTiaohouCoverage(baziEvidenceQuality{CoveredTopics: []string{"tiaohou"}}); got != "authority_evidence_covered" {
+		t.Fatalf("covered tiaohou = %q", got)
+	}
+	if got := baziTiaohouCoverage(baziEvidenceQuality{MissingTopics: []string{"tiaohou"}}); got != "missing_authority_evidence" {
+		t.Fatalf("missing tiaohou = %q", got)
 	}
 }
 

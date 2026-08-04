@@ -1,3 +1,6 @@
+// This file belongs to the Zi Wei deterministic calculation layer.
+// It owns shared model-facing types for this package.
+// It computes reproducible Zi Wei facts; it must not compose user-facing readings.
 package ziwei
 
 // ZiWeiStar 星曜。紫微斗数中每个宫位包含的星体，包括主星（紫微天府等14颗）、

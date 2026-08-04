@@ -265,6 +265,7 @@ func BuildContainer() *Container {
 	// 处理器
 	chatHandler := handler.NewChatHandler(orch, cfg.DebugHTTP, debugDir)
 	sessionHandler := handler.NewSessionHandler(store, debugDir)
+	debugTraceHandler := handler.NewDebugTraceHandler(traceDir)
 
 	// 路由
 	r := gin.Default()
@@ -285,6 +286,9 @@ func BuildContainer() *Container {
 	r.GET("/", func(c *gin.Context) { c.File(cfg.StaticDir + "/index.html") })
 	r.GET("/api/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 	r.GET("/api/session/:sessionID", sessionHandler.HandleGetSession)
+	if cfg.DebugHTTP {
+		r.GET("/api/debug/traces/:traceID", debugTraceHandler.HandleGetTrace)
+	}
 
 	r.POST("/api/chat", chatHandler.HandleChat)
 

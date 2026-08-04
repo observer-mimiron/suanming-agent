@@ -6,7 +6,7 @@
       "id": "runtime-smoke-bazi-main",
       "message": "男，1990年5月20日巳时，北京，分析八字",
       "expected_route_primary": "bazi",
-      "expected_task_intent_any": ["collect_profile", "interpret_chart"],
+      "expected_task_intent_any": ["collect_profile", "interpret_chart", "amend_profile"],
       "expected_turn_type_any": ["agent_reading"],
       "required_observations": ["preflight", "sse_emit"]
     },

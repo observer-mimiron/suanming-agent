@@ -1,3 +1,6 @@
+// This file belongs to the manager-owned runtime layer.
+// It owns follow-up artifact reuse for this package.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -167,6 +170,9 @@ func maybeReuseFollowupArtifact(m *Manager, st *state.SessionState, route policy
 	if len(domains) != 1 || route.PrimaryDomain == "" {
 		return "", false
 	}
+	if shouldRerunDynamicFortuneFollowup(route, message) {
+		return "", false
+	}
 	artifact, ok := loadFollowupArtifact(st, route.PrimaryDomain)
 	if !ok {
 		return "", false
@@ -186,6 +192,22 @@ func maybeReuseFollowupArtifact(m *Manager, st *state.SessionState, route policy
 		}
 	}
 	return fallbackFollowupArtifactReply(message, artifact), true
+}
+
+// shouldRerunDynamicFortuneFollowup keeps time-window and luck-cycle questions
+// on the specialist path. Reusing old narrative for these prompts would skip
+// fresh liunian/dayun facts even though the user's question is explicitly dynamic.
+func shouldRerunDynamicFortuneFollowup(route policy.ApprovedRoute, message string) bool {
+	text := strings.TrimSpace(route.Slots.TimeScope + " " + route.Slots.QuestionText + " " + message)
+	if text == "" {
+		return false
+	}
+	for _, keyword := range []string{"本月", "这个月", "最近", "近期", "今年", "明年", "流年", "大运", "岁运", "行运", "运气", "运势"} {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func synthesizeFollowupFromArtifact(chat llm.Chat, domain, userMessage string, artifact followupArtifact) string {

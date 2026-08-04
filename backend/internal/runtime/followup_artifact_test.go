@@ -1,3 +1,6 @@
+// This test file belongs to the manager-owned runtime layer.
+// It verifies follow-up artifact reuse and protects the related contract from regressions.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -28,7 +31,7 @@ func TestMaybeReuseFollowupArtifact_ProfileBoundaryNeverCallsLLM(t *testing.T) {
 	st.MergeProfile(map[string]any{
 		"year": 1991.0, "month": 5.0, "day": 20.0, "hour": 8.0, "gender": "男",
 	})
-	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": "zi_zheng_v1"}, "test")
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": currentBaziCalendarRule()}, "test")
 	st.StoreInterpretation("bazi", map[string]any{
 		"domain":           "bazi",
 		"summary":          boundary,

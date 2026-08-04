@@ -1,3 +1,6 @@
+// This test file belongs to the user guidance layer.
+// It verifies guidance rendering behavior and protects the related contract from regressions.
+// It renders deterministic Chinese prompts; it must not call models or tools.
 package guidance
 
 import (

@@ -1,3 +1,6 @@
+// This file belongs to the session state layer.
+// It owns domain asset state behavior for this package.
+// It stores session truth; routing and interpretation decisions stay outside state structs.
 package state
 
 import (

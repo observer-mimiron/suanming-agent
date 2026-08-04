@@ -41,6 +41,9 @@ make eval-suite
 # 八字质量合同（真实请求，通常约数分钟）
 make eval-bazi-quality
 
+# 八字稳定性合同（同一输入重复 10 次）
+make eval-bazi-stability
+
 # cheap gate 样本聚合
 make cheap-gate-report
 
@@ -65,6 +68,7 @@ eval/
     runtime-smoke-v1.json           # 首轮、follow-up、资产隔离 smoke
     retrieval-benchmark-v1.json     # 检索链路基准
     bazi-quality-v1.json            # 八字候选裁定、年龄边界与独立审计质量合同
+    bazi-stability-v1.json          # 同一八字输入重复运行稳定性合同
   runner/
     run-agent-regression.sh         # make regression 底层编排
     run_langfuse_eval.py            # 真实请求、trace 轮询和断言

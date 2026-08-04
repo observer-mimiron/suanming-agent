@@ -1,3 +1,6 @@
+// This file belongs to the manager-owned runtime layer.
+// It owns BaZi charter graph execution for this package.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -479,6 +482,9 @@ func validateCharterConsistency(state baziCharterState) error {
 	if err := validateStaticEvidenceCoverageBoundary(state); err != nil {
 		return err
 	}
+	if err := validateStaticTiaohouEvidenceWording(state); err != nil {
+		return err
+	}
 	if err := validateStaticAxisAgainstChartFacts(state); err != nil {
 		return err
 	}
@@ -505,6 +511,87 @@ func validateStaticEvidenceCoverageBoundary(state baziCharterState) error {
 		return fmt.Errorf("static axis level exceeds incomplete evidence boundary: missing %s", strings.Join(state.EvidenceQuality.MissingTopics, ", "))
 	}
 	return nil
+}
+
+// validateStaticTiaohouEvidenceWording requires a real 调候 verdict once
+// authority evidence is covered. Boundary text may remain cautious, but the
+// visible anchor cannot be only "environment constraint" filler.
+func validateStaticTiaohouEvidenceWording(state baziCharterState) error {
+	if !containsString(state.EvidenceQuality.CoveredTopics, "tiaohou") {
+		return nil
+	}
+	static := state.StaticSynthesis
+	if !hasConcreteTiaohouVerdict(static.TiaohouAnchor) {
+		return baziViolationError(baziViolationEvidenceTopicMissing, "static.tiaohou_anchor", "", fmt.Sprintf("static tiaohou anchor lacks concrete verdict despite covered authority evidence: %s", static.TiaohouAnchor), []string{"tiaohou"}, nil)
+	}
+	fields := []struct {
+		name  string
+		value string
+	}{
+		{name: "main_axis", value: static.MainAxis},
+		{name: "pattern_outcome", value: static.PatternOutcome},
+		{name: "counter_evidence", value: static.CounterEvidence},
+		{name: "axis_consistency", value: static.AxisConsistency},
+		{name: "tiaohou_constraint", value: static.TiaohouConstraint},
+		{name: "tiaohou_anchor", value: static.TiaohouAnchor},
+		{name: "pattern_and_qing_zhuo", value: static.PatternAndQingZhuo},
+		{name: "tier_basis", value: static.TierBasis},
+		{name: "reasoning_summary", value: static.ReasoningSummary},
+		{name: "usage.tiaohou", value: static.Usage.Tiaohou},
+		{name: "usage.priority", value: static.Usage.Priority},
+		{name: "topic_direct_answer", value: static.TopicDirectAnswer},
+		{name: "topic_focus_answer", value: static.TopicFocusAnswer},
+	}
+	for i, step := range static.ReasoningSteps {
+		fields = append(fields, struct {
+			name  string
+			value string
+		}{name: fmt.Sprintf("reasoning_steps[%d]", i), value: step})
+	}
+	for i, item := range static.Advantages {
+		fields = append(fields, struct {
+			name  string
+			value string
+		}{name: fmt.Sprintf("advantages[%d]", i), value: item})
+	}
+	for i, item := range static.Risks {
+		fields = append(fields, struct {
+			name  string
+			value string
+		}{name: fmt.Sprintf("risks[%d]", i), value: item})
+	}
+	for _, field := range fields {
+		if phrase := firstTiaohouMissingEvidencePhrase(field.value); phrase != "" {
+			return baziViolationError(baziViolationEvidenceTopicMissing, "static."+field.name, "", fmt.Sprintf("static tiaohou wording contradicts covered authority evidence in %s: %s; covered_topics=%s", field.name, phrase, strings.Join(state.EvidenceQuality.CoveredTopics, ", ")), []string{"tiaohou"}, nil)
+		}
+	}
+	return nil
+}
+
+func hasConcreteTiaohouVerdict(text string) bool {
+	return containsAnyText([]string{text}, []string{
+		"调候不足", "调候受损", "调候受限", "调候得力", "调候有力",
+		"调候可用", "调候不纯", "火根受冲", "火根受损", "火有但弱",
+		"寒暖失衡", "寒重火弱", "寒湿", "暖局", "润燥", "燥烈",
+	})
+}
+
+func firstTiaohouMissingEvidencePhrase(text string) string {
+	for _, phrase := range []string{
+		"调候关键证据缺失",
+		"调候证据缺失",
+		"调候规则材料不足",
+		"调候用神未定",
+		"具体调候用神待",
+		"具体用神待穷通宝鉴",
+		"需穷通宝鉴",
+		"待穷通宝鉴",
+	} {
+		if strings.Contains(text, phrase) {
+			return phrase
+		}
+	}
+	return ""
 }
 
 // validateCurrentDayunLineConsistency 约束当前大运总述与当前大运条目保持同线，
@@ -695,8 +782,8 @@ func validateFinalWriterOutput(plan baziAnalysisPlan, state baziCharterState, ou
 		return fmt.Errorf("final writer output leaked internal missing-field placeholder")
 	}
 	if isFactsOnlyStaticSynthesis(state.StaticSynthesis) {
-		if !strings.Contains(output, "模型综合未通过") || !strings.Contains(output, "不输出主轴") {
-			return fmt.Errorf("facts-only final output must expose degraded synthesis status")
+		if !strings.Contains(output, "只列可复算命盘事实") || !strings.Contains(output, "暂不作主轴") {
+			return fmt.Errorf("facts-only final output must expose facts-only synthesis boundary")
 		}
 		if containsAnyText([]string{output}, []string{"优先按伤官佩印", "层次中等", "中等（保守定位）", "结构承接、压力", "倾向有利"}) {
 			return fmt.Errorf("facts-only final output must not expose synthesized reading language")
@@ -900,96 +987,10 @@ func shouldUseBaziCharterGraph(plan ExecutionPlan) bool {
 	return len(plan.Domains) == 1 && plan.Domains[0] == "bazi"
 }
 
+// runBaziAuthorityFirstGraph keeps the outer orchestration contract unchanged
+// while delegating BaZi-specific control flow to the internal graph.
 func (e *Executor) runBaziAuthorityFirstGraph(ctx context.Context, sink EventSink, st *state.SessionState, question string) (string, error) {
-	if st == nil || !st.HasBaziResult() {
-		err := fmt.Errorf("pure bazi charter graph requires bazi result")
-		annotateBaziGraphError(ctx, "bootstrap", err)
-		return "", err
-	}
-
-	chartState := baziCharterState{
-		Input: baziCharterInput{
-			UserQuestion: question,
-			BaziResult:   st.BaziResult,
-			Yongshen:     mapValue(st.BaziResult, "yongshen"),
-			Dayun:        mapValue(st.BaziResult, "dayun_analyzed"),
-			Liunian:      mapValue(st.BaziResult, "liunian"),
-		},
-	}
-
-	analysisPlan, err := e.runBaziAnalysisPlanner(ctx, st, question, chartState.Input)
-	if err != nil {
-		annotateBaziGraphError(ctx, "analysis_planner", err)
-		analysisPlan = defaultBaziAnalysisPlan(question)
-	}
-	analysisPlan = normalizeBaziAnalysisPlan(analysisPlan)
-	chartState.AnalysisPlan = analysisPlan
-	emitBaziStageThinking(ctx, sink, "bazi_graph", analysisPlan.StageSummary)
-
-	plan, bundle, quality, err := e.runBaziEvidenceStage(ctx, st, question, chartState.Input, analysisPlan)
-	if err != nil {
-		annotateBaziGraphError(ctx, "evidence_stage", err)
-		return "", err
-	}
-	chartState.EvidencePlan = plan
-	chartState.EvidenceBundle = bundle
-	chartState.EvidenceQuality = quality
-	chartState, err = e.maybeReflectOnBaziEvidence(ctx, st, chartState)
-	if err != nil {
-		annotateBaziGraphError(ctx, "evidence_reflection", err)
-		return "", err
-	}
-	if err := validateEvidenceBundlePreconditions(chartState); err != nil {
-		annotateBaziGraphError(ctx, "evidence_validation", err)
-		return "", err
-	}
-	emitBaziStageThinking(ctx, sink, "bazi_graph", buildEvidenceStageSummary(chartState))
-
-	// Profile claims constrain the synthesis; they are not a replacement for it.
-	// Whole-chart axis, strength, tier, and counter-evidence need a single
-	// evidence-aware judgment rather than a deterministic projection of claims.
-	staticSynthesis, err := e.runStaticSynthesisWithFeedback(chartState, func(payload map[string]any) (baziStaticSynthesis, error) {
-		return runBaziInnerAgentJSON[baziStaticSynthesis](ctx, e.builder, baziStaticSynthesisConfig(), st, buildBaziCharterPrompt("静态综合", question, payload))
-	}, func(candidate baziStaticSynthesis) (baziContractAudit, error) {
-		return e.runBaziContractAudit(ctx, st, "static", chartState, candidate)
-	})
-	if err != nil {
-		annotateBaziGraphError(ctx, "static_synthesis", err)
-		return "", baziSynthesisRuntimeFailure("static_synthesis", "BAZI_STATIC_SYNTHESIS_CONTRACT_FAILED", err)
-	}
-	chartState.StaticSynthesis = staticSynthesis
-	chartState.FieldAudit = append(chartState.FieldAudit, staticSynthesis.FieldAudit...)
-	emitBaziStageThinking(ctx, sink, "bazi_graph", buildStaticStageSummary(chartState))
-	if !isFactsOnlyStaticSynthesis(chartState.StaticSynthesis) && !isPartialSynthesisSource(chartState.StaticSynthesis.Source) {
-		emitBaziReasoningSteps(ctx, sink, "静态推演", chartState.StaticSynthesis.ReasoningSteps)
-	}
-
-	if chartState.AnalysisPlan.NeedDynamic {
-		chartState, err = e.supplementDynamicEvidenceIfNeeded(ctx, st, question, chartState)
-		if err != nil {
-			annotateBaziGraphError(ctx, "dynamic_evidence", err)
-			return "", err
-		}
-		dynamicSynthesis, dynamicErr := e.runDynamicSynthesisWithFeedback(ctx, st, chartState, question)
-		if dynamicErr != nil {
-			annotateBaziGraphError(ctx, "dynamic_synthesis", dynamicErr)
-			return "", baziSynthesisRuntimeFailure("dynamic_synthesis", "BAZI_DYNAMIC_SYNTHESIS_CONTRACT_FAILED", dynamicErr)
-		}
-		chartState.DynamicSynthesis = sanitizeDynamicPresentationBoundaries(normalizeDynamicSynthesis(dynamicSynthesis))
-		chartState.FieldAudit = append(chartState.FieldAudit, chartState.DynamicSynthesis.FieldAudit...)
-		if err := validateDynamicSynthesisAfterGraphNormalization(chartState); err != nil {
-			annotateBaziGraphError(ctx, "dynamic_validation", err)
-			return "", baziSynthesisRuntimeFailure("dynamic_synthesis", "BAZI_DYNAMIC_SYNTHESIS_CONTRACT_FAILED", err)
-		}
-		emitBaziStageThinking(ctx, sink, "bazi_graph", buildDynamicStageSummary(chartState))
-		if !isFactsOnlyDynamicSynthesis(chartState.DynamicSynthesis) && !isPartialSynthesisSource(chartState.DynamicSynthesis.Source) {
-			emitBaziReasoningSteps(ctx, sink, "动态推演", chartState.DynamicSynthesis.ReasoningSteps)
-		}
-	}
-	annotateBaziSynthesisSources(ctx, chartState)
-	annotateBaziSoftAudit(ctx, chartState)
-
-	return e.runFinalWriter(ctx, st, chartState, question)
+	return e.runBaziInternalGraph(ctx, sink, st, question)
 }
 
 func baziSynthesisRuntimeFailure(stage, code string, cause error) error {
@@ -1001,9 +1002,25 @@ func baziSynthesisRuntimeFailure(stage, code string, cause error) error {
 		Retryable:   true,
 		Degraded:    false,
 		UserVisible: true,
-		Message:     "本轮八字综合未通过结构化合同校验，已停止展示不稳定内容。请稍后重试。",
+		Message:     baziSynthesisFailureMessage(stage, cause),
 		Cause:       cause,
 	}
+}
+
+// baziSynthesisFailureMessage keeps user-visible errors aligned with the actual
+// contract failure class without leaking candidate text.
+func baziSynthesisFailureMessage(stage string, cause error) string {
+	if failure, ok := baziContractFailureFromError(stage, cause); ok {
+		switch failure.Class {
+		case baziContractFailureEvidenceOverclaim:
+			return "证据主题不足，已停止展示过度裁断。请稍后重试。"
+		case baziContractFailureDomainUnauthorized:
+			return "岁运综合越过授权领域，已停止展示不稳定内容。请稍后重试。"
+		case baziContractFailureFactConflict, baziContractFailureMethodContract:
+			return "候选推演与事实或方法合同冲突，已停止展示不稳定内容。请稍后重试。"
+		}
+	}
+	return "本轮八字综合未通过结构化合同校验，已停止展示不稳定内容。请稍后重试。"
 }
 
 func validateDynamicSynthesisAfterGraphNormalization(state baziCharterState) error {
@@ -1027,7 +1044,7 @@ func annotateBaziSynthesisSources(ctx context.Context, state baziCharterState) {
 	case isPartialSynthesisSource(state.DynamicSynthesis.Source):
 		outputMode = "model_dynamic_partial"
 	}
-	tracing.SetTraceAttributes(ctx, map[string]any{
+	attrs := map[string]any{
 		"bazi.facts.source":            "deterministic_tools",
 		"bazi.static.source":           firstNonEmptyTrim(state.StaticSynthesis.Source, "unknown"),
 		"bazi.static.error":            state.StaticSynthesis.RecoveryReason,
@@ -1037,7 +1054,7 @@ func annotateBaziSynthesisSources(ctx context.Context, state baziCharterState) {
 		"bazi.static.assertion_count":  len(state.StaticSynthesis.Assertions),
 		"bazi.static.contract_audit":   baziContractAuditSummary(state.StaticSynthesis.ContractAudit),
 		"bazi.tier.source":             firstNonEmptyTrim(state.StaticSynthesis.Source, "unknown"),
-		"bazi.tiaohou.coverage":        "runtime_profile_disabled",
+		"bazi.tiaohou.coverage":        baziTiaohouCoverage(state.EvidenceQuality),
 		"bazi.dynamic.source":          firstNonEmptyTrim(state.DynamicSynthesis.Source, "unknown"),
 		"bazi.dynamic.error":           state.DynamicSynthesis.RecoveryReason,
 		"bazi.dynamic.partial_reason":  partialReasonForSource(state.DynamicSynthesis.Source, state.DynamicSynthesis.RecoveryReason),
@@ -1048,7 +1065,25 @@ func annotateBaziSynthesisSources(ctx context.Context, state baziCharterState) {
 		"bazi.dayun.count":             len(state.DynamicSynthesis.DayunPath),
 		"bazi.final.output_mode":       outputMode,
 		"bazi.final.audit_result":      baziFieldAuditResult(state.FieldAudit),
-	})
+	}
+	if class := firstFieldAuditValue(state.FieldAudit, "contract_failure_class:"); class != "" {
+		attrs["bazi.contract.failure_class"] = class
+	}
+	if policy := firstFieldAuditValue(state.FieldAudit, "recovery_policy:"); policy != "" {
+		attrs["bazi.contract.recovery_policy"] = policy
+	}
+	tracing.SetTraceAttributes(ctx, attrs)
+}
+
+// firstFieldAuditValue returns the first compact key-value note stored by a
+// recovery path for trace projection.
+func firstFieldAuditValue(notes []string, prefix string) string {
+	for _, note := range notes {
+		if strings.HasPrefix(note, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(note, prefix))
+		}
+	}
+	return ""
 }
 
 func degradedReasonForSource(source, reason string) string {
@@ -1066,10 +1101,18 @@ func partialReasonForSource(source, reason string) string {
 }
 
 func baziFieldAuditResult(notes []string) string {
-	if len(notes) == 0 {
+	repairs := make([]string, 0, len(notes))
+	for _, note := range notes {
+		note = strings.TrimSpace(note)
+		if note == "" || note == "canonical_tier_withheld_by_runtime" {
+			continue
+		}
+		repairs = append(repairs, note)
+	}
+	if len(repairs) == 0 {
 		return "clean"
 	}
-	return "repaired: " + strings.Join(notes, ", ")
+	return "repaired: " + strings.Join(repairs, ", ")
 }
 
 // annotateBaziSoftAudit records reviewable wording risks without mutating the
@@ -1153,6 +1196,9 @@ func annotateBaziGraphError(ctx context.Context, stage string, err error) {
 	case strings.HasPrefix(stage, "evidence"):
 		attrs["bazi.evidence.error_stage"] = stage
 		attrs["bazi.evidence.error"] = err.Error()
+	}
+	for key, value := range baziTraceAttrsForContractFailure(stage, err) {
+		attrs[key] = value
 	}
 	tracing.SetTraceAttributes(ctx, attrs)
 }
@@ -1470,11 +1516,36 @@ func buildCoreChartView(input baziCharterInput) map[string]any {
 			"shi_shen_power",
 		} {
 			if value, ok := input.Yongshen[key]; ok && value != nil {
+				if key == "tiao_hou" && isTiaohouImplementationPlaceholder(value) {
+					continue
+				}
 				view[key] = value
 			}
 		}
 	}
 	return view
+}
+
+// baziTiaohouCoverage reports evidence coverage, not whether the optional Go
+// rule-profile table is implemented. Static synthesis already receives retrieved
+// authority material; calling that "runtime_profile_disabled" makes the model
+// treat covered 调候 evidence as missing.
+func baziTiaohouCoverage(quality baziEvidenceQuality) string {
+	if containsString(quality.CoveredTopics, "tiaohou") {
+		return "authority_evidence_covered"
+	}
+	if containsString(quality.MissingTopics, "tiaohou") {
+		return "missing_authority_evidence"
+	}
+	return "not_required"
+}
+
+// isTiaohouImplementationPlaceholder filters engineering status out of the
+// domain fact view; the synthesizer should see chart facts and evidence, not a
+// stale reminder that a future deterministic rule table does not exist yet.
+func isTiaohouImplementationPlaceholder(value any) bool {
+	text := strings.TrimSpace(stringValue(value))
+	return strings.Contains(text, "qiongtong_tiaohou_v1") || strings.Contains(text, "规则表实现")
 }
 
 func buildDynamicFactsView(input baziCharterInput) map[string]any {
@@ -1598,7 +1669,9 @@ func normalizeBaziAnalysisPlan(plan baziAnalysisPlan) baziAnalysisPlan {
 func (e *Executor) runBaziEvidenceStage(ctx context.Context, st *state.SessionState, question string, chartFacts baziCharterInput, analysisPlan baziAnalysisPlan) (baziEvidencePlan, baziEvidenceBundle, baziEvidenceQuality, error) {
 	plan, err := e.runBaziEvidencePlanner(ctx, st, question, chartFacts, analysisPlan)
 	if err != nil {
-		plan = defaultBaziEvidencePlan(question, analysisPlan)
+		plan = defaultBaziEvidencePlan(question, analysisPlan, chartFacts)
+	} else {
+		plan = normalizeBaziEvidencePlan(plan, chartFacts, analysisPlan)
 	}
 	bundle, err := e.runControlledBaziRetrieval(ctx, plan)
 	if err != nil {
@@ -1617,10 +1690,14 @@ func (e *Executor) runBaziEvidencePlanner(ctx context.Context, st *state.Session
 	return runBaziInnerAgentJSON[baziEvidencePlan](ctx, e.builder, baziEvidencePlannerConfig(), st, buildBaziCharterPrompt("证据规划", question, payload))
 }
 
-func defaultBaziEvidencePlan(question string, analysisPlan baziAnalysisPlan) baziEvidencePlan {
+func defaultBaziEvidencePlan(question string, analysisPlan baziAnalysisPlan, chartFacts ...baziCharterInput) baziEvidencePlan {
 	stage := analysisPlan.RetrievalStage
 	if strings.TrimSpace(stage) == "" {
 		stage = "static"
+	}
+	var input baziCharterInput
+	if len(chartFacts) > 0 {
+		input = chartFacts[0]
 	}
 	sources := stageAuthoritySources(stage)
 	plan := baziEvidencePlan{
@@ -1658,7 +1735,7 @@ func defaultBaziEvidencePlan(question string, analysisPlan baziAnalysisPlan) baz
 		},
 		{
 			Topic:            "tiaohou",
-			Query:            "穷通宝鉴 调候 月令 寒暖燥湿",
+			Query:            buildTiaohouEvidenceQuery(input),
 			PreferredSources: []string{"穷通宝鉴", "滴天髓"},
 			SourceTier:       "A",
 		},
@@ -1675,7 +1752,155 @@ func defaultBaziEvidencePlan(question string, analysisPlan baziAnalysisPlan) baz
 			SourceTier:       "B",
 		},
 	}
+	return normalizeBaziEvidencePlan(plan, input, analysisPlan)
+}
+
+// normalizeBaziEvidencePlan keeps model-planned retrieval useful for the
+// downstream quality gate. 调候 evidence must be chart-specific; a broad
+// "调候 月令" query often retrieves generic theory but still fails the
+// per-topic authority coverage required by static synthesis.
+func normalizeBaziEvidencePlan(plan baziEvidencePlan, chartFacts baziCharterInput, analysisPlan baziAnalysisPlan) baziEvidencePlan {
+	if strings.TrimSpace(plan.Stage) == "" {
+		plan.Stage = firstNonEmptyTrim(analysisPlan.RetrievalStage, "static")
+	}
+	if plan.Stage != "static" {
+		return plan
+	}
+	hasTiaohou := false
+	for i := range plan.QueryPackets {
+		packet := &plan.QueryPackets[i]
+		if packet.Topic != "tiaohou" || !strings.EqualFold(strings.TrimSpace(packet.SourceTier), "A") {
+			continue
+		}
+		hasTiaohou = true
+		if !queryContainsTiaohouChartTerms(packet.Query, chartFacts) {
+			packet.Query = buildTiaohouEvidenceQuery(chartFacts)
+		}
+		packet.PreferredSources = mergeStrings(packet.PreferredSources, "穷通宝鉴", "滴天髓")
+	}
+	if !hasTiaohou {
+		plan.QueryPackets = append(plan.QueryPackets, baziQueryPacket{
+			Topic:            "tiaohou",
+			Query:            buildTiaohouEvidenceQuery(chartFacts),
+			PreferredSources: []string{"穷通宝鉴", "滴天髓"},
+			SourceTier:       "A",
+		})
+	}
 	return plan
+}
+
+// buildTiaohouEvidenceQuery derives a concrete 穷通 query from the calculated
+// day master and month branch. This makes evidence coverage deterministic across
+// runs instead of depending on the planner to remember the exact chart terms.
+func buildTiaohouEvidenceQuery(input baziCharterInput) string {
+	terms := []string{"穷通宝鉴"}
+	if day := dayMasterForEvidenceQuery(input); day != "" {
+		terms = append(terms, day)
+	}
+	if month := monthBranchForEvidenceQuery(input); month != "" {
+		terms = append(terms, month+"月")
+		if label := baziMonthBranchLabel(month); label != "" {
+			terms = append(terms, label)
+			if day := dayMasterForEvidenceQuery(input); day != "" {
+				terms = append(terms, label+day)
+			}
+		}
+		if day := dayMasterForEvidenceQuery(input); day != "" {
+			terms = append(terms, month+"月"+day)
+		}
+	}
+	terms = append(terms, "调候")
+	if len(terms) <= 2 {
+		terms = append(terms, "月令", "寒暖燥湿")
+	}
+	return strings.Join(terms, " ")
+}
+
+func queryContainsTiaohouChartTerms(query string, input baziCharterInput) bool {
+	day := dayMasterForEvidenceQuery(input)
+	month := monthBranchForEvidenceQuery(input)
+	if day != "" && !strings.Contains(query, day) {
+		return false
+	}
+	if month != "" {
+		monthTerms := []string{month + "月"}
+		if label := baziMonthBranchLabel(month); label != "" {
+			monthTerms = append(monthTerms, label)
+		}
+		if !containsAnyText([]string{query}, monthTerms) {
+			return false
+		}
+		if day != "" {
+			specificMonthTerms := []string{month + "月" + day}
+			if label := baziMonthBranchLabel(month); label != "" {
+				specificMonthTerms = append(specificMonthTerms, label+day)
+			}
+			if !containsAnyText([]string{query}, specificMonthTerms) {
+				return false
+			}
+		}
+	}
+	return day != "" || month != ""
+}
+
+// baziMonthBranchLabel adds the traditional month name used by classics such
+// as 穷通宝鉴, where 亥月 is usually indexed as 十月.
+func baziMonthBranchLabel(branch string) string {
+	switch strings.TrimSpace(branch) {
+	case "寅":
+		return "正月"
+	case "卯":
+		return "二月"
+	case "辰":
+		return "三月"
+	case "巳":
+		return "四月"
+	case "午":
+		return "五月"
+	case "未":
+		return "六月"
+	case "申":
+		return "七月"
+	case "酉":
+		return "八月"
+	case "戌":
+		return "九月"
+	case "亥":
+		return "十月"
+	case "子":
+		return "十一月"
+	case "丑":
+		return "十二月"
+	default:
+		return ""
+	}
+}
+
+func dayMasterForEvidenceQuery(input baziCharterInput) string {
+	day := firstNonEmptyTrim(stringValue(input.BaziResult["dayGan"]), stringValue(input.Yongshen["day_master"]))
+	switch day {
+	case "甲", "乙":
+		return day + "木"
+	case "丙", "丁":
+		return day + "火"
+	case "戊", "己":
+		return day + "土"
+	case "庚", "辛":
+		return day + "金"
+	case "壬", "癸":
+		return day + "水"
+	default:
+		return strings.TrimSpace(day)
+	}
+}
+
+func monthBranchForEvidenceQuery(input baziCharterInput) string {
+	if pillar := extractMonthPillar(input.BaziResult["pillars"]); len(pillar) > 0 {
+		if branch := stringValue(pillar["branch"]); branch != "" {
+			return branch
+		}
+	}
+	return firstNonEmptyTrim(stringValue(input.Yongshen["month_branch"]), stringValue(input.Yongshen["month_zhi"]))
 }
 
 func (e *Executor) runControlledBaziRetrieval(ctx context.Context, plan baziEvidencePlan) (baziEvidenceBundle, error) {
@@ -1830,9 +2055,37 @@ func citationFromPassage(source, content string, packet baziQueryPacket) baziCit
 }
 
 func extractAuthorityClassic(source string) string {
+	if classic := extractAuthorityClassicFromSlug(source); classic != "" {
+		return classic
+	}
 	for _, classic := range allAuthorityClassicNames() {
 		if strings.Contains(source, classic) {
 			return classic
+		}
+	}
+	return ""
+}
+
+// extractAuthorityClassicFromSlug maps local wiki slugs back to canonical
+// classics. The retrieval API returns sources like
+// knowledge://ref-bazi-qiongtong-s001 (五行总论), whose title alone does not name
+// 穷通宝鉴; without this map real 调候 hits are misclassified as non-authority.
+func extractAuthorityClassicFromSlug(source string) string {
+	source = strings.ToLower(strings.TrimSpace(source))
+	slugMap := []struct {
+		needle  string
+		classic string
+	}{
+		{needle: "ref-bazi-qiongtong", classic: "穷通宝鉴"},
+		{needle: "ref-bazi-ditiansui", classic: "滴天髓"},
+		{needle: "ref-bazi-ziping", classic: "子平真诠"},
+		{needle: "ref-bazi-yuanhai", classic: "渊海子平"},
+		{needle: "ref-bazi-sanming", classic: "三命通会"},
+		{needle: "ref-bazi-gelulunming", classic: "格局论命"},
+	}
+	for _, item := range slugMap {
+		if strings.Contains(source, item.needle) {
+			return item.classic
 		}
 	}
 	return ""
@@ -2012,8 +2265,32 @@ func (e *Executor) runDynamicSynthesisWithFeedback(ctx context.Context, st *stat
 		if partial, ok := acceptPartialDynamicSynthesisAfterRetry(chartState, output, err); ok {
 			return partial, nil
 		}
+		if recovered, recoverErr := recoverDynamicSynthesisAfterRetry(chartState, output, err); recoverErr == nil {
+			return recovered, nil
+		}
 		return baziDynamicSynthesis{}, err
 	}
+}
+
+// recoverDynamicSynthesisAfterRetry replaces a retry candidate that still
+// violates semantic scope with deterministic dynamic facts. It only runs after
+// the model returned parseable synthesis twice; model execution and static-stage
+// failures still surface as contract errors.
+func recoverDynamicSynthesisAfterRetry(chartState baziCharterState, output baziDynamicSynthesis, cause error) (baziDynamicSynthesis, error) {
+	failure, ok := baziContractFailureFromError("dynamic_synthesis", cause)
+	if !ok || failure.RecoveryPolicy != baziRecoveryPolicyDynamicFactsOnly {
+		return baziDynamicSynthesis{}, cause
+	}
+	recovered := recoverDynamicSynthesis(chartState, output, cause)
+	recovered.ContractAudit = output.ContractAudit
+	recovered.FieldAudit = append(recovered.FieldAudit,
+		"contract_failure_class:"+failure.Class,
+		"recovery_policy:"+failure.RecoveryPolicy,
+	)
+	if err := validateDynamicSynthesisResult(chartState, recovered); err != nil {
+		return baziDynamicSynthesis{}, err
+	}
+	return recovered, nil
 }
 
 // validateDynamicSynthesisWithAudit runs deterministic checks before the

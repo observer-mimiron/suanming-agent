@@ -1,3 +1,6 @@
+// This test file belongs to the session state layer.
+// It verifies guidance persistence behavior and protects the related contract from regressions.
+// It stores session truth; routing and interpretation decisions stay outside state structs.
 package state
 
 import "testing"

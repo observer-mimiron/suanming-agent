@@ -1,3 +1,6 @@
+// This file belongs to the deterministic policy layer.
+// It owns guidance-state reduction for this package.
+// It applies deterministic route policy; model calls stay outside this package.
 package policy
 
 import (

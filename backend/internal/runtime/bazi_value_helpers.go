@@ -1,3 +1,6 @@
+// This file belongs to the manager-owned runtime layer.
+// It owns BaZi value normalization helpers for this package.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 // stringValue returns a string only when the raw value is already string typed.

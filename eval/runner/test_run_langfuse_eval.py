@@ -52,6 +52,20 @@ class EvalTimeoutTest(unittest.TestCase):
         self.assertLessEqual(len(session_id), 64)
         self.assertRegex(session_id, r"^[A-Za-z0-9_-]+$")
 
+    def test_parse_expected_any_values_preserves_list_items_with_commas(self):
+        allowed = runner.parse_expected_any_values([
+            "clean",
+            "repaired: canonical_dynamic_projection_facts_only, contract_failure_class:domain_unauthorized, recovery_policy:dynamic_facts_only",
+        ])
+
+        self.assertEqual(
+            allowed,
+            [
+                "clean",
+                "repaired: canonical_dynamic_projection_facts_only, contract_failure_class:domain_unauthorized, recovery_policy:dynamic_facts_only",
+            ],
+        )
+
     def test_trace_lookup_excludes_setup_turn_for_followup(self):
         payload = {
             "data": [
@@ -130,6 +144,143 @@ class EvalTimeoutTest(unittest.TestCase):
             )
         self.assertEqual(result["trace_attributes"]["bazi.static.contract_audit"], "clean")
 
+    def test_extract_response_text_decodes_sse_text_json(self):
+        body = 'event: text\ndata: {"text":"强弱"}\n\nevent: text\ndata: {"payload":{"text":"调候"}}\n\nevent: done\ndata: {}\n\n'
+
+        self.assertEqual(runner.extract_response_text(body), "强弱调候")
+
+    def test_smoke_case_supports_answer_quality_checks(self):
+        trace = {
+            "metadata": {
+                "resourceAttributes": {"service.name": "suanming-agent"},
+                "attributes": {},
+            },
+            "observations": [{"name": "preflight"}, {"name": "sse_emit"}],
+        }
+        case = {
+            "id": "quality",
+            "message": "分析八字",
+            "response_quality_checks": {
+                "must_not_contain_any": ["未启用运行时规则 profile"],
+                "max_phrase_occurrences": {"待规则裁断": 0},
+                "max_total_phrase_occurrences": [
+                    {"label": "deferred wording", "phrases": ["仅作结构观察", "证据不足"], "max": 1}
+                ],
+                "max_overview_conclusion_semicolons": 1,
+                "max_heading_occurrences_in_section": [
+                    {"section": "大运验证", "heading_prefix": "### ", "max": 1}
+                ],
+            },
+        }
+        body = "\n".join(
+            [
+                "event: text",
+                "data: ## 总览结论",
+                "",
+                "event: text",
+                "data: **结论：证据不足；仅作结构观察；待规则裁断**",
+                "",
+                "event: text",
+                "data: 未启用运行时规则 profile",
+                "",
+                "event: text",
+                "data: ## 大运验证\n### 丙戌运\n### 乙酉运",
+                "",
+                "event: done",
+                "data: {}",
+                "",
+            ]
+        )
+        with (
+            mock.patch.object(runner, "invoke_chat", return_value=body),
+            mock.patch.object(runner, "poll_trace_detail", return_value=("trace-1", trace)),
+            mock.patch.object(runner, "get_trace_detail", return_value=trace),
+            mock.patch.object(runner.uuid, "uuid4", return_value=SimpleNamespace(hex="fixed")),
+            mock.patch.object(runner.time, "monotonic", side_effect=[100.0, 101.0, 102.0, 103.0]),
+        ):
+            with self.assertRaises(runner.SmokeCaseFailure) as caught:
+                runner.smoke_case(
+                    case=case,
+                    server_url="http://example.test",
+                    langfuse_url="http://langfuse.test",
+                    headers={},
+                    timeout_seconds=120,
+                    poll_interval_seconds=1,
+                    max_polls=1,
+                    write_scores=False,
+                    include_response=True,
+                )
+
+        self.assertEqual(caught.exception.trace_id, "trace-1")
+        self.assertIn("未启用运行时规则 profile", caught.exception.response_text)
+        self.assertGreaterEqual(len(caught.exception.quality_violations), 3)
+
+    def test_smoke_case_can_include_response_text_in_success_report(self):
+        trace = {
+            "metadata": {
+                "resourceAttributes": {"service.name": "suanming-agent"},
+                "attributes": {"approved_route.primary_domain": "bazi"},
+            },
+            "observations": [{"name": "preflight"}, {"name": "sse_emit"}],
+        }
+        body = "event: text\ndata: 强弱调候大运\n\nevent: done\ndata: {}\n\n"
+        with (
+            mock.patch.object(runner, "invoke_chat", return_value=body),
+            mock.patch.object(runner, "poll_trace_detail", return_value=("trace-1", trace)),
+            mock.patch.object(runner, "get_trace_detail", return_value=trace),
+            mock.patch.object(runner.uuid, "uuid4", return_value=SimpleNamespace(hex="fixed")),
+            mock.patch.object(runner.time, "monotonic", side_effect=[100.0, 101.0, 102.0, 103.0]),
+        ):
+            result = runner.smoke_case(
+                case={"id": "quality-pass", "message": "分析八字", "response_must_contain_all": ["强弱", "调候"]},
+                server_url="http://example.test",
+                langfuse_url="http://langfuse.test",
+                headers={},
+                timeout_seconds=120,
+                poll_interval_seconds=1,
+                max_polls=1,
+                write_scores=False,
+                include_response=True,
+            )
+
+        self.assertEqual(result["response_text"], "强弱调候大运")
+        self.assertEqual(result["quality_violations"], [])
+
+    def test_smoke_case_supports_trace_attribute_any_assertions(self):
+        trace = {
+            "metadata": {
+                "resourceAttributes": {"service.name": "suanming-agent"},
+                "attributes": {
+                    "approved_route.primary_domain": "bazi",
+                    "bazi.dynamic.source": "facts_only_degraded",
+                },
+            },
+            "observations": [{"name": "preflight"}, {"name": "sse_emit"}],
+        }
+        case = {
+            "id": "contract-any",
+            "message": "分析八字",
+            "expected_trace_attribute_any": {"bazi.dynamic.source": ["model", "facts_only_degraded"]},
+        }
+        with (
+            mock.patch.object(runner, "invoke_chat", return_value="event: done\n"),
+            mock.patch.object(runner, "poll_trace_detail", return_value=("trace-1", trace)),
+            mock.patch.object(runner, "get_trace_detail", return_value=trace),
+            mock.patch.object(runner.uuid, "uuid4", return_value=SimpleNamespace(hex="fixed")),
+            mock.patch.object(runner.time, "monotonic", side_effect=[100.0, 101.0, 102.0, 103.0]),
+        ):
+            result = runner.smoke_case(
+                case=case,
+                server_url="http://example.test",
+                langfuse_url="http://langfuse.test",
+                headers={},
+                timeout_seconds=120,
+                poll_interval_seconds=1,
+                max_polls=1,
+                write_scores=False,
+            )
+        self.assertEqual(result["trace_attributes"]["bazi.dynamic.source"], "facts_only_degraded")
+
     def test_smoke_case_rejects_forbidden_response_content(self):
         trace = {
             "metadata": {
@@ -157,6 +308,7 @@ class EvalTimeoutTest(unittest.TestCase):
     def test_classify_failure_uses_stable_categories(self):
         self.assertEqual(runner.classify_failure(RuntimeError("missing SSE done event")), "sse")
         self.assertEqual(runner.classify_failure(RuntimeError("route_primary mismatch: qimen")), "route")
+        self.assertEqual(runner.classify_failure(RuntimeError("<urlopen error [Errno 111] Connection refused>")), "transport")
         self.assertEqual(runner.classify_failure(RuntimeError("unexpected")), "unknown")
 
     def test_write_case_scores_binds_score_configs(self):
@@ -185,6 +337,14 @@ class EvalTimeoutTest(unittest.TestCase):
         self.assertEqual(result["session_id"], "session-1")
         self.assertEqual(result["trace_id"], "trace-1")
         self.assertEqual(result["failure_class"], "route")
+
+    def test_failure_class_counts_aggregates_repeated_results(self):
+        results = [
+            {"passed": True},
+            {"passed": False, "failure_class": "sse"},
+            {"passed": False, "error": "route_primary mismatch: qimen"},
+        ]
+        self.assertEqual(runner.failure_class_counts(results), {"sse": 1, "route": 1})
 
     def test_timeout_failure_scores_trace_when_available(self):
         with (

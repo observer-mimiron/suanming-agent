@@ -1,3 +1,6 @@
+// This test file belongs to the LLM adapter layer.
+// It verifies Eino chat-model adapter behavior and protects the related contract from regressions.
+// It wraps model providers; domain prompts and contracts stay outside this package.
 package llm
 
 import (

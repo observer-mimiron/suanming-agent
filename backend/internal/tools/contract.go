@@ -1,3 +1,6 @@
+// This file belongs to the deterministic tool layer.
+// It owns tool contract governance for this package.
+// It executes governed tools; user-facing synthesis stays in runtime.
 package tools
 
 // RiskLevel describes how dangerous a tool is if selected or repeated incorrectly.

@@ -1,3 +1,6 @@
+// This file belongs to the session state layer.
+// It owns domain context state for this package.
+// It stores session truth; routing and interpretation decisions stay outside state structs.
 package state
 
 // ManagerContext 保存 manager 层持有的全局对话上下文。

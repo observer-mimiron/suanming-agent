@@ -1,3 +1,6 @@
+// This file belongs to the BaZi deterministic calculation layer.
+// It owns BaZi relation calculation for this package.
+// It computes reproducible BaZi facts; it must not generate narrative readings.
 package bazi
 
 // chonghe.go 四柱地支之间的冲合刑害关系检测。

@@ -1,3 +1,6 @@
+// This test file belongs to the session orchestration layer.
+// It verifies orchestrator trace projection behavior and protects the related contract from regressions.
+// It owns turn lifecycle; domain reasoning stays in runtime and tools.
 package orchestrator
 
 import (
@@ -29,7 +32,7 @@ func (a staticRouteAdvisor) Approve(_ context.Context, _ string, _ *state.Sessio
 	return a.route, nil
 }
 
-func TestEmitTracePanels_SendsProcessAndDebugComponents(t *testing.T) {
+func TestEmitTracePanels_SendsRunInspectionComponent(t *testing.T) {
 	tracer := tracing.NewRealTracer(nil)
 	ctx, trace := tracer.StartTrace(context.Background(), "chat.turn")
 	defer trace.End()
@@ -51,8 +54,8 @@ func TestEmitTracePanels_SendsProcessAndDebugComponents(t *testing.T) {
 	orc := &Orchestrator{}
 	orc.emitTracePanels(ctx, sink, "agent_reading")
 
-	if len(sink.events) != 3 {
-		t.Fatalf("events = %d, want 3", len(sink.events))
+	if len(sink.events) != 1 {
+		t.Fatalf("events = %d, want 1", len(sink.events))
 	}
 	if sink.events[0].Type != "component" {
 		t.Fatalf("event 0 type = %q, want component", sink.events[0].Type)
@@ -61,22 +64,15 @@ func TestEmitTracePanels_SendsProcessAndDebugComponents(t *testing.T) {
 	if !ok {
 		t.Fatalf("event 0 data type = %T, want map[string]any", sink.events[0].Data)
 	}
-	if data0["type"] != "process-panel" {
-		t.Fatalf("event 0 component type = %v, want process-panel", data0["type"])
+	if data0["type"] != "run-inspection" {
+		t.Fatalf("event 0 component type = %v, want run-inspection", data0["type"])
 	}
-	data1, ok := sink.events[1].Data.(map[string]any)
+	payload, ok := data0["payload"].(tracing.RunInspection)
 	if !ok {
-		t.Fatalf("event 1 data type = %T, want map[string]any", sink.events[1].Data)
+		t.Fatalf("payload = %T, want tracing.RunInspection", data0["payload"])
 	}
-	if data1["type"] != "debug-trace" {
-		t.Fatalf("event 1 component type = %v, want debug-trace", data1["type"])
-	}
-	data2, ok := sink.events[2].Data.(map[string]any)
-	if !ok {
-		t.Fatalf("event 2 data type = %T, want map[string]any", sink.events[2].Data)
-	}
-	if data2["type"] != "execution-tree" {
-		t.Fatalf("event 2 component type = %v, want execution-tree", data2["type"])
+	if payload.TraceID == "" {
+		t.Fatal("run inspection trace_id must be populated")
 	}
 }
 

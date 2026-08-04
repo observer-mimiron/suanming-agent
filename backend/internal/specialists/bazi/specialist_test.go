@@ -1,3 +1,6 @@
+// This test file belongs to the BaZi specialist layer.
+// It verifies domain specialist configuration and protects the related contract from regressions.
+// It configures BaZi worker behavior; deterministic chart facts stay in tools/runtime.
 package bazi
 
 import (

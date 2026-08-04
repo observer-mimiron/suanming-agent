@@ -1,3 +1,6 @@
+// This test file belongs to the manager-owned runtime layer.
+// It verifies Manager behavior and protects the related contract from regressions.
+// It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
 
 import (
@@ -80,7 +83,7 @@ func TestManager_BuildExecutionPlan_UsesMainRuntimePathForMultiDomain(t *testing
 		TaskIntent:       "cross_domain_consult",
 	}
 
-	plan := manager.BuildExecutionPlan(st, route, "show me the full picture")
+	plan := manager.BuildExecutionPlan(st, route, "八字和紫微一起看整体")
 	if len(plan.Domains) != 2 {
 		t.Fatalf("len(Domains) = %d, want 2", len(plan.Domains))
 	}
@@ -101,6 +104,27 @@ func TestManager_BuildExecutionPlan_UsesMainRuntimePathForMultiDomain(t *testing
 	}
 	if len(plan.Snapshot.RequiredArtifacts) != 2 || plan.Snapshot.RequiredArtifacts[1] != artifactZiweiChart {
 		t.Fatalf("Snapshot.RequiredArtifacts = %v, want bazi/ziwei artifacts", plan.Snapshot.RequiredArtifacts)
+	}
+}
+
+func TestManager_BuildExecutionPlan_DropsImplicitZiweiForPlainBaziBirthInput(t *testing.T) {
+	manager := &Manager{}
+	st := state.NewSession("s1")
+	route := policy.ApprovedRoute{
+		PrimaryDomain:    "bazi",
+		SecondaryDomains: []string{"ziwei"},
+		TaskIntent:       "collect_profile",
+	}
+
+	plan := manager.BuildExecutionPlan(st, route, "1994年1月21日20点30分 女 南京")
+	if len(plan.Domains) != 1 || plan.Domains[0] != "bazi" {
+		t.Fatalf("Domains = %v, want [bazi]", plan.Domains)
+	}
+	if len(plan.Requirements) != 1 || plan.Requirements[0].Kind != artifactBaziChart {
+		t.Fatalf("Requirements = %v, want only bazi chart", plan.Requirements)
+	}
+	if len(plan.Snapshot.SecondaryDomains) != 0 {
+		t.Fatalf("Snapshot.SecondaryDomains = %v, want empty", plan.Snapshot.SecondaryDomains)
 	}
 }
 
@@ -191,7 +215,7 @@ func TestManager_BuildExecutionPlan_ReusesCachedSingleDomainInterpretation(t *te
 	}
 	st := state.NewSession("s1")
 	st.MergeProfile(map[string]any{"year": 1991.0, "month": 5.0, "day": 20.0, "hour": 8.0, "gender": "男"})
-	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": "zi_zheng_v1"}, "test")
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": currentBaziCalendarRule()}, "test")
 	st.StoreInterpretation("bazi", map[string]any{
 		"domain":  "bazi",
 		"summary": "上轮已经判断事业主线可走稳",
@@ -213,11 +237,47 @@ func TestManager_BuildExecutionPlan_ReusesCachedSingleDomainInterpretation(t *te
 	}
 }
 
+func TestManager_BuildExecutionPlan_DoesNotReuseCachedInterpretationForDynamicFortuneFollowup(t *testing.T) {
+	manager := &Manager{
+		flash: &llm.NoopClient{
+			GenerateFn: func(context.Context, string, []llm.Message) (string, llm.TokenUsage, error) {
+				return "不应复用旧解读", llm.TokenUsage{}, nil
+			},
+		},
+	}
+	st := state.NewSession("s1")
+	st.MergeProfile(map[string]any{"year": 1991.0, "month": 5.0, "day": 20.0, "hour": 8.0, "gender": "男"})
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": currentBaziCalendarRule()}, "test")
+	st.StoreInterpretation("bazi", map[string]any{
+		"domain":  "bazi",
+		"summary": "上轮已经判断事业主线可走稳",
+	})
+	route := policy.ApprovedRoute{
+		PrimaryDomain: "bazi",
+		TaskIntent:    "fortune_followup",
+		Slots: schemas.DecisionSlots{
+			QuestionText: "那本月运气如何",
+			TimeScope:    "本月",
+		},
+		PolicyHints: schemas.PolicyHints{
+			QimenMode: "none",
+		},
+	}
+
+	plan := manager.BuildExecutionPlan(st, route, "那本月运气如何")
+	if plan.FollowupMode != followupModeRerunSpecialist {
+		t.Fatalf("FollowupMode = %q, want %q", plan.FollowupMode, followupModeRerunSpecialist)
+	}
+	if plan.FollowupDirectAnswer != "" {
+		t.Fatalf("FollowupDirectAnswer = %q, want empty dynamic rerun", plan.FollowupDirectAnswer)
+	}
+}
+
 func TestManager_BuildExecutionPlan_DoesNotReuseCachedInterpretationForCrossDomainFollowup(t *testing.T) {
 	manager := &Manager{}
 	st := state.NewSession("s1")
 	st.MergeProfile(map[string]any{"year": 1991.0, "month": 5.0, "day": 20.0, "hour": 8.0, "gender": "男"})
-	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": "zi_zheng_v1"}, "test")
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"calendar_rule_version": currentBaziCalendarRule()}, "test")
 	st.StoreInterpretation("bazi", map[string]any{
 		"domain":  "bazi",
 		"summary": "上轮已经判断事业主线可走稳",

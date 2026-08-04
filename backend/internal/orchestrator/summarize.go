@@ -1,3 +1,6 @@
+// This file belongs to the session orchestration layer.
+// It owns conversation summary behavior for this package.
+// It owns turn lifecycle; domain reasoning stays in runtime and tools.
 package orchestrator
 
 import (

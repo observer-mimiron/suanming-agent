@@ -69,6 +69,18 @@ export function extractBestSnippet(
     return content.slice(0, maxChars);
   }
 
+  const lowerContent = content.toLowerCase();
+  const exactTerms = [...new Set(queryTokens.map((token) => token.toLowerCase()))]
+    .filter((token) => token.length >= 4)
+    .sort((a, b) => b.length - a.length);
+  for (const term of exactTerms) {
+    const index = lowerContent.indexOf(term);
+    if (index !== -1) {
+      const start = Math.max(0, index - Math.floor(maxChars / 2));
+      return content.slice(start, start + maxChars);
+    }
+  }
+
   const querySet = new Set(queryTokens);
   const step = 100;
   let bestStart = 0;
@@ -202,6 +214,7 @@ export async function retrievePassages(
 ): Promise<RetrievalPassage[]> {
   const normalizedLimit = Math.max(1, limit);
   const { questionTokens, fusedSlugs } = await rankEntriesHybrid(question, entries, fullBody);
+  const snippetTokens = mergeSnippetQueryTerms(question, questionTokens);
   if (fusedSlugs.length === 0) {
     return [];
   }
@@ -219,7 +232,7 @@ export async function retrievePassages(
     }
     const page = await readWikiPage(slug);
     const snippet = page
-      ? extractBestSnippet(page.content, questionTokens, RETRIEVE_SNIPPET_CHARS).replace(/\n+/g, " ").trim()
+      ? extractBestSnippet(page.content, snippetTokens, RETRIEVE_SNIPPET_CHARS).replace(/\n+/g, " ").trim()
       : entry.summary;
     passages.push({
       slug,
@@ -231,6 +244,15 @@ export async function retrievePassages(
   }
 
   return passages;
+}
+
+function mergeSnippetQueryTerms(question: string, questionTokens: string[]): string[] {
+  const rawTerms = question
+    .toLowerCase()
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter(Boolean);
+  return Array.from(new Set([...rawTerms, ...questionTokens]));
 }
 
 /**

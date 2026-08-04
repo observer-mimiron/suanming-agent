@@ -157,10 +157,11 @@
 - **When** 前端收到事件
 - **Then** `QimenChart` 按后天八卦方位排列九宫格
 
-### AC-5.5 Trace 面板
+### AC-5.5 Run Inspector 排障面板
 - **Given** 一轮对话完成
 - **When** SSE 推送 `done` 事件
-- **Then** `TracePanel` 展示处理过程摘要，`KnowledgeSourceCard` 可展开折叠
+- **Then** `RunInspector` 展示 trace_id、诊断结论、agent 链路、span tree 和 span detail，`KnowledgeSourceCard` 可展开折叠
+- **And** 本地 debug 模式下可按 trace_id 懒加载完整 `TurnTrace`，默认折叠敏感字段
 
 ### AC-5.6 上下文卡默认折叠
 - **Given** 助手回答包含 thinking 和知识来源

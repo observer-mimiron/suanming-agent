@@ -1,3 +1,6 @@
+// This test file belongs to the route approval layer.
+// It verifies cheap follow-up gate behavior and protects the related contract from regressions.
+// It approves routes; execution contracts are built later by Manager.
 package supervisor
 
 import (

@@ -1,3 +1,6 @@
+// This file belongs to the local reporting CLI layer.
+// It owns the command entrypoint for this package.
+// It reads local reports only; it must not mutate runtime sessions or traces.
 package main
 
 import (
