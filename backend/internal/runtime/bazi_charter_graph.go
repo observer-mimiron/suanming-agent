@@ -1,6 +1,7 @@
-// This file belongs to the manager-owned runtime layer.
-// It owns BaZi charter graph execution for this package.
-// It owns execution contracts and Manager flow; specialists do not own final answers.
+// Package runtime 包含 Manager 拥有的八字执行图。
+//
+// 本文件负责八字 charter graph 的节点、静态/动态投影合同和本地恢复入口；
+// 不拥有最终答复权，也不让 specialist 绕过 ExecutionPlan 或 final guard。
 package runtime
 
 import (
@@ -18,78 +19,80 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
 
+// validateStaticStage 校验静态综合展示所需的结构字段。
+// 这些错误必须保持机器可读，后续 repair/recovery 节点才可分类处理。
 func validateStaticStage(state baziCharterState) error {
 	if isFactsOnlyStaticSynthesis(state.StaticSynthesis) {
 		return validateFactsOnlyStaticSynthesis(state)
 	}
 	if state.Input.RuleProfile.ID != "" && state.StaticSynthesis.RuleProfile != "" && state.StaticSynthesis.RuleProfile != state.Input.RuleProfile.ID {
-		return fmt.Errorf("static synthesis rule profile does not match selected profile")
+		return projectionMismatchViolation("static.rule_profile", "static synthesis rule profile does not match selected profile", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.MainAxis) == "" {
-		return fmt.Errorf("missing static synthesis main axis")
+		return projectionMismatchViolation("static.main_axis", "missing static synthesis main axis", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.PatternBasis) == "" {
-		return fmt.Errorf("missing static synthesis pattern basis")
+		return projectionMismatchViolation("static.pattern_basis", "missing static synthesis pattern basis", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.PatternOutcome) == "" {
-		return fmt.Errorf("missing static synthesis pattern outcome")
+		return projectionMismatchViolation("static.pattern_outcome", "missing static synthesis pattern outcome", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.CounterEvidence) == "" {
-		return fmt.Errorf("missing static synthesis counter evidence")
+		return projectionMismatchViolation("static.counter_evidence", "missing static synthesis counter evidence", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.AxisConsistency) == "" {
-		return fmt.Errorf("missing static synthesis axis consistency")
+		return projectionMismatchViolation("static.axis_consistency", "missing static synthesis axis consistency", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.TiaohouAnchor) == "" {
-		return fmt.Errorf("missing static synthesis tiaohou anchor")
+		return projectionMismatchViolation("static.tiaohou_anchor", "missing static synthesis tiaohou anchor", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.PatternAndQingZhuo) == "" {
-		return fmt.Errorf("missing static synthesis pattern and qingzhuo")
+		return projectionMismatchViolation("static.pattern_and_qing_zhuo", "missing static synthesis pattern and qingzhuo", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.TierJudgment) == "" {
-		return fmt.Errorf("missing static synthesis tier judgment")
+		return projectionMismatchViolation("static.tier_judgment", "missing static synthesis tier judgment", nil)
 	}
 	if strings.Contains(state.StaticSynthesis.TierJudgment, "层级暂不定级") {
-		return fmt.Errorf("static synthesis exposes internal no-tier state")
+		return projectionMismatchViolation("static.tier_judgment", "static synthesis exposes internal no-tier state", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.TierBasis) == "" {
-		return fmt.Errorf("missing static synthesis tier basis")
+		return projectionMismatchViolation("static.tier_basis", "missing static synthesis tier basis", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.ReasoningSummary) == "" {
-		return fmt.Errorf("missing static synthesis reasoning summary")
+		return projectionMismatchViolation("static.reasoning_summary", "missing static synthesis reasoning summary", nil)
 	}
 	if len(state.StaticSynthesis.ReasoningSteps) == 0 {
-		return fmt.Errorf("missing static synthesis reasoning steps")
+		return projectionMismatchViolation("static.reasoning_steps", "missing static synthesis reasoning steps", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.ClaimStrength) == "" {
-		return fmt.Errorf("missing static synthesis claim strength")
+		return projectionMismatchViolation("static.claim_strength", "missing static synthesis claim strength", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.SupportLevel) == "" {
-		return fmt.Errorf("missing static synthesis support level")
+		return projectionMismatchViolation("static.support_level", "missing static synthesis support level", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.LimitationLevel) == "" {
-		return fmt.Errorf("missing static synthesis limitation level")
+		return projectionMismatchViolation("static.limitation_level", "missing static synthesis limitation level", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.WordingCap) == "" {
-		return fmt.Errorf("missing static synthesis wording cap")
+		return projectionMismatchViolation("static.wording_cap", "missing static synthesis wording cap", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.AxisLevel) == "" {
-		return fmt.Errorf("missing static synthesis axis level")
+		return projectionMismatchViolation("static.axis_level", "missing static synthesis axis level", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.EffectOnTiaohou) == "" {
-		return fmt.Errorf("missing static synthesis effect on tiaohou")
+		return projectionMismatchViolation("static.effect_on_tiaohou", "missing static synthesis effect on tiaohou", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.EffectOnCoreDisease) == "" {
-		return fmt.Errorf("missing static synthesis effect on core disease")
+		return projectionMismatchViolation("static.effect_on_core_disease", "missing static synthesis effect on core disease", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.EffectOnJiShenDirection) == "" {
-		return fmt.Errorf("missing static synthesis effect on ji-shen direction")
+		return projectionMismatchViolation("static.effect_on_jishen_direction", "missing static synthesis effect on ji-shen direction", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.AxisCeiling) == "" {
-		return fmt.Errorf("missing static synthesis axis ceiling")
+		return projectionMismatchViolation("static.axis_ceiling", "missing static synthesis axis ceiling", nil)
 	}
 	if requiresStaticConflictReasons(state.StaticSynthesis) && len(state.StaticSynthesis.ConflictReasons) == 0 {
-		return fmt.Errorf("missing static synthesis conflict reasons")
+		return projectionMismatchViolation("static.conflict_reasons", "missing static synthesis conflict reasons", nil)
 	}
 	if err := validateStaticOutcomeScope(state); err != nil {
 		return err
@@ -105,15 +108,17 @@ func isFactsOnlyDynamicSynthesis(d baziDynamicSynthesis) bool {
 	return strings.TrimSpace(d.Source) == baziSynthesisSourceFactsOnlyDegraded
 }
 
+// validateFactsOnlyStaticSynthesis 校验 facts-only fallback 自身可展示。
+// 这里不触发模型 repair；错误仍必须机器可读，便于 recovery 和 trace 分类。
 func validateFactsOnlyStaticSynthesis(state baziCharterState) error {
 	if state.Input.RuleProfile.ID != "" && state.StaticSynthesis.RuleProfile != state.Input.RuleProfile.ID {
-		return fmt.Errorf("facts-only static synthesis rule profile does not match selected profile")
+		return projectionMismatchViolation("static.facts_only.rule_profile", "facts-only static synthesis rule profile does not match selected profile", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.MainAxis) == "" {
-		return fmt.Errorf("facts-only static synthesis missing degraded message")
+		return projectionMismatchViolation("static.facts_only.main_axis", "facts-only static synthesis missing degraded message", nil)
 	}
 	if strings.TrimSpace(state.StaticSynthesis.PatternBasis) == "" && len(state.Input.BaziResult) == 0 && len(state.Input.Yongshen) == 0 {
-		return fmt.Errorf("facts-only static synthesis has no chart facts to show")
+		return projectionMismatchViolation("static.facts_only.chart_facts", "facts-only static synthesis has no chart facts to show", nil)
 	}
 	return nil
 }
@@ -267,6 +272,8 @@ func dynamicUserVisibleText(dynamic baziDynamicSynthesis) string {
 	}, "\n")
 }
 
+// validateDynamicConsistencyFlags 校验动态一致性标签是否属于固定枚举。
+// 非法枚举是投影合同错误，不进入事实修复或动态 facts-only。
 func validateDynamicConsistencyFlags(flags []string) error {
 	for _, flag := range flags {
 		flag = strings.TrimSpace(flag)
@@ -274,7 +281,11 @@ func validateDynamicConsistencyFlags(flags []string) error {
 			continue
 		}
 		if !containsString(allowedDynamicConsistencyFlags, flag) {
-			return fmt.Errorf("dynamic synthesis uses unsupported consistency flag %q; allowed: %s", flag, strings.Join(allowedDynamicConsistencyFlags, "、"))
+			return projectionMismatchViolation(
+				"dynamic.consistency_flags",
+				fmt.Sprintf("dynamic synthesis uses unsupported consistency flag %q; allowed: %s", flag, strings.Join(allowedDynamicConsistencyFlags, "、")),
+				allowedDynamicConsistencyFlags,
+			)
 		}
 	}
 	return nil
@@ -282,10 +293,8 @@ func validateDynamicConsistencyFlags(flags []string) error {
 
 var dynamicRelationTokenPattern = regexp.MustCompile(`[子丑寅卯辰巳午未申酉戌亥]{2,3}(?:相(?:冲|害|刑)|冲|害|刑|合(?:[金木水火土]局)?|会(?:[金木水火土]局)?)`)
 
-// validateDynamicRelationFacts verifies that a dynamic paragraph only names
-// branch relations emitted by deterministic tools for that period or the natal
-// chart. It prevents plausible but absent relations such as 戌未相刑 from
-// entering a user-facing luck reading.
+// validateDynamicRelationFacts 校验动态文本只引用确定性工具声明的关系事实。
+// 未声明关系是事实冲突，不能交给模型猜测或通过动态 facts-only 吞掉。
 func validateDynamicRelationFacts(state baziCharterState) error {
 	natalRelations := relationTextList(state.Input.Yongshen["chonghe"])
 	periods := dayunPeriods(state.Input.Dayun)
@@ -295,7 +304,14 @@ func validateDynamicRelationFacts(state baziCharterState) error {
 		}
 		allowed := append(append([]string{}, natalRelations...), relationTextList(periods[index]["dayun_chonghe"])...)
 		if token := firstUndeclaredRelationToken(line, allowed); token != "" {
-			return fmt.Errorf("dynamic synthesis uses undeclared branch relation %q for dayun %q", token, stringValue(periods[index]["ganZhi"]))
+			return baziViolationError(
+				baziViolationFactConflict,
+				fmt.Sprintf("dynamic.dayun_path[%d].relations", index),
+				"",
+				fmt.Sprintf("dynamic synthesis uses undeclared branch relation %q for dayun %q", token, stringValue(periods[index]["ganZhi"])),
+				nil,
+				allowed,
+			)
 		}
 	}
 	for index, judgment := range state.DynamicSynthesis.DayunJudgments {
@@ -305,7 +321,14 @@ func validateDynamicRelationFacts(state baziCharterState) error {
 		allowed := append(append([]string{}, natalRelations...), relationTextList(periods[index]["dayun_chonghe"])...)
 		text := strings.Join(append([]string{judgment.Interpretation}, judgment.Evidence...), "\n")
 		if token := firstUndeclaredRelationToken(text, allowed); token != "" {
-			return fmt.Errorf("dynamic synthesis uses undeclared branch relation %q for dayun %q", token, stringValue(periods[index]["ganZhi"]))
+			return baziViolationError(
+				baziViolationFactConflict,
+				fmt.Sprintf("dynamic.dayun_judgments[%d].interpretation", index),
+				"",
+				fmt.Sprintf("dynamic synthesis uses undeclared branch relation %q for dayun %q", token, stringValue(periods[index]["ganZhi"])),
+				nil,
+				allowed,
+			)
 		}
 	}
 	liunianText := strings.Join([]string{
@@ -316,7 +339,14 @@ func validateDynamicRelationFacts(state baziCharterState) error {
 	}, "\n")
 	allowedLiunian := append(append([]string{}, natalRelations...), relationTextList(state.Input.Liunian["liunian_chonghe"])...)
 	if token := firstUndeclaredRelationToken(liunianText, allowedLiunian); token != "" {
-		return fmt.Errorf("dynamic synthesis uses undeclared branch relation %q for liunian", token)
+		return baziViolationError(
+			baziViolationFactConflict,
+			"dynamic.liunian.relations",
+			"",
+			fmt.Sprintf("dynamic synthesis uses undeclared branch relation %q for liunian", token),
+			nil,
+			allowedLiunian,
+		)
 	}
 	return nil
 }
@@ -340,9 +370,8 @@ func normalizeDynamicRelationToken(token string) string {
 	return strings.ReplaceAll(strings.TrimSpace(token), "相", "")
 }
 
-// validateDynamicFireBureauFacts keeps a calculated branch relation from being
-// replaced by a plausible-looking but nonexistent bureau in a luck paragraph.
-// The dynamic model may explain declared facts, but it cannot create them.
+// validateDynamicFireBureauFacts 校验动态文本中的火局必须来自确定性关系事实。
+// 动态模型可以解释已声明事实，但不能凭文本创建新的火局。
 func validateDynamicFireBureauFacts(state baziCharterState) error {
 	periods := dayunPeriods(state.Input.Dayun)
 	for index, line := range state.DynamicSynthesis.DayunPath {
@@ -351,7 +380,14 @@ func validateDynamicFireBureauFacts(state baziCharterState) error {
 		}
 		relations := relationTextList(periods[index]["dayun_chonghe"])
 		if !containsAnyText(relations, []string{"火局"}) {
-			return fmt.Errorf("dynamic synthesis uses an undeclared fire bureau for dayun %q", stringValue(periods[index]["ganZhi"]))
+			return baziViolationError(
+				baziViolationFactConflict,
+				fmt.Sprintf("dynamic.dayun_path[%d].relations", index),
+				"",
+				fmt.Sprintf("dynamic synthesis uses an undeclared fire bureau for dayun %q", stringValue(periods[index]["ganZhi"])),
+				nil,
+				relations,
+			)
 		}
 	}
 	for index, judgment := range state.DynamicSynthesis.DayunJudgments {
@@ -364,7 +400,14 @@ func validateDynamicFireBureauFacts(state baziCharterState) error {
 		}
 		relations := relationTextList(periods[index]["dayun_chonghe"])
 		if !containsAnyText(relations, []string{"火局"}) {
-			return fmt.Errorf("dynamic synthesis uses an undeclared fire bureau for dayun %q", stringValue(periods[index]["ganZhi"]))
+			return baziViolationError(
+				baziViolationFactConflict,
+				fmt.Sprintf("dynamic.dayun_judgments[%d].interpretation", index),
+				"",
+				fmt.Sprintf("dynamic synthesis uses an undeclared fire bureau for dayun %q", stringValue(periods[index]["ganZhi"])),
+				nil,
+				relations,
+			)
 		}
 	}
 	liunianText := strings.Join([]string{
@@ -372,8 +415,16 @@ func validateDynamicFireBureauFacts(state baziCharterState) error {
 		strings.Join(state.DynamicSynthesis.TriggerSignals, "\n"),
 		strings.Join(state.DynamicSynthesis.KeyWindows, "\n"),
 	}, "\n")
-	if strings.Contains(liunianText, "火局") && !containsAnyText(relationTextList(state.Input.Liunian["liunian_chonghe"]), []string{"火局"}) {
-		return fmt.Errorf("dynamic synthesis uses an undeclared fire bureau for liunian")
+	liunianRelations := relationTextList(state.Input.Liunian["liunian_chonghe"])
+	if strings.Contains(liunianText, "火局") && !containsAnyText(liunianRelations, []string{"火局"}) {
+		return baziViolationError(
+			baziViolationFactConflict,
+			"dynamic.liunian.relations",
+			"",
+			"dynamic synthesis uses an undeclared fire bureau for liunian",
+			nil,
+			liunianRelations,
+		)
 	}
 	return nil
 }
@@ -385,66 +436,88 @@ func validateEvidenceBundlePreconditions(state baziCharterState) error {
 	return nil
 }
 
+// validateDynamicPreconditions 确认动态综合只在静态主轴已准备后运行。
+// 上游静态结果缺失属于结构合同错误，不触发模型 repair。
 func validateDynamicPreconditions(state baziCharterState) error {
 	if strings.TrimSpace(state.StaticSynthesis.MainAxis) == "" {
-		return fmt.Errorf("dynamic stage requires static synthesis first")
+		return projectionMismatchViolation("dynamic.preconditions.static.main_axis", "dynamic stage requires static synthesis first", nil)
 	}
 	return nil
 }
 
+// validateDynamicStage 校验动态综合的核心字段、覆盖范围和授权边界。
+// 字段缺失或结构不一致保持 hard-error/recovery 语义，不新增动态 repair。
 func validateDynamicStage(state baziCharterState) error {
 	if isFactsOnlyDynamicSynthesis(state.DynamicSynthesis) {
 		return validateFactsOnlyDynamicSynthesis(state)
 	}
 	if strings.TrimSpace(state.DynamicSynthesis.CurrentTrend) == "" {
-		return fmt.Errorf("missing dynamic synthesis current trend")
+		return projectionMismatchViolation("dynamic.current_trend", "missing dynamic synthesis current trend", nil)
 	}
 	if len(state.DynamicSynthesis.DayunPath) == 0 {
-		return fmt.Errorf("missing dynamic synthesis dayun path")
+		return projectionMismatchViolation("dynamic.dayun_path", "missing dynamic synthesis dayun path", nil)
 	}
 	if expected := len(dayunPeriods(state.Input.Dayun)); expected > 0 && len(state.DynamicSynthesis.DayunPath) < expected {
-		return fmt.Errorf("dynamic synthesis omits calculated dayun periods: got %d, want at least %d", len(state.DynamicSynthesis.DayunPath), expected)
+		return baziViolationError(
+			baziViolationDayunCoverageMissing,
+			"dynamic.dayun_path",
+			"",
+			fmt.Sprintf("dynamic synthesis omits calculated dayun periods: got %d, want at least %d", len(state.DynamicSynthesis.DayunPath), expected),
+			nil,
+			nil,
+		)
 	}
 	if err := validateDayunJudgmentFacts(state.Input.Dayun, state.DynamicSynthesis.DayunJudgments); err != nil {
 		return err
 	}
 	if strings.TrimSpace(state.DynamicSynthesis.LiunianFocus) == "" {
-		return fmt.Errorf("missing dynamic synthesis liunian focus")
+		return projectionMismatchViolation("dynamic.liunian_focus", "missing dynamic synthesis liunian focus", nil)
 	}
 	if strings.TrimSpace(state.DynamicSynthesis.WindowLevel) == "" {
-		return fmt.Errorf("missing dynamic synthesis window level")
+		return projectionMismatchViolation("dynamic.window_level", "missing dynamic synthesis window level", nil)
 	}
 	if strings.TrimSpace(state.DynamicSynthesis.ReasoningSummary) == "" {
-		return fmt.Errorf("missing dynamic synthesis reasoning summary")
+		return projectionMismatchViolation("dynamic.reasoning_summary", "missing dynamic synthesis reasoning summary", nil)
 	}
 	if len(state.DynamicSynthesis.ReasoningSteps) == 0 {
-		return fmt.Errorf("missing dynamic synthesis reasoning steps")
+		return projectionMismatchViolation("dynamic.reasoning_steps", "missing dynamic synthesis reasoning steps", nil)
 	}
 	if strings.TrimSpace(state.DynamicSynthesis.ClaimStrength) == "" {
-		return fmt.Errorf("missing dynamic synthesis claim strength")
+		return projectionMismatchViolation("dynamic.claim_strength", "missing dynamic synthesis claim strength", nil)
 	}
 	if strings.TrimSpace(state.DynamicSynthesis.SupportLevel) == "" {
-		return fmt.Errorf("missing dynamic synthesis support level")
+		return projectionMismatchViolation("dynamic.support_level", "missing dynamic synthesis support level", nil)
 	}
 	if strings.TrimSpace(state.DynamicSynthesis.LimitationLevel) == "" {
-		return fmt.Errorf("missing dynamic synthesis limitation level")
+		return projectionMismatchViolation("dynamic.limitation_level", "missing dynamic synthesis limitation level", nil)
 	}
 	if strings.TrimSpace(state.DynamicSynthesis.WordingCap) == "" {
-		return fmt.Errorf("missing dynamic synthesis wording cap")
+		return projectionMismatchViolation("dynamic.wording_cap", "missing dynamic synthesis wording cap", nil)
 	}
 	return validateDynamicAgainstProfileScope(state)
 }
 
+// validateFactsOnlyDynamicSynthesis 校验动态 facts-only 降级仍保留可展示事实。
+// 该校验只分类失败，不把降级输出重新送入模型 repair。
 func validateFactsOnlyDynamicSynthesis(state baziCharterState) error {
 	if strings.TrimSpace(state.DynamicSynthesis.CurrentTrend) == "" {
-		return fmt.Errorf("facts-only dynamic synthesis missing degraded message")
+		return projectionMismatchViolation("dynamic.facts_only.current_trend", "facts-only dynamic synthesis missing degraded message", nil)
 	}
 	if expected := len(dayunPeriods(state.Input.Dayun)); expected > 0 && len(state.DynamicSynthesis.DayunPath) < expected {
-		return fmt.Errorf("facts-only dynamic synthesis omits calculated dayun periods: got %d, want at least %d", len(state.DynamicSynthesis.DayunPath), expected)
+		return baziViolationError(
+			baziViolationDayunCoverageMissing,
+			"dynamic.facts_only.dayun_path",
+			"",
+			fmt.Sprintf("facts-only dynamic synthesis omits calculated dayun periods: got %d, want at least %d", len(state.DynamicSynthesis.DayunPath), expected),
+			nil,
+			nil,
+		)
 	}
 	return nil
 }
 
+// validateDayunJudgmentFacts 校验每步动态判断与确定性大运事实逐项对齐。
+// 干支错配是 fact_conflict，字段缺失和数量不符是结构合同错误。
 func validateDayunJudgmentFacts(dayun map[string]any, judgments []baziDayunJudgment) error {
 	if len(judgments) == 0 {
 		// Keep old structured outputs valid during the schema migration. New model
@@ -454,16 +527,41 @@ func validateDayunJudgmentFacts(dayun map[string]any, judgments []baziDayunJudgm
 	}
 	periods := dayunPeriods(dayun)
 	if len(judgments) != len(periods) {
-		return fmt.Errorf("dynamic synthesis dayun judgments mismatch: got %d, want %d", len(judgments), len(periods))
+		return baziViolationError(
+			baziViolationDayunCoverageMissing,
+			"dynamic.dayun_judgments",
+			"",
+			fmt.Sprintf("dynamic synthesis dayun judgments mismatch: got %d, want %d", len(judgments), len(periods)),
+			nil,
+			nil,
+		)
 	}
 	for i, judgment := range judgments {
 		want := strings.TrimSpace(stringValue(periods[i]["ganZhi"]))
 		got := strings.TrimSpace(judgment.GanZhi)
-		if want == "" || got == "" || !strings.HasPrefix(got, want) {
-			return fmt.Errorf("dynamic synthesis dayun judgment %d does not match calculated period %q", i, want)
+		field := fmt.Sprintf("dynamic.dayun_judgments[%d].gan_zhi", i)
+		if want == "" {
+			return baziViolationError(baziViolationFactRefMissing, field, "", "calculated dayun period is missing gan_zhi", nil, nil)
+		}
+		if got == "" {
+			return projectionMismatchViolation(field, fmt.Sprintf("dynamic synthesis dayun judgment %d is missing gan_zhi", i), []string{want})
+		}
+		if !strings.HasPrefix(got, want) {
+			return baziViolationError(
+				baziViolationFactConflict,
+				field,
+				"",
+				fmt.Sprintf("dynamic synthesis dayun judgment %d does not match calculated period %q", i, want),
+				nil,
+				[]string{want},
+			)
 		}
 		if strings.TrimSpace(judgment.Trend) == "" || strings.TrimSpace(judgment.Interpretation) == "" {
-			return fmt.Errorf("dynamic synthesis dayun judgment %d is incomplete", i)
+			return projectionMismatchViolation(
+				fmt.Sprintf("dynamic.dayun_judgments[%d]", i),
+				fmt.Sprintf("dynamic synthesis dayun judgment %d is incomplete", i),
+				nil,
+			)
 		}
 	}
 	return nil
@@ -508,7 +606,7 @@ func validateStaticEvidenceCoverageBoundary(state baziCharterState) error {
 		return nil
 	}
 	if state.StaticSynthesis.AxisLevel == "主轴成立" || state.StaticSynthesis.AxisLevel == "可以拔高" {
-		return fmt.Errorf("static axis level exceeds incomplete evidence boundary: missing %s", strings.Join(state.EvidenceQuality.MissingTopics, ", "))
+		return baziViolationError(baziViolationEvidenceTopicMissing, "static.axis_level", "", fmt.Sprintf("static axis level exceeds incomplete evidence boundary: missing %s", strings.Join(state.EvidenceQuality.MissingTopics, ", ")), state.EvidenceQuality.MissingTopics, state.EvidenceQuality.CoveredTopics)
 	}
 	return nil
 }
@@ -604,6 +702,8 @@ func validateCurrentDayunLineConsistency(d baziDynamicSynthesis) error {
 	return nil
 }
 
+// validateStaticAxisVerdictConsistency 校验轴线裁断字段之间的封顶关系。
+// 该层只处理结构投影一致性，不替模型选择格局路线。
 func validateStaticAxisVerdictConsistency(s baziStaticSynthesis) error {
 	if strings.TrimSpace(s.AxisLevel) == "" &&
 		strings.TrimSpace(s.EffectOnTiaohou) == "" &&
@@ -631,18 +731,18 @@ func validateStaticAxisVerdictConsistency(s baziStaticSynthesis) error {
 		return err
 	}
 	if requiresStaticConflictReasons(s) && len(s.ConflictReasons) == 0 {
-		return fmt.Errorf("static conflict reasons required")
+		return projectionMismatchViolation("static.conflict_reasons", "static conflict reasons required", nil)
 	}
 	if err := validateAxisVerdictAgainstConflict(s); err != nil {
 		return err
 	}
 	if s.AxisCeiling == "结构信号" &&
 		containsAnyText([]string{s.MainAxis, s.PatternOutcome, s.TierBasis}, []string{"主轴", "贵格", "化杀为权"}) {
-		return fmt.Errorf("static synthesis promotes structure signal beyond axis ceiling")
+		return projectionMismatchViolation("static.axis_ceiling", "static synthesis promotes structure signal beyond axis ceiling", nil)
 	}
 	if s.AxisCeiling == "受限路线" &&
 		containsAnyText([]string{s.MainAxis, s.PatternOutcome, s.TierBasis}, []string{"纯主轴贵格", "可以拔高", "化杀为权"}) {
-		return fmt.Errorf("static synthesis promotes restricted route beyond axis ceiling")
+		return projectionMismatchViolation("static.axis_ceiling", "static synthesis promotes restricted route beyond axis ceiling", nil)
 	}
 	return nil
 }
@@ -660,6 +760,8 @@ func requiresStaticConflictReasons(s baziStaticSynthesis) bool {
 		containsString(s.ConsistencyFlags, "方向成立但力度受限")
 }
 
+// validateAxisVerdictAgainstConflict 防止冲突路线被投影成高封顶主轴。
+// 冲突事实本身可被解释，但字段封顶必须同步降级。
 func validateAxisVerdictAgainstConflict(s baziStaticSynthesis) error {
 	conflictCount := 0
 	if s.EffectOnTiaohou == "冲突" {
@@ -677,17 +779,19 @@ func validateAxisVerdictAgainstConflict(s baziStaticSynthesis) error {
 	switch s.AxisCeiling {
 	case "结构信号", "受限路线":
 	default:
-		return fmt.Errorf("static axis ceiling is too high for a conflict-amplifying route")
+		return projectionMismatchViolation("static.axis_ceiling", "static axis ceiling is too high for a conflict-amplifying route", nil)
 	}
 	if s.AxisCeiling == "结构信号" && (s.AxisLevel == "主轴成立" || s.AxisLevel == "可以拔高") {
-		return fmt.Errorf("static axis level exceeds structure-signal ceiling")
+		return projectionMismatchViolation("static.axis_level", "static axis level exceeds structure-signal ceiling", nil)
 	}
 	if s.AxisCeiling == "受限路线" && s.AxisLevel == "可以拔高" {
-		return fmt.Errorf("static axis level exceeds restricted-route ceiling")
+		return projectionMismatchViolation("static.axis_level", "static axis level exceeds restricted-route ceiling", nil)
 	}
 	return nil
 }
 
+// validateDynamicAgainstStaticCeiling 防止动态文字越过静态轴线封顶。
+// 它只做上下游字段一致性检查，不重新裁断运势吉凶。
 func validateDynamicAgainstStaticCeiling(s baziStaticSynthesis, d baziDynamicSynthesis) error {
 	if s.AxisCeiling != "结构信号" && s.AxisCeiling != "受限路线" {
 		return nil
@@ -699,11 +803,13 @@ func validateDynamicAgainstStaticCeiling(s baziStaticSynthesis, d baziDynamicSyn
 		"贵格已成",
 		"一飞冲天",
 	}) {
-		return fmt.Errorf("dynamic synthesis escalates beyond static axis ceiling")
+		return projectionMismatchViolation("dynamic.static_axis_ceiling", "dynamic synthesis escalates beyond static axis ceiling", nil)
 	}
 	return nil
 }
 
+// validateStaticDecisionConsistency 校验静态综合的强度、限制和可见措辞封顶。
+// 失败进入 projection mismatch，不当作事实冲突或方法合同错误。
 func validateStaticDecisionConsistency(s baziStaticSynthesis) error {
 	if err := validateAllowedValue("static claim strength", s.ClaimStrength, []string{"保守判断", "倾向成立", "明确成立", "封顶判断"}); err != nil {
 		return err
@@ -737,15 +843,15 @@ func validateStaticDecisionConsistency(s baziStaticSynthesis) error {
 			"不自动换算富贵层次",
 			"不自动换算富贵等级",
 		}) {
-		return fmt.Errorf("static consistency flag requires visible limitation text")
+		return projectionMismatchViolation("static.consistency_flags", "static consistency flag requires visible limitation text", nil)
 	}
 	if containsAnyText([]string{s.MainAxis, s.PatternOutcome, s.TierBasis}, []string{"一飞冲天"}) &&
 		!allowsFlourishByWordingCap(s.WordingCap, "一飞冲天") {
-		return fmt.Errorf("static synthesis overstates wording beyond wording cap")
+		return projectionMismatchViolation("static.wording_cap", "static synthesis overstates wording beyond wording cap", nil)
 	}
 	if containsAnyText([]string{s.MainAxis, s.PatternOutcome, s.TierBasis}, []string{"可享清福", "福泽深厚", "贵人众多"}) &&
 		!allowsFlourishByWordingCap(s.WordingCap, "positive_flourish") {
-		return fmt.Errorf("static synthesis overstates wording beyond wording cap")
+		return projectionMismatchViolation("static.wording_cap", "static synthesis overstates wording beyond wording cap", nil)
 	}
 	return nil
 }
@@ -911,15 +1017,29 @@ func sectionContent(output, heading, nextHeading string) string {
 	return strings.TrimSpace(output[start:end])
 }
 
+// validateAllowedValue 校验静态/动态投影枚举值，并返回机器可读字段错误。
 func validateAllowedValue(name, value string, allowed []string) error {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return fmt.Errorf("missing %s", name)
+		return projectionMismatchViolation(validationFieldName(name), fmt.Sprintf("missing %s", name), allowed)
 	}
 	if !containsString(allowed, value) {
-		return fmt.Errorf("invalid %s: %s", name, value)
+		return projectionMismatchViolation(validationFieldName(name), fmt.Sprintf("invalid %s: %s", name, value), allowed)
 	}
 	return nil
+}
+
+// projectionMismatchViolation 统一包装静态/动态投影类字段错误。
+func projectionMismatchViolation(field, message string, allowed []string) error {
+	return baziViolationError(baziViolationScopeEscalation, field, "", message, nil, allowed)
+}
+
+// validationFieldName 把 validator 的人类标签压成 trace/repair 可读字段名。
+func validationFieldName(name string) string {
+	field := strings.TrimSpace(strings.ToLower(name))
+	field = strings.ReplaceAll(field, "ji-shen", "jishen")
+	field = strings.ReplaceAll(field, " ", ".")
+	return field
 }
 
 func containsAnyText(texts []string, needles []string) bool {

@@ -105,23 +105,26 @@ func emitShortCircuitNode(ctx context.Context, in string) (string, error) {
 }
 
 // prefillNode prepares deterministic assets required by the Manager's plan.
-// Guided fallback can replace the route after preflight, so this node rebuilds
-// the plan before touching artifacts when ForcedRoute is present.
+// Guided fallback can replace the route after preflight, so this node performs
+// the single allowed plan rebuild and stores the effective plan in graph state.
 func prefillNode(ctx context.Context, in string) (string, error) {
 	oc, err := loadOrchestrationCtx(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	route := oc.Init.Route
-	plan := oc.Init.Plan
+	route := oc.GS.Route
+	plan := oc.GS.Plan
 	if oc.GS.PreflightResult.ForcedRoute != nil {
 		route = *oc.GS.PreflightResult.ForcedRoute
-		plan = oc.RT.Executor.manager.BuildExecutionPlan(oc.Init.St, route, oc.Init.UserMsg)
+		plan = oc.RT.Executor.manager.BuildExecutionPlanForTurn(oc.Init.St, route, oc.Init.UserMsg, oc.Init.Plan.TurnContext)
+		oc.GS.Plan = plan
 		oc.GS.Route = route
 		oc.RT.Executor.syncExecutionRoute(ctx, oc.Init.St, route, plan)
 	}
 	oc.RT.Executor.prefill(ctx, oc.RT.Sink, oc.Init.St, plan, oc.Init.Vals)
+	oc.GS.DynamicFacts = dynamicFactsForPlan(oc.Init.St, plan)
+	tracing.SetTraceAttributes(ctx, map[string]any{"dynamic_facts": oc.GS.DynamicFacts})
 	return in, nil
 }
 
@@ -137,7 +140,7 @@ func guardNode(ctx context.Context, finalText string) (string, error) {
 	span := tracing.SpanFromContext(ctx, "final_guard", tracing.KindChain)
 	defer span.End()
 
-	turnType, guardedText := guardFinalAnswerWithTrace(ctx, oc.GS.Route, oc.Init.St, finalText)
+	turnType, guardedText := guardFinalAnswerWithPlan(ctx, oc.GS.Plan, oc.Init.St, finalText)
 	span.SetAttribute("turn_type", turnType)
 	if guardedText != "" {
 		_ = emitEventWithTrace(ctx, oc.RT.Sink, Event{
@@ -146,9 +149,13 @@ func guardNode(ctx context.Context, finalText string) (string, error) {
 		}, map[string]any{"buffer_final": true, "turn_type": turnType})
 	}
 
-	getOrchestrationResult(ctx).TurnType = turnType
-	getOrchestrationResult(ctx).PrimaryDomain = oc.GS.Route.PrimaryDomain
-	getOrchestrationResult(ctx).ReplyDomain = oc.GS.Route.PrimaryDomain
+	result := getOrchestrationResult(ctx)
+	result.TurnType = turnType
+	result.PrimaryDomain = oc.GS.Route.PrimaryDomain
+	result.ReplyDomain = oc.GS.Route.PrimaryDomain
+	// Execute 仍会读取 result.Specialist 以保存 follow-up 资产；同步 guard
+	// 后文本，避免 SSE 展示了免责声明或拦截消息而返回值却回退到 guard 前内容。
+	result.Specialist.Summary = guardedText
 	return guardedText, nil
 }
 
@@ -165,12 +172,9 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 	nodeSpan.SetAttribute("primary_domain", oc.GS.Route.PrimaryDomain)
 
 	route := oc.GS.Route
-	plan := oc.Init.Plan
+	plan := oc.GS.Plan
 	if oc.GS.PreflightResult.ForcedRoute != nil {
-		route = *oc.GS.PreflightResult.ForcedRoute
-		plan = oc.RT.Executor.manager.BuildExecutionPlan(oc.Init.St, route, oc.Init.UserMsg)
 		nodeSpan.SetAttribute("forced_route", true)
-		oc.RT.Executor.syncExecutionRoute(ctx, oc.Init.St, route, plan)
 	}
 	if plan.FollowupMode != "" {
 		nodeSpan.SetAttribute("followup_mode", plan.FollowupMode)
@@ -195,6 +199,7 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 		if err != nil {
 			return nil, fmt.Errorf("run pure bazi charter graph: %w", err)
 		}
+		finalText = appendDynamicFactsNotice(finalText, oc.GS.DynamicFacts)
 		sr, sw := schema.Pipe[string](1)
 		go func() {
 			defer sw.Close()
@@ -205,8 +210,9 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 			nodeSpan.SetAttribute("final_text_len", len([]rune(finalText)))
 			getOrchestrationResult(ctx).ReplyDomain = route.PrimaryDomain
 			getOrchestrationResult(ctx).Specialist = specialists.Result{
-				Domain:  route.PrimaryDomain,
-				Summary: finalText,
+				Domain:             route.PrimaryDomain,
+				Summary:            finalText,
+				DomainContextPatch: attachDynamicFacts(nil, oc.GS.DynamicFacts),
 			}
 			sw.Send(finalText, nil)
 		}()
@@ -226,6 +232,7 @@ func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], er
 		nodeSpan.SetAttribute("dispatch_owner", "manager")
 		result, runErr := oc.RT.Executor.runExecutionPlan(ctx, oc.RT.Sink, oc.Init.St, plan, oc.Init.UserMsg)
 		if runErr == nil {
+			result.DomainContextPatch = attachDynamicFacts(result.DomainContextPatch, oc.GS.DynamicFacts)
 			result.Summary = oc.RT.Executor.manager.ComposeFinalReply(oc.Init.UserMsg, result)
 			nodeSpan.SetAttribute("final_text_len", len([]rune(result.Summary)))
 			getOrchestrationResult(ctx).ReplyDomain = result.Domain

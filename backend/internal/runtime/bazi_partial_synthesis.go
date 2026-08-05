@@ -1,6 +1,7 @@
-// This file belongs to the manager-owned runtime layer.
-// It owns BaZi partial synthesis projection for this package.
-// It owns execution contracts and Manager flow; specialists do not own final answers.
+// Package runtime 包含 Manager 拥有的八字局部综合投影。
+//
+// 本文件只接受 retry 后仍缺少展示字段的 partial 输出；
+// 不吞掉事实冲突、方法合同或最终答复边界错误。
 package runtime
 
 import "strings"
@@ -14,11 +15,10 @@ func isPartialSynthesisSource(source string) bool {
 	return strings.TrimSpace(source) == baziSynthesisSourceModelPartial
 }
 
-// isOmittableStaticSynthesisError allows only missing presentation details to
-// become partial output. Core static judgments remain fatal because hiding them
-// would make the reading look complete without a valid method spine.
+// isOmittableStaticSynthesisError 只允许静态展示字段缺失进入 partial。
+// 核心裁断缺失、事实冲突和方法错误仍保持 fatal。
 func isOmittableStaticSynthesisError(cause error) bool {
-	message := strings.TrimSpace(errorText(cause))
+	message := omittableSynthesisMessage(cause)
 	if !strings.HasPrefix(message, "missing static synthesis ") {
 		return false
 	}
@@ -160,11 +160,10 @@ func staticHasAxisVerdict(static baziStaticSynthesis) bool {
 		strings.TrimSpace(static.AxisCeiling) != ""
 }
 
-// isOmittableDynamicSynthesisError mirrors the static rule for dynamic text:
-// missing explanatory metadata can be omitted, while period coverage, fact
-// conflicts, adult-domain overreach, and semantic audit failures stay fatal.
+// isOmittableDynamicSynthesisError 只允许动态展示字段缺失进入 partial。
+// 大运覆盖、事实冲突、越权领域和语义审计失败仍保持 fatal。
 func isOmittableDynamicSynthesisError(cause error) bool {
-	message := strings.TrimSpace(errorText(cause))
+	message := omittableSynthesisMessage(cause)
 	if !strings.HasPrefix(message, "missing dynamic synthesis ") {
 		return false
 	}
@@ -182,6 +181,15 @@ func isOmittableDynamicSynthesisError(cause error) bool {
 		}
 	}
 	return false
+}
+
+// omittableSynthesisMessage 读取结构化 violation 的原始 message。
+// repair 改成机器可读错误后，partial 判断仍应使用无前缀的业务错误文本。
+func omittableSynthesisMessage(cause error) string {
+	if violation, ok := baziViolationFromError(cause); ok && strings.TrimSpace(violation.Message) != "" {
+		return strings.TrimSpace(violation.Message)
+	}
+	return strings.TrimSpace(errorText(cause))
 }
 
 // acceptPartialDynamicSynthesisAfterRetry keeps dynamic text only when the
@@ -229,21 +237,29 @@ func validatePartialDynamicSynthesis(chartState baziCharterState, output baziDyn
 func validatePartialDynamicCore(state baziCharterState) error {
 	dynamic := state.DynamicSynthesis
 	for _, field := range []struct {
-		name  string
-		value string
+		field   string
+		message string
+		value   string
 	}{
-		{name: "current trend", value: dynamic.CurrentTrend},
-		{name: "liunian focus", value: dynamic.LiunianFocus},
+		{field: "dynamic.current_trend", message: "missing dynamic synthesis current trend", value: dynamic.CurrentTrend},
+		{field: "dynamic.liunian_focus", message: "missing dynamic synthesis liunian focus", value: dynamic.LiunianFocus},
 	} {
 		if strings.TrimSpace(field.value) == "" {
-			return missingSynthesisCoreError("dynamic", field.name)
+			return projectionMismatchViolation(field.field, field.message, nil)
 		}
 	}
 	if len(dynamic.DayunPath) == 0 {
-		return missingSynthesisCoreError("dynamic", "dayun path")
+		return projectionMismatchViolation("dynamic.dayun_path", "missing dynamic synthesis dayun path", nil)
 	}
 	if expected := len(dayunPeriods(state.Input.Dayun)); expected > 0 && len(dynamic.DayunPath) < expected {
-		return missingSynthesisCoreError("dynamic", "complete dayun path")
+		return baziViolationError(
+			baziViolationDayunCoverageMissing,
+			"dynamic.dayun_path",
+			"",
+			"partial dynamic synthesis omits calculated dayun periods",
+			nil,
+			nil,
+		)
 	}
 	return validateDayunJudgmentFacts(state.Input.Dayun, dynamic.DayunJudgments)
 }

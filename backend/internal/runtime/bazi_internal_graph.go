@@ -1,9 +1,8 @@
-// Package runtime contains the manager-owned BaZi execution graph.
+// Package runtime 包含 Manager 拥有的八字内部执行图。
 //
-// This file turns the authority-first BaZi chain into explicit nodes and
-// branches. The nodes reuse the existing planner, evidence, synthesis,
-// projection and validation functions; they must not add chart-specific
-// judgment rules or rewrite renderer semantics.
+// 本文件把 authority-first 八字链路拆成显式节点和分支；只编排规划、
+// 取证、裁断、投影、校验、repair 和恢复，不新增命盘专项裁断，
+// 也不改写 renderer 语义或 specialist 最终答复边界。
 package runtime
 
 import (
@@ -26,6 +25,8 @@ const (
 	baziInternalNodeCanonicalSynthesis = "canonical_synthesis"
 	baziInternalNodeProjection         = "projection"
 	baziInternalNodeStaticValidation   = "static_validation"
+	baziInternalNodeRepairDecision     = "repair_decision"
+	baziInternalNodeCanonicalRepair    = "canonical_repair"
 	baziInternalNodeDynamicValidation  = "dynamic_validation"
 	baziInternalNodeRecoveryDecision   = "recovery_decision"
 	baziInternalNodeRender             = "render"
@@ -44,9 +45,8 @@ const (
 	baziRecoveryStateHardError                = "hard_error"
 )
 
-// baziInternalGraphState is the request-local state passed through the inner
-// BaZi graph. It keeps model-owned canonical judgments separate from runtime
-// projection, validation and recovery decisions.
+// baziInternalGraphState 是八字内部 graph 的单轮状态。
+// 它把模型 canonical 裁断、runtime 投影校验、repair 预算和恢复决策分开保存。
 type baziInternalGraphState struct {
 	Session  *state.SessionState
 	Sink     EventSink
@@ -61,6 +61,10 @@ type baziInternalGraphState struct {
 	RecoveryState  string
 	FailureClass   string
 	RecoveryPolicy string
+	RepairState    RepairState
+	RepairFailure  RepairFailure
+	RepairFeedback map[string]any
+	RepairAction   RepairAction
 	BranchPath     []string
 	Output         string
 }
@@ -78,6 +82,7 @@ func (e *Executor) runBaziInternalGraph(ctx context.Context, sink EventSink, st 
 		Sink:          sink,
 		Question:      question,
 		RecoveryState: baziRecoveryStateClean,
+		RepairState:   NewRepairState(),
 	})
 	if err != nil {
 		return "", err
@@ -88,9 +93,8 @@ func (e *Executor) runBaziInternalGraph(ctx context.Context, sink EventSink, st 
 	return out.Output, nil
 }
 
-// buildBaziInternalGraph wires the BaZi authority-first chain as a graph so
-// recovery decisions are explicit branches rather than hidden fallthrough in a
-// single long function.
+// buildBaziInternalGraph 把八字 authority-first 链路编排成显式 graph。
+// 静态合同失败先进入 repair_decision；repair 失败或不可修复才进入 recovery_decision。
 func (e *Executor) buildBaziInternalGraph(ctx context.Context) (compose.Runnable[*baziInternalGraphState, *baziInternalGraphState], error) {
 	g := compose.NewGraph[*baziInternalGraphState, *baziInternalGraphState]()
 
@@ -107,6 +111,8 @@ func (e *Executor) buildBaziInternalGraph(ctx context.Context) (compose.Runnable
 		{baziInternalNodeCanonicalSynthesis, e.baziCanonicalSynthesisNode},
 		{baziInternalNodeProjection, e.baziProjectionNode},
 		{baziInternalNodeStaticValidation, e.baziStaticValidationNode},
+		{baziInternalNodeRepairDecision, e.baziRepairDecisionNode},
+		{baziInternalNodeCanonicalRepair, e.baziCanonicalRepairNode},
 		{baziInternalNodeDynamicValidation, e.baziDynamicValidationNode},
 		{baziInternalNodeRecoveryDecision, e.baziRecoveryDecisionNode},
 		{baziInternalNodeRender, e.baziRenderNode},
@@ -155,12 +161,24 @@ func (e *Executor) buildBaziInternalGraph(ctx context.Context) (compose.Runnable
 	if err := g.AddBranch(baziInternalNodeStaticValidation, compose.NewGraphBranch(
 		baziAfterStaticValidationBranch,
 		map[string]bool{
-			baziInternalNodeRecoveryDecision:  true,
+			baziInternalNodeRepairDecision:    true,
 			baziInternalNodeDynamicValidation: true,
 			baziInternalNodeRender:            true,
 		},
 	)); err != nil {
 		return nil, fmt.Errorf("add bazi static validation branch: %w", err)
+	}
+	if err := g.AddBranch(baziInternalNodeRepairDecision, compose.NewGraphBranch(
+		baziAfterRepairDecisionBranch,
+		map[string]bool{baziInternalNodeCanonicalRepair: true, baziInternalNodeRecoveryDecision: true},
+	)); err != nil {
+		return nil, fmt.Errorf("add bazi repair decision branch: %w", err)
+	}
+	if err := g.AddBranch(baziInternalNodeCanonicalRepair, compose.NewGraphBranch(
+		baziAfterCanonicalRepairBranch,
+		map[string]bool{baziInternalNodeRecoveryDecision: true, baziInternalNodeProjection: true},
+	)); err != nil {
+		return nil, fmt.Errorf("add bazi canonical repair branch: %w", err)
 	}
 	if err := g.AddBranch(baziInternalNodeDynamicValidation, compose.NewGraphBranch(
 		baziAfterDynamicValidationBranch,
@@ -283,8 +301,8 @@ func (e *Executor) baziDynamicEvidenceNode(ctx context.Context, in *baziInternal
 	return in, nil
 }
 
-// baziCanonicalSynthesisNode is the only model-owned whole-chart judgment
-// node. Runtime projection and evidence status stay downstream.
+// baziCanonicalSynthesisNode 是唯一首轮模型整盘裁断节点。
+// runtime 仍在下游拥有投影、证据状态和恢复决策。
 func (e *Executor) baziCanonicalSynthesisNode(ctx context.Context, in *baziInternalGraphState) (*baziInternalGraphState, error) {
 	if err := baziMarkInternalNode(ctx, in, baziInternalNodeCanonicalSynthesis); err != nil {
 		return nil, err
@@ -301,9 +319,8 @@ func (e *Executor) baziCanonicalSynthesisNode(ctx context.Context, in *baziInter
 	return in, nil
 }
 
-// baziProjectionNode derives legacy static/dynamic renderer fields from the
-// canonical judgment. Models do not get a second chance to restate legacy
-// semantics here.
+// baziProjectionNode 从 canonical 裁断派生 legacy renderer 字段。
+// 本节点只做单向投影，不让模型重写 legacy 语义。
 func (e *Executor) baziProjectionNode(ctx context.Context, in *baziInternalGraphState) (*baziInternalGraphState, error) {
 	if err := baziMarkInternalNode(ctx, in, baziInternalNodeProjection); err != nil {
 		return nil, err
@@ -314,9 +331,8 @@ func (e *Executor) baziProjectionNode(ctx context.Context, in *baziInternalGraph
 	return in, nil
 }
 
-// baziStaticValidationNode validates runtime projection into the legacy static
-// renderer shape. Only evidence overclaim can recover to static facts-only;
-// fact and method conflicts remain hard errors.
+// baziStaticValidationNode 校验静态投影是否满足 renderer 合同。
+// 失败只记录机器可读状态；是否 repair、facts-only 或硬错由后续节点决定。
 func (e *Executor) baziStaticValidationNode(ctx context.Context, in *baziInternalGraphState) (*baziInternalGraphState, error) {
 	if err := baziMarkInternalNode(ctx, in, baziInternalNodeStaticValidation); err != nil {
 		return nil, err
@@ -325,6 +341,74 @@ func (e *Executor) baziStaticValidationNode(ctx context.Context, in *baziInterna
 		annotateBaziGraphError(ctx, "static_projection", err)
 		baziRecordInternalFailure(ctx, in, "static_projection", err, "canonical_static_projection_facts_only")
 	}
+	return in, nil
+}
+
+// baziRepairDecisionNode 用全局 RepairPolicy 判定静态合同失败是否允许一次 repair。
+// fact_conflict 和 method_contract 不会进入模型修复，避免模型猜测确定性事实。
+func (e *Executor) baziRepairDecisionNode(ctx context.Context, in *baziInternalGraphState) (*baziInternalGraphState, error) {
+	if err := baziMarkInternalNode(ctx, in, baziInternalNodeRepairDecision); err != nil {
+		return nil, err
+	}
+	in.RepairAction = ""
+	in.RepairFeedback = nil
+	if in.Failure == nil {
+		return in, nil
+	}
+	failure, ok := repairFailureFromBaziContract(in.FailureStage, in.Failure)
+	if !ok {
+		in.RepairAction = RepairActionHardError
+		return in, nil
+	}
+	in.RepairFailure = failure
+	decision := DefaultRepairPolicy().Decide(failure, in.RepairState)
+	attempt := RepairAttemptsFor(in.RepairState, failure)
+	if decision.Action == RepairActionRepairNode {
+		attempt++
+		in.RepairFeedback = buildBaziCanonicalRepairFeedback(failure, attempt)
+		in.RepairState = RecordRepairAttempt(in.RepairState, RepairAttempt{
+			Domain:   failure.Domain,
+			Stage:    failure.Stage,
+			Class:    failure.Class,
+			Field:    failure.Field,
+			Attempt:  attempt,
+			Action:   RepairActionRepairNode,
+			Feedback: in.RepairFeedback,
+		})
+	}
+	in.RepairAction = decision.Action
+	hintCount := RepairLearningHintCount(in.RepairFeedback)
+	tracing.SetTraceAttributes(ctx, RepairTraceAttrs(RepairTraceEvent{
+		Failure:           failure,
+		Attempt:           attempt,
+		MaxAttempts:       decision.MaxAttempts,
+		Action:            decision.Action,
+		Feedback:          in.RepairFeedback,
+		LearningHintCount: hintCount,
+		Exhausted:         decision.Exhausted,
+		FinalAction:       decision.Action,
+	}))
+	return in, nil
+}
+
+// baziCanonicalRepairNode 只重跑 canonical synthesis，并追加字段级 validation_feedback。
+// repair 结果必须重新 projection 和 static_validation；失败则回 recovery_decision。
+func (e *Executor) baziCanonicalRepairNode(ctx context.Context, in *baziInternalGraphState) (*baziInternalGraphState, error) {
+	if err := baziMarkInternalNode(ctx, in, baziInternalNodeCanonicalRepair); err != nil {
+		return nil, err
+	}
+	if in.Failure == nil || in.RepairAction != RepairActionRepairNode {
+		return in, nil
+	}
+	canonical, err := e.runCanonicalSynthesisRepair(ctx, in.Session, in.ChartState, in.Question, in.RepairFeedback)
+	if err != nil {
+		annotateBaziGraphError(ctx, "canonical_repair", err)
+		baziAnnotateRepairFinalAction(ctx, in, baziRepairFallbackAction(in.RepairFailure))
+		return in, nil
+	}
+	canonical.ContractAudit = baziContractAudit{Compliant: true}
+	annotateCanonicalSynthesis(ctx, canonical)
+	baziAcceptCanonicalRepair(ctx, in, canonical)
 	return in, nil
 }
 
@@ -343,9 +427,8 @@ func (e *Executor) baziDynamicValidationNode(ctx context.Context, in *baziIntern
 	return in, nil
 }
 
-// baziRecoveryDecisionNode is the single state-machine transition for synthesis
-// recovery. It keeps candidate model text out of the renderer whenever a
-// recovery path is selected.
+// baziRecoveryDecisionNode 是综合失败后的唯一恢复状态机。
+// 它只接收不可 repair、repair 失败或预算耗尽的失败，不把候选模型文本交给 renderer。
 func (e *Executor) baziRecoveryDecisionNode(ctx context.Context, in *baziInternalGraphState) (*baziInternalGraphState, error) {
 	if err := baziMarkInternalNode(ctx, in, baziInternalNodeRecoveryDecision); err != nil {
 		return nil, err
@@ -374,6 +457,7 @@ func (e *Executor) baziRecoveryDecisionNode(ctx context.Context, in *baziInterna
 		in.ChartState.StaticSynthesis = staticSynthesis
 		in.ChartState.DynamicSynthesis = dynamicSynthesis
 		in.RecoveryState = baziRecoveryStateStaticFactsOnlyDegraded
+		baziAnnotateRepairFinalAction(ctx, in, RepairActionFallback)
 	case "dynamic_projection":
 		failure, ok := baziContractFailureFromError("dynamic_projection", in.Failure)
 		if ok && failure.RecoveryPolicy == baziRecoveryPolicyDynamicFactsOnly {
@@ -450,16 +534,32 @@ func baziCanonicalBranch(ctx context.Context, in *baziInternalGraphState) (strin
 	return baziMarkInternalBranch(ctx, in, "canonical_clean", baziInternalNodeProjection), nil
 }
 
-// baziAfterStaticValidationBranch decides whether the clean static projection
-// needs dynamic validation or can proceed directly to final rendering.
+// baziAfterStaticValidationBranch 把静态校验失败先送入 repair_decision。
+// clean 输出继续按分析计划进入动态校验或渲染。
 func baziAfterStaticValidationBranch(ctx context.Context, in *baziInternalGraphState) (string, error) {
 	if in.Failure != nil {
-		return baziMarkInternalBranch(ctx, in, "static_recovery", baziInternalNodeRecoveryDecision), nil
+		return baziMarkInternalBranch(ctx, in, "static_repair_decision", baziInternalNodeRepairDecision), nil
 	}
 	if in.ChartState.AnalysisPlan.NeedDynamic {
 		return baziMarkInternalBranch(ctx, in, "dynamic_validation", baziInternalNodeDynamicValidation), nil
 	}
 	return baziMarkInternalBranch(ctx, in, "static_final", baziInternalNodeRender), nil
+}
+
+// baziAfterRepairDecisionBranch 根据全局 repair 决策选择一次 canonical repair 或恢复路径。
+func baziAfterRepairDecisionBranch(ctx context.Context, in *baziInternalGraphState) (string, error) {
+	if in.RepairAction == RepairActionRepairNode {
+		return baziMarkInternalBranch(ctx, in, "canonical_repair", baziInternalNodeCanonicalRepair), nil
+	}
+	return baziMarkInternalBranch(ctx, in, "repair_recovery", baziInternalNodeRecoveryDecision), nil
+}
+
+// baziAfterCanonicalRepairBranch 确保 repair 成功后重新投影和校验。
+func baziAfterCanonicalRepairBranch(ctx context.Context, in *baziInternalGraphState) (string, error) {
+	if in.Failure != nil {
+		return baziMarkInternalBranch(ctx, in, "repair_failed_recovery", baziInternalNodeRecoveryDecision), nil
+	}
+	return baziMarkInternalBranch(ctx, in, "repair_projection", baziInternalNodeProjection), nil
 }
 
 // baziAfterDynamicValidationBranch sends recoverable dynamic failures to the
@@ -469,6 +569,66 @@ func baziAfterDynamicValidationBranch(ctx context.Context, in *baziInternalGraph
 		return baziMarkInternalBranch(ctx, in, "dynamic_recovery", baziInternalNodeRecoveryDecision), nil
 	}
 	return baziMarkInternalBranch(ctx, in, "dynamic_clean", baziInternalNodeRender), nil
+}
+
+// baziAnnotateRepairFinalAction 更新最后 repair 结果，不投影 feedback value。
+func baziAnnotateRepairFinalAction(ctx context.Context, in *baziInternalGraphState, action RepairAction) {
+	if in == nil || in.RepairFailure.Domain == "" {
+		return
+	}
+	attempt := RepairAttemptsFor(in.RepairState, in.RepairFailure)
+	decision := DefaultRepairPolicy().Decide(in.RepairFailure, in.RepairState)
+	exhausted := decision.Exhausted
+	if action == RepairActionAccept {
+		exhausted = false
+	}
+	tracing.SetTraceAttributes(ctx, RepairTraceAttrs(RepairTraceEvent{
+		Failure:           in.RepairFailure,
+		Attempt:           attempt,
+		MaxAttempts:       decision.MaxAttempts,
+		Action:            in.RepairAction,
+		Feedback:          in.RepairFeedback,
+		LearningHintCount: RepairLearningHintCount(in.RepairFeedback),
+		Exhausted:         exhausted,
+		FinalAction:       action,
+	}))
+}
+
+// baziAcceptCanonicalRepair 标记 canonical repair 成功并清理旧失败状态。
+func baziAcceptCanonicalRepair(ctx context.Context, in *baziInternalGraphState, canonical baziCanonicalSynthesis) {
+	if in == nil {
+		return
+	}
+	in.Canonical = canonical
+	in.Failure = nil
+	in.FailureStage = ""
+	in.RecoveryCode = ""
+	in.FailureClass = ""
+	in.RecoveryPolicy = ""
+	in.RecoveryState = baziRecoveryStateClean
+	in.RepairAction = RepairActionAccept
+	baziClearContractFailureTraceAttrs(ctx)
+	baziAnnotateRepairFinalAction(ctx, in, RepairActionAccept)
+}
+
+// baziClearContractFailureTraceAttrs 覆盖旧合同失败 trace，不删除 repair 链路信息。
+func baziClearContractFailureTraceAttrs(ctx context.Context) {
+	tracing.SetTraceAttributes(ctx, map[string]any{
+		"bazi.contract.failure_class":        "clean",
+		"bazi.contract.recovery_policy":      "",
+		"bazi.contract.finding_code":         "",
+		"bazi.contract.finding_field":        "",
+		"bazi.contract.detected_domain":      "",
+		"bazi.internal_graph.recovery_state": baziRecoveryStateClean,
+	})
+}
+
+// baziRepairFallbackAction 复用 RepairFailure 的 fallback 标记决定 repair 失败后的终态。
+func baziRepairFallbackAction(failure RepairFailure) RepairAction {
+	if failure.Fallback != "" {
+		return RepairActionFallback
+	}
+	return RepairActionHardError
 }
 
 // baziMarkInternalNode records the latest node and path for trace search. The

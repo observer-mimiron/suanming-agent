@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/llm"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
 	"github.com/observer-mimiron/suanming-agent/internal/schemas"
@@ -56,7 +57,11 @@ func TestManager_ReconcileRoute_ReusesExistingProfile(t *testing.T) {
 func TestManager_ReconcileRoute_ConvertsInterpretToFollowupWhenChartExists(t *testing.T) {
 	manager := &Manager{}
 	st := state.NewSession("s1")
-	st.BaziResult = map[string]any{"dayGan": "jia"}
+	st.MergeProfile(map[string]any{"year": 1991.0, "month": 1.0, "day": 1.0, "hour": 12.0})
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{
+		"calendar_rule_version": currentBaziCalendarRule(),
+		"dayGan":                "jia",
+	}, "test")
 	route := policy.ApprovedRoute{
 		PrimaryDomain: "bazi",
 		TaskIntent:    "interpret_chart",
@@ -157,7 +162,11 @@ func TestManager_BuildExecutionPlan_UsesMainRuntimePathForSingleDomain(t *testin
 func TestManager_BuildExecutionPlan_DirectsBaziGlossaryFollowup(t *testing.T) {
 	manager := &Manager{}
 	st := state.NewSession("s1")
-	st.BaziResult = map[string]any{"dayGan": "jia"}
+	st.MergeProfile(map[string]any{"year": 1991.0, "month": 1.0, "day": 1.0, "hour": 12.0})
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{
+		"calendar_rule_version": currentBaziCalendarRule(),
+		"dayGan":                "jia",
+	}, "test")
 	route := policy.ApprovedRoute{
 		PrimaryDomain: "bazi",
 		TaskIntent:    "fortune_followup",
@@ -362,6 +371,76 @@ func TestManager_ComposesCrossDomainFollowupViaSynthesis(t *testing.T) {
 	reply := manager.ComposeFinalReply("八字和紫微一起看下事业和感情", result)
 	if reply != "综合来看，事业以稳步推进为主，感情要慢慢磨合。" {
 		t.Fatalf("reply = %q, want synthesized final answer", reply)
+	}
+}
+
+func TestManager_ComposesRoleAwareOutcomesWithoutUsingSummaryOrder(t *testing.T) {
+	manager := &Manager{}
+	result := specialists.Result{
+		Domain:  "bazi",
+		Summary: "legacy summary must not define role",
+		DomainContextPatch: map[string]any{
+			"execution_outcomes": []executionStepOutcome{
+				{Domain: "ziwei", Role: executionStepRoleSupport, Status: executionStepStatusDegraded},
+				{Domain: "bazi", Role: executionStepRolePrimary, Status: executionStepStatusReady, Result: specialists.Result{
+					Domain: "bazi", Summary: "八字主线结论",
+				}},
+			},
+		},
+	}
+
+	reply := manager.ComposeFinalReply("本月运势如何", result)
+	if !strings.Contains(reply, "主线（primary / bazi）：\n八字主线结论") {
+		t.Fatalf("reply = %q, want primary role section", reply)
+	}
+	if !strings.Contains(reply, "复核（support / ziwei）：\n复核资料暂不可用") {
+		t.Fatalf("reply = %q, want degraded support section", reply)
+	}
+	if strings.Contains(reply, "legacy summary must not define role") {
+		t.Fatalf("reply = %q, must not use legacy summary as role source", reply)
+	}
+}
+
+func TestManager_RoleAwareCompositionDoesNotLetFastModelRewritePrimary(t *testing.T) {
+	manager := &Manager{flash: &llm.NoopClient{
+		GenerateFn: func(context.Context, string, []llm.Message) (string, llm.TokenUsage, error) {
+			t.Fatal("role-aware composition must not delegate primary ordering to fast model")
+			return "", llm.TokenUsage{}, nil
+		},
+	}}
+	result := specialists.Result{
+		Domain:  "bazi+ziwei",
+		Summary: "legacy summary",
+		DomainContextPatch: map[string]any{
+			"execution_outcomes": []executionStepOutcome{
+				{Domain: "bazi", Role: executionStepRolePrimary, Status: executionStepStatusReady, Result: specialists.Result{
+					Domain: "bazi", Summary: "八字主线结论",
+				}},
+				{Domain: "ziwei", Role: executionStepRoleSupport, Status: executionStepStatusReady, Result: specialists.Result{
+					Domain: "ziwei", Summary: "紫微复核结论",
+				}},
+			},
+		},
+	}
+
+	reply := manager.ComposeFinalReply("本月运势如何", result)
+	if !strings.HasPrefix(reply, "主线（primary / bazi）：\n八字主线结论") {
+		t.Fatalf("reply = %q, want deterministic primary anchor", reply)
+	}
+	if !strings.Contains(reply, "复核（support / ziwei）：\n紫微复核结论") {
+		t.Fatalf("reply = %q, want support section", reply)
+	}
+}
+
+func TestRequiresQimenCase_UsesConsultationKindOnly(t *testing.T) {
+	if !requiresQimenCase(policy.ApprovedRoute{ConsultationKind: contracts.ConsultationKindEventQuestion}) {
+		t.Fatal("event_question should create a qimen Case")
+	}
+	if requiresQimenCase(policy.ApprovedRoute{
+		PrimaryDomain: "qimen",
+		PolicyHints:   schemas.PolicyHints{QimenMode: "primary"},
+	}) {
+		t.Fatal("qimen primary without event_question must not create a Case")
 	}
 }
 

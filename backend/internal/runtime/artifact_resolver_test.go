@@ -6,6 +6,7 @@ package runtime
 import (
 	"testing"
 
+	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
 	"github.com/observer-mimiron/suanming-agent/internal/schemas"
 	"github.com/observer-mimiron/suanming-agent/internal/specialists"
@@ -169,9 +170,10 @@ func TestResolveArtifactFocus_QimenPrimaryCreatesFreshCase(t *testing.T) {
 	st := state.NewSession("resolver-qimen")
 	manager := &Manager{}
 	route := policy.ApprovedRoute{
-		PrimaryDomain: "qimen",
-		TaskIntent:    "interpret_chart",
-		PolicyHints:   schemas.PolicyHints{QimenMode: "primary"},
+		PrimaryDomain:    "qimen",
+		TaskIntent:       "interpret_chart",
+		ConsultationKind: contracts.ConsultationKindEventQuestion,
+		PolicyHints:      schemas.PolicyHints{QimenMode: "primary"},
 	}
 
 	first := manager.BuildExecutionPlan(st, route, "第一件事是否顺利")
@@ -185,6 +187,9 @@ func TestResolveArtifactFocus_QimenPrimaryCreatesFreshCase(t *testing.T) {
 	}
 	if len(first.Requirements) != 1 || len(second.Requirements) != 1 || first.Requirements[0].OwnerRef.ID == second.Requirements[0].OwnerRef.ID {
 		t.Fatalf("qimen requirements = %+v / %+v, want distinct exact case owners", first.Requirements, second.Requirements)
+	}
+	if first.Requirements[0].OwnerRef.Kind != "case" || second.Requirements[0].OwnerRef.Kind != "case" {
+		t.Fatalf("qimen owner refs = %+v / %+v, want case owners", first.Requirements[0].OwnerRef, second.Requirements[0].OwnerRef)
 	}
 }
 
@@ -319,14 +324,33 @@ func TestExecutionPlan_SubjectAssetConversationRegression(t *testing.T) {
 	// Each new primary QiMen question creates a Case, not a replacement chart.
 	qimenRoute := policy.ApprovedRoute{
 		PrimaryDomain: "qimen", TaskIntent: "interpret_chart",
-		PolicyHints: schemas.PolicyHints{QimenMode: "primary"},
+		ConsultationKind: contracts.ConsultationKindEventQuestion,
+		PolicyHints:      schemas.PolicyHints{QimenMode: "primary"},
 	}
 	firstQimen := manager.BuildExecutionPlan(st, qimenRoute, "第一件事是否顺利")
 	firstCaseID := firstQimen.Requirements[0].OwnerRef.ID
-	st.StoreChart(state.AssetKindQimenChart, map[string]any{"ju": "first"}, "test")
+	st.StoreChartForOwner(state.AssetKindQimenCaseChart, firstQimen.Requirements[0].OwnerRef, map[string]any{
+		"case_id":       firstCaseID,
+		"purpose":       "event_question",
+		"owner_ref":     map[string]any{"kind": "case", "id": firstCaseID},
+		"question_time": firstQimen.TurnContext.QuestionTime,
+		"time_source":   "question_time",
+		"pan_schema":    "rotating_8",
+		"symbol_system": "eight_gate_eight_god",
+		"ju":            "first",
+	}, "test")
 	secondQimen := manager.BuildExecutionPlan(st, qimenRoute, "第二件事是否顺利")
 	secondCaseID := secondQimen.Requirements[0].OwnerRef.ID
-	st.StoreChart(state.AssetKindQimenChart, map[string]any{"ju": "second"}, "test")
+	st.StoreChartForOwner(state.AssetKindQimenCaseChart, secondQimen.Requirements[0].OwnerRef, map[string]any{
+		"case_id":       secondCaseID,
+		"purpose":       "event_question",
+		"owner_ref":     map[string]any{"kind": "case", "id": secondCaseID},
+		"question_time": secondQimen.TurnContext.QuestionTime,
+		"time_source":   "question_time",
+		"pan_schema":    "rotating_8",
+		"symbol_system": "eight_gate_eight_god",
+		"ju":            "second",
+	}, "test")
 	if firstCaseID == secondCaseID || len(st.Cases) != 2 {
 		t.Fatalf("qimen cases = %q/%q (%d), want two distinct cases", firstCaseID, secondCaseID, len(st.Cases))
 	}

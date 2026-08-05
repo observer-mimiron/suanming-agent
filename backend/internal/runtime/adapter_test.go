@@ -62,6 +62,31 @@ func TestBuildAdaptersFor_QimenDomainList(t *testing.T) {
 	}
 }
 
+func TestQimenAdapter_ExposesQuestionTimeOnly(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(&qimenTools.Tool{})
+
+	adapter, err := newQimenAdapter(reg)
+	if err != nil {
+		t.Fatalf("newQimenAdapter: %v", err)
+	}
+	inv, ok := adapter.(tool.InvokableTool)
+	if !ok {
+		t.Fatal("qimen adapter does not implement InvokableTool")
+	}
+
+	if _, err := inv.InvokableRun(context.Background(), `{"question_time":"2026-08-05T14:30:00+08:00"}`); err != nil {
+		t.Fatalf("question_time-only input failed: %v", err)
+	}
+	legacyResult, err := inv.InvokableRun(context.Background(), `{"year":2026,"month":8,"day":5,"hour":14,"minute":30}`)
+	if err != nil {
+		t.Fatalf("legacy input returned adapter error: %v", err)
+	}
+	if strings.Contains(legacyResult, `"pan_schema":"rotating_8"`) {
+		t.Fatalf("legacy date fields unexpectedly produced a qimen chart: %s", legacyResult)
+	}
+}
+
 func TestBuildAdaptersFor_EmptyList(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(&baziCalc.CalcTool{})

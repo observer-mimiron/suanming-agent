@@ -5,6 +5,8 @@
 package runtime
 
 import (
+	"strings"
+
 	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
@@ -13,7 +15,7 @@ import (
 const (
 	artifactBaziChart           = "bazi_chart"
 	artifactZiweiChart          = "ziwei_chart"
-	artifactQimenChart          = "qimen_chart"
+	artifactQimenChart          = state.AssetKindQimenCaseChart
 	followupModeDirect          = "direct"
 	followupModeReuseArtifact   = "reuse_artifact"
 	followupModeRerunSpecialist = "rerun_specialist"
@@ -23,6 +25,10 @@ const (
 // ApprovedRoute 只说明“可以做什么”；ExecutionPlan 进一步明确“本轮必须准备哪些资产、
 // 调度哪些领域、追问是否可复用”，供 preflight、prefill、specialist 和 trace 共用。
 type ExecutionPlan struct {
+	ConsultationKind     contracts.ConsultationKind
+	SafetyProfile        contracts.SafetyProfile
+	DomainSteps          []contracts.DomainStep
+	TurnContext          contracts.TurnContext
 	Route                policy.ApprovedRoute
 	Domains              []string
 	Requirements         []ArtifactRequirement
@@ -39,11 +45,53 @@ type ArtifactRequirement struct {
 	OwnerRef     state.AssetRef
 	SubjectIDs   []string
 	CalendarRule string
+	Scope        string
+	TargetAt     string
+	Purpose      string
+	InputRefs    []state.AssetRef
+}
+
+// safetyProfileForRoute derives the deterministic output safety profile without side effects.
+func safetyProfileForRoute(route policy.ApprovedRoute) contracts.SafetyProfile {
+	if route.ConsultationKind == contracts.ConsultationKindHealthRisk {
+		return contracts.SafetyProfileHealthObservation
+	}
+	return contracts.SafetyProfileNone
+}
+
+// domainStepsForRoute derives primary/support roles while keeping legacy Domains separate.
+func domainStepsForRoute(route policy.ApprovedRoute) []contracts.DomainStep {
+	switch route.ConsultationKind {
+	case contracts.ConsultationKindPeriodFortune, contracts.ConsultationKindHealthRisk:
+		return []contracts.DomainStep{{Domain: "bazi", Role: "primary"}, {Domain: "ziwei", Role: "support"}}
+	case contracts.ConsultationKindEventQuestion:
+		return []contracts.DomainStep{{Domain: "qimen", Role: "primary"}}
+	case contracts.ConsultationKindNatalChart:
+		domain := route.PrimaryDomain
+		if domain != "ziwei" {
+			domain = "bazi"
+		}
+		return []contracts.DomainStep{{Domain: domain, Role: "primary"}}
+	default:
+		return nil
+	}
 }
 
 // selectDomains 将批准路由压缩成本轮实际调度的领域顺序。
 // 紫微本命需要八字资料作底层资产，奇门则只在 gate 明确 primary/supplement 时加入。
 func selectDomains(route policy.ApprovedRoute) []string {
+	switch route.ConsultationKind {
+	case contracts.ConsultationKindPeriodFortune, contracts.ConsultationKindHealthRisk:
+		return []string{"bazi", "ziwei"}
+	case contracts.ConsultationKindEventQuestion:
+		return []string{"qimen"}
+	case contracts.ConsultationKindNatalChart:
+		if route.PrimaryDomain == "ziwei" {
+			return []string{"ziwei"}
+		}
+		return []string{"bazi"}
+	}
+
 	domains := make([]string, 0, 1+len(route.SecondaryDomains))
 	primary := route.PrimaryDomain
 	if primary == "" {
@@ -93,13 +141,21 @@ func artifactKinds(requirements []ArtifactRequirement) []string {
 }
 
 // selectArtifactRequirements 根据领域列表生成 prefill 必须满足的精确资产。
-// 奇门资产按问事 Case 归属，这里集中创建 Case，避免 prefill 和 specialist
-// 各自暗自决定 owner，导致同一轮问事写入不同资产命名空间。
+// 这是无副作用的兼容入口；新执行路径应传入完整 route 和 TurnContext。
 func selectArtifactRequirements(st *state.SessionState, domains []string) []ArtifactRequirement {
+	return selectArtifactRequirementsForTurn(st, policy.ApprovedRoute{
+		PrimaryDomain:    firstNonEmpty(domains...),
+		SecondaryDomains: append([]string(nil), domains[1:]...),
+	}, contracts.TurnContext{}, domains)
+}
+
+// selectArtifactRequirementsForTurn creates requirements from already-resolved
+// focus and turn context. It never creates Cases or mutates SessionState.
+func selectArtifactRequirementsForTurn(st *state.SessionState, route policy.ApprovedRoute, turn contracts.TurnContext, domains []string) []ArtifactRequirement {
 	if st == nil {
 		return nil
 	}
-	subject := st.ActiveSubject()
+	subjectID := subjectIDForRequirement(st)
 	profileID := st.ActiveFocus.ProfileRevisionID
 	requirements := make([]ArtifactRequirement, 0, len(domains))
 	for _, domain := range domains {
@@ -116,18 +172,77 @@ func selectArtifactRequirements(st *state.SessionState, domains []string) []Arti
 			continue
 		}
 		owner := state.AssetRef{Kind: state.AssetKindProfileRevision, ID: profileID}
+		inputRefs := []state.AssetRef(nil)
+		scope := scopeForRequirement(route, domain)
+		targetAt := strings.TrimSpace(turn.TargetAt)
+		purpose := string(route.ConsultationKind)
+		if purpose == "" {
+			purpose = firstNonEmpty(route.TaskIntent, "natal_chart")
+		}
 		if kind == artifactQimenChart {
-			item := st.StartCase("qimen", "", false)
-			owner = state.AssetRef{Kind: "case", ID: item.ID}
+			caseID := strings.TrimSpace(turn.CaseID)
+			owner = state.AssetRef{Kind: "case", ID: caseID}
+			scope = "instant"
+			targetAt = strings.TrimSpace(turn.QuestionTime)
+			purpose = "event_question"
+			if caseID != "" {
+				inputRefs = []state.AssetRef{{Kind: "case", ID: caseID}}
+			}
+		} else if profileID != "" {
+			inputRefs = []state.AssetRef{{Kind: state.AssetKindProfileRevision, ID: profileID}}
+		}
+		subjectIDs := []string(nil)
+		if subjectID != "" {
+			subjectIDs = []string{subjectID}
 		}
 		requirements = append(requirements, ArtifactRequirement{
 			Kind:         kind,
 			OwnerRef:     owner,
-			SubjectIDs:   []string{subject.ID},
+			SubjectIDs:   subjectIDs,
 			CalendarRule: calendarRuleForArtifact(kind),
+			Scope:        scope,
+			TargetAt:     targetAt,
+			Purpose:      purpose,
+			InputRefs:    inputRefs,
 		})
 	}
 	return requirements
+}
+
+// subjectIDForRequirement reads the resolved subject pointer without invoking
+// ActiveSubject, because requirement construction must not mutate session state.
+func subjectIDForRequirement(st *state.SessionState) string {
+	if st == nil {
+		return ""
+	}
+	if len(st.ActiveFocus.SubjectIDs) > 0 {
+		return strings.TrimSpace(st.ActiveFocus.SubjectIDs[0])
+	}
+	for _, subject := range st.Subjects {
+		if strings.TrimSpace(subject.Display) == "自己" {
+			return subject.ID
+		}
+	}
+	if len(st.Subjects) > 0 {
+		return st.Subjects[0].ID
+	}
+	return ""
+}
+
+// scopeForRequirement maps consultation time semantics to deterministic facts.
+func scopeForRequirement(route policy.ApprovedRoute, domain string) string {
+	if route.ConsultationKind == contracts.ConsultationKindNatalChart || domain == "qimen" {
+		return "none"
+	}
+	if route.ConsultationKind != contracts.ConsultationKindPeriodFortune &&
+		route.ConsultationKind != contracts.ConsultationKindHealthRisk {
+		return "none"
+	}
+	timeScope := strings.ToLower(strings.TrimSpace(route.Slots.TimeScope))
+	if strings.Contains(timeScope, "月") || strings.Contains(timeScope, "month") {
+		return "liuyue"
+	}
+	return "liunian"
 }
 
 // calendarRuleForArtifact 返回资产合同需要固定的历法版本。

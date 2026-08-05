@@ -1,18 +1,15 @@
-import type {
-  ChatMessage,
-  RunInspection,
-  TransportInspection,
-} from '../types/chat'
+import type {ChatMessage, QimenChartPayload, RunInspection, TransportInspection,} from '../types/chat'
 
 export interface Passage {
   content: string
   source?: string
 }
 
-export interface ResultBlock {
-  type: 'bazi-chart' | 'qimen-chart' | 'ziwei-chart'
-  payload: unknown
-}
+/** ResultBlock 保留后端组件类型，不承担语义路由或领域决策。 */
+export type ResultBlock =
+  | { type: 'bazi-chart'; payload: unknown }
+  | { type: 'qimen-chart'; payload: QimenChartPayload }
+  | { type: 'ziwei-chart'; payload: unknown }
 
 export interface EvidenceGroup {
   source: string

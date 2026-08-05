@@ -216,8 +216,11 @@ func TestGate_QimenPrimaryWithProfileRequirementFullStillClarifies(t *testing.T)
 	d.Normalize()
 
 	route := Apply(d, st)
-	if !route.NeedsClarification {
-		t.Fatal("qimen primary with full profile requirement should still force clarification")
+	if route.NeedsClarification {
+		t.Fatal("event_question must force profile_requirement=none")
+	}
+	if route.PolicyHints.ProfileRequirement != "none" {
+		t.Fatalf("ProfileRequirement = %q, want none", route.PolicyHints.ProfileRequirement)
 	}
 }
 

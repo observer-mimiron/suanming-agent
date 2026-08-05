@@ -86,6 +86,9 @@ func DefaultContractFor(name string) ToolContract {
 	switch name {
 	case "bazi_calc", "yongshen", "dayun_analyzer", "bazi_liunian", "qimen_dunjia", "ziwei_calc", "ziwei_liunian":
 		contract.SideEffect = SideEffectNone
+		if name == "qimen_dunjia" {
+			contract.Params = []ParamSpec{{Name: "question_time", Type: "string", Required: true}}
+		}
 	case "knowledge_search":
 		contract.Params = []ParamSpec{
 			{Name: "query", Type: "string", Required: true},

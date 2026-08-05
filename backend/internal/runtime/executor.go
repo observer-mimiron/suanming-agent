@@ -86,6 +86,7 @@ func NewExecutor(reg *tools.Registry, sr *specialists.Registry, model einomodel.
 //
 // preflight / guard 的 tracing span 在对应节点 Lambda 内创建，Execute 不再直接持有。
 func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.SessionState, route policy.ApprovedRoute, message string) (turnType string, assistantText string, err error) {
+	turnContext := captureTurnContext(route)
 	route = resolveArtifactFocus(st, route, message)
 	// ProfileRevision is part of the artifact owner contract. Merge supervisor
 	// extracted birth data before building the plan, otherwise prefill writes a
@@ -93,7 +94,7 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 	if len(route.Slots.Profile) > 0 {
 		st.MergeProfile(route.Slots.Profile)
 	}
-	plan := e.manager.buildExecutionPlan(st, route, message, false)
+	plan := e.manager.BuildExecutionPlanForTurn(st, route, message, turnContext)
 	route = plan.Route
 
 	e.syncExecutionRoute(ctx, st, route, plan)
@@ -214,15 +215,15 @@ func (e *Executor) prefill(ctx context.Context, sink EventSink, st *state.Sessio
 	for _, requirement := range plan.Requirements {
 		switch requirement.Kind {
 		case artifactBaziChart:
-			if e.prefillBazi(ctx, sink, st, vals) {
+			if e.prefillBaziForPlan(ctx, sink, st, plan, vals) {
 				executed = true
 			}
 		case artifactQimenChart:
-			if e.prefillQimen(ctx, sink, st, vals) {
+			if e.prefillQimen(ctx, sink, st, plan, vals) {
 				executed = true
 			}
 		case artifactZiweiChart:
-			if e.prefillZiWei(ctx, sink, st, vals) {
+			if e.prefillZiWeiForPlan(ctx, sink, st, plan, vals) {
 				executed = true
 			}
 		}
@@ -230,26 +231,31 @@ func (e *Executor) prefill(ctx context.Context, sink EventSink, st *state.Sessio
 }
 
 // prefillQimen 确定性执行奇门遁甲排盘，结果注入 vals 和 session state。
-func (e *Executor) prefillQimen(ctx context.Context, sink EventSink, st *state.SessionState, vals map[string]any) bool {
-	if chart := st.ActiveChart(state.AssetKindQimenChart); chart != nil {
+func (e *Executor) prefillQimen(ctx context.Context, sink EventSink, st *state.SessionState, plan ExecutionPlan, vals map[string]any) bool {
+	caseID := strings.TrimSpace(plan.TurnContext.CaseID)
+	questionTime, ok := parseTurnTime(plan.TurnContext.QuestionTime)
+	if st == nil || caseID == "" || !ok {
+		return false
+	}
+	if chart := st.QimenChartForCase(caseID); qimenChartMatchesTurn(chart, plan.TurnContext) {
 		vals["qimen_result"] = chart
 		return true
 	}
 
-	params := buildToolParams(st.Profile)
-	if params == nil {
-		// 无出生资料时用当前时间排盘（时家奇门以问课时刻起局）
-		now := time.Now()
-		params = map[string]any{
-			"year":   float64(now.Year()),
-			"month":  float64(int(now.Month())),
-			"day":    float64(now.Day()),
-			"hour":   float64(now.Hour()),
-			"minute": float64(now.Minute()),
-		}
-	}
+	// 奇门主链是问事盘：即使会话已有出生资料，也按本轮问课时刻起局。
+	params := qimenQuestionTimeParams(questionTime)
 	if result := e.callTool(ctx, "qimen_dunjia", params); result != nil {
-		st.StoreChart(state.AssetKindQimenChart, result, "qimen-go-v1")
+		if questionTimeValue := questionTime.Format(time.RFC3339); stringValue(result["question_time"]) != questionTimeValue {
+			result["question_time"] = questionTimeValue
+		}
+		result["case_id"] = caseID
+		result["purpose"] = "event_question"
+		result["owner_ref"] = map[string]any{"kind": "case", "id": caseID}
+		result["time_source"] = "question_time"
+		ref := st.StoreChartForOwner(state.AssetKindQimenCaseChart, state.AssetRef{Kind: "case", ID: caseID}, result, "qimen-go-v1")
+		if ref.ID == "" {
+			return false
+		}
 		vals["qimen_result"] = result
 		if bj, err := json.Marshal(result); err == nil && sink != nil {
 			emitChartFromToolResult(ctx, sink, "qimen_dunjia", string(bj))
@@ -259,13 +265,45 @@ func (e *Executor) prefillQimen(ctx context.Context, sink EventSink, st *state.S
 	return false
 }
 
+// qimenChartMatchesTurn accepts only a chart whose runtime metadata binds it to
+// the current Case and question time; legacy payloads without metadata are stale.
+func qimenChartMatchesTurn(chart map[string]any, turn contracts.TurnContext) bool {
+	if len(chart) == 0 || stringValue(chart["case_id"]) != strings.TrimSpace(turn.CaseID) {
+		return false
+	}
+	owner, ok := chart["owner_ref"].(map[string]any)
+	if !ok || stringValue(owner["kind"]) != "case" || stringValue(owner["id"]) != strings.TrimSpace(turn.CaseID) {
+		return false
+	}
+	if stringValue(chart["purpose"]) != "event_question" || stringValue(chart["time_source"]) != "question_time" {
+		return false
+	}
+	return stringValue(chart["question_time"]) == strings.TrimSpace(turn.QuestionTime) &&
+		stringValue(chart["pan_schema"]) == "rotating_8" &&
+		stringValue(chart["symbol_system"]) == "eight_gate_eight_god"
+}
+
+// qimenQuestionTimeParams builds the minimal deterministic params for a Qi Men
+// event chart; birth profile fields must not leak into this question-time chart.
+func qimenQuestionTimeParams(questionTime time.Time) map[string]any {
+	return map[string]any{
+		"question_time": questionTime.Format(time.RFC3339),
+	}
+}
+
 // prefillZiWei 确定性执行紫微斗数排盘，结果注入 vals 和 session state。
 func (e *Executor) prefillZiWei(ctx context.Context, sink EventSink, st *state.SessionState, vals map[string]any) bool {
+	return e.prefillZiWeiForPlan(ctx, sink, st, ExecutionPlan{}, vals)
+}
+
+// prefillZiWeiForPlan executes Zi Wei prefill with the plan's dynamic target time.
+func (e *Executor) prefillZiWeiForPlan(ctx context.Context, sink EventSink, st *state.SessionState, plan ExecutionPlan, vals map[string]any) bool {
 	profile := st.ActiveProfile()
 	params := buildToolParams(profile)
 	if params == nil {
 		return false
 	}
+	targetAt := prefillTargetTime(plan)
 
 	if chart := st.ActiveChart(state.AssetKindZiweiChart); chart != nil && isCurrentZiWeiSolarTime(chart) {
 		vals["ziwei_result"] = chart
@@ -279,27 +317,29 @@ func (e *Executor) prefillZiWei(ctx context.Context, sink EventSink, st *state.S
 
 	if st.ZiWeiResult != nil {
 		// 预排当前流年 (ziwei_liunian)
-		if _, ok := st.ZiWeiResult["liunian"]; !ok {
-			// ZiWeiLiuNianTool 需要 year/month/day/hour（出生信息）+ target_year + age。
-			// params 已含出生信息，复用并补充流年年份和虚岁年龄。
-			liunianParams := map[string]any{
-				"year":        params["year"],
-				"month":       params["month"],
-				"day":         params["day"],
-				"hour":        params["hour"],
-				"gender":      params["gender"],
-				"target_year": float64(time.Now().Year()),
-				"age":         float64(time.Now().Year() - int(params["year"].(float64)) + 1),
-			}
-			if minute, ok := params["minute"]; ok {
-				liunianParams["minute"] = minute
-			}
-			if longitude, ok := params["longitude"]; ok {
-				liunianParams["longitude"] = longitude
-			}
-			if result := e.callTool(ctx, "ziwei_liunian", liunianParams); result != nil {
-				st.ZiWeiResult["liunian"] = result
-				vals["ziwei_liunian"] = result
+		if !targetAt.IsZero() {
+			if _, ok := st.ZiWeiResult["liunian"]; !ok {
+				// ZiWeiLiuNianTool 需要 year/month/day/hour（出生信息）+ target_year + age。
+				// params 已含出生信息，复用并补充流年年份和虚岁年龄。
+				liunianParams := map[string]any{
+					"year":        params["year"],
+					"month":       params["month"],
+					"day":         params["day"],
+					"hour":        params["hour"],
+					"gender":      params["gender"],
+					"target_year": float64(targetAt.Year()),
+					"age":         float64(targetAt.Year() - int(toFloat(params["year"])) + 1),
+				}
+				if minute, ok := params["minute"]; ok {
+					liunianParams["minute"] = minute
+				}
+				if longitude, ok := params["longitude"]; ok {
+					liunianParams["longitude"] = longitude
+				}
+				if result := e.callTool(ctx, "ziwei_liunian", liunianParams); result != nil {
+					st.ZiWeiResult["liunian"] = result
+					vals["ziwei_liunian"] = result
+				}
 			}
 		}
 	}
@@ -308,6 +348,11 @@ func (e *Executor) prefillZiWei(ctx context.Context, sink EventSink, st *state.S
 }
 
 func (e *Executor) prefillBazi(ctx context.Context, sink EventSink, st *state.SessionState, vals map[string]any) bool {
+	return e.prefillBaziForPlan(ctx, sink, st, ExecutionPlan{}, vals)
+}
+
+// prefillBaziForPlan executes Ba Zi prefill with the plan's dynamic target time.
+func (e *Executor) prefillBaziForPlan(ctx context.Context, sink EventSink, st *state.SessionState, plan ExecutionPlan, vals map[string]any) bool {
 	profile := st.ActiveProfile()
 	baziParams := buildToolParams(profile)
 	if baziParams == nil {
@@ -355,14 +400,14 @@ func (e *Executor) prefillBazi(ctx context.Context, sink EventSink, st *state.Se
 	// 空 map、旧日期或缺当前运选择信息都必须重算，否则动态报告会拿到
 	// 已有九步大运但没有“当前大运”的自相矛盾输入。
 	if st.BaziResult != nil {
-		now := time.Now()
-		if !hasCurrentBaziLiuNian(st.BaziResult["liunian"], now) {
+		targetAt := prefillTargetTime(plan)
+		if !targetAt.IsZero() && !hasCurrentBaziLiuNian(st.BaziResult["liunian"], targetAt) {
 			liunianParams := map[string]any{
-				"target_year":   float64(now.Year()),
-				"target_month":  float64(int(now.Month())),
-				"target_day":    float64(now.Day()),
-				"target_hour":   float64(now.Hour()),
-				"target_minute": float64(now.Minute()),
+				"target_year":   float64(targetAt.Year()),
+				"target_month":  float64(int(targetAt.Month())),
+				"target_day":    float64(targetAt.Day()),
+				"target_hour":   float64(targetAt.Hour()),
+				"target_minute": float64(targetAt.Minute()),
 				"bazi_result":   st.BaziResult,
 			}
 			if result := e.callTool(ctx, "bazi_liunian", liunianParams); result != nil {
@@ -386,6 +431,28 @@ func (e *Executor) prefillBazi(ctx context.Context, sink EventSink, st *state.Se
 	}
 
 	return true
+}
+
+// parseTurnTime parses the fixed per-turn time contract without consulting the system clock.
+func parseTurnTime(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	value, err := time.Parse(time.RFC3339, raw)
+	return value, err == nil
+}
+
+// prefillTargetTime applies the dynamic-target precedence. A zero time signals
+// a missing contract; callers must degrade instead of consulting the system clock.
+func prefillTargetTime(plan ExecutionPlan) time.Time {
+	if targetAt, ok := parseTurnTime(plan.TurnContext.TargetAt); ok {
+		return targetAt
+	}
+	if questionTime, ok := parseTurnTime(plan.TurnContext.QuestionTime); ok {
+		return questionTime
+	}
+	return time.Time{}
 }
 
 // hasCurrentBaziLiuNian accepts only a same-day, structurally complete cache.
@@ -488,11 +555,13 @@ func toFloat(v any) float64 {
 	return 0
 }
 
-// saveToolResult 将工具执行结果写回会话状态，供后续轮次复用。
+// saveToolResult 将 specialist 允许调用的确定性结果写回会话状态。
+// Qimen 排盘只允许由 prefill 按 Manager 的 Case 合同写入；这里即使收到旧式
+// qimen_dunjia 回调也必须丢弃，不能在缺少 Case owner 时生成错误资产。
 func (e *Executor) saveToolResult(st *state.SessionState, toolName, resultJSON string) {
-	// 只处理已知的排盘工具。specialist agent 的文本回答不是 JSON，跳过。
+	// specialist 默认只挂知识工具；这里只保留历史兼容的出生盘写入。
 	switch toolName {
-	case "bazi_calc", "qimen_dunjia", "ziwei_calc":
+	case "bazi_calc", "ziwei_calc":
 	default:
 		return
 	}
@@ -506,8 +575,6 @@ func (e *Executor) saveToolResult(st *state.SessionState, toolName, resultJSON s
 	switch toolName {
 	case "bazi_calc":
 		st.StoreChart(state.AssetKindBaziChart, payload, "lunar-go")
-	case "qimen_dunjia":
-		st.StoreChart(state.AssetKindQimenChart, payload, "qimen-go-v1")
 	case "ziwei_calc":
 		st.StoreChart(state.AssetKindZiweiChart, payload, ziWeiMethodVersion())
 	}
@@ -572,9 +639,23 @@ func (e *Executor) syncExecutionRoute(ctx context.Context, st *state.SessionStat
 		tracing.SetLocalExecutionSnapshot(tr, plan.Snapshot)
 	}
 	if e != nil && e.manager != nil {
-		e.manager.BeginTurn(st, route)
+		e.manager.beginTurnForPlan(st, route, plan.TurnContext)
 	}
 	annotateApprovedRouteTrace(ctx, st, route)
+}
+
+// captureTurnContext captures the one runtime clock value shared by all
+// deterministic preparation stages in a user turn.
+func captureTurnContext(route policy.ApprovedRoute) contracts.TurnContext {
+	now := time.Now().In(time.FixedZone("Asia/Shanghai", 8*60*60))
+	questionTime := now.Format(time.RFC3339)
+	return contracts.TurnContext{
+		TurnID:              fmt.Sprintf("turn-%d", now.UnixNano()),
+		QuestionTime:        questionTime,
+		TargetAt:            questionTime,
+		TemporalGranularity: temporalGranularityForRoute(route),
+		Source:              "server_clock",
+	}
 }
 
 func guidanceDirectiveKind(st *state.SessionState) string {

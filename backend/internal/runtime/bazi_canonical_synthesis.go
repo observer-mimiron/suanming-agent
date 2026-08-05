@@ -1,6 +1,7 @@
-// This file belongs to the manager-owned runtime layer.
-// It owns BaZi canonical synthesis contract for this package.
-// It owns execution contracts and Manager flow; specialists do not own final answers.
+// Package runtime 包含 Manager 拥有的八字 canonical synthesis 合同。
+//
+// 本文件负责最小裁断模型调用、字段级 repair 输入和 canonical 到 renderer
+// 结构的单向投影；不负责最终答复权，也不改写确定性排盘事实。
 package runtime
 
 import (
@@ -23,8 +24,8 @@ const (
 	baziCanonicalKindLiunian       = "liunian"
 )
 
-// runCanonicalSynthesis asks the model for only the minimum expert judgments.
-// Runtime code owns evidence status, deterministic facts and renderer fields.
+// runCanonicalSynthesis 请求模型输出最小专家裁断。
+// runtime 拥有证据状态、确定性事实和 renderer 字段，模型不直接写展示结构。
 func (e *Executor) runCanonicalSynthesis(ctx context.Context, st *state.SessionState, chartState baziCharterState, question string) (baziCanonicalSynthesis, error) {
 	payload := buildCanonicalSynthesisPayload(chartState, question)
 	out, err := runBaziInnerAgentJSON[baziCanonicalSynthesis](ctx, e.builder, baziCanonicalSynthesisConfig(), st, buildBaziCharterPrompt("最小裁断综合", question, payload))
@@ -39,8 +40,24 @@ func (e *Executor) runCanonicalSynthesis(ctx context.Context, st *state.SessionS
 	return out, nil
 }
 
-// buildCanonicalSynthesisPayload selects only the facts and evidence needed by
-// the expert judgment node. Legacy renderer schema is intentionally omitted.
+// runCanonicalSynthesisRepair 复用 canonical payload，并只追加字段级 validation_feedback。
+// 返回结果必须由 projection 和 validator 重新校验，不能直接进入 renderer。
+func (e *Executor) runCanonicalSynthesisRepair(ctx context.Context, st *state.SessionState, chartState baziCharterState, question string, feedback map[string]any) (baziCanonicalSynthesis, error) {
+	payload := buildCanonicalSynthesisRepairPayload(chartState, question, feedback)
+	out, err := runBaziInnerAgentJSON[baziCanonicalSynthesis](ctx, e.builder, baziCanonicalSynthesisConfig(), st, buildBaziCharterPrompt("最小裁断综合修复", question, payload))
+	if err != nil {
+		return baziCanonicalSynthesis{}, err
+	}
+	out = normalizeCanonicalSynthesis(out)
+	out.Source = firstNonEmptyTrim(out.Source, "model")
+	if err := validateCanonicalSynthesis(chartState, out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// buildCanonicalSynthesisPayload 只选择专家裁断所需事实和证据。
+// legacy renderer schema 被刻意排除，避免模型拥有展示字段。
 func buildCanonicalSynthesisPayload(state baziCharterState, question string) map[string]any {
 	return map[string]any{
 		"input": map[string]any{
@@ -53,6 +70,71 @@ func buildCanonicalSynthesisPayload(state baziCharterState, question string) map
 		"evidence_bundle":  buildEvidenceBundleView(state.EvidenceBundle, true),
 		"evidence_quality": state.EvidenceQuality,
 		"question":         question,
+	}
+}
+
+// buildCanonicalSynthesisRepairPayload 在原 canonical payload 上追加短 feedback。
+// 它不携带完整 trace、完整 prompt、候选文本或额外用户隐私字段。
+func buildCanonicalSynthesisRepairPayload(state baziCharterState, question string, feedback map[string]any) map[string]any {
+	payload := buildCanonicalSynthesisPayload(state, question)
+	payload["validation_feedback"] = feedback
+	return payload
+}
+
+// buildBaziCanonicalRepairFeedback 生成字段级 repair 反馈。
+// learning_hints 只来自代码固化短提示，不读取线上 trace 或候选全文。
+func buildBaziCanonicalRepairFeedback(failure RepairFailure, attempt int) map[string]any {
+	return map[string]any{
+		"retry_attempt":  attempt,
+		"failed_stage":   failure.Stage,
+		"failure_class":  string(failure.Class),
+		"field":          failure.Field,
+		"reason":         firstNonEmptyTrim(failure.Message, failure.Code, "字段投影未通过合同校验。"),
+		"allowed_fix":    baziCanonicalRepairAllowedFix(failure.Field),
+		"must_preserve":  baziCanonicalRepairMustPreserve(),
+		"forbidden":      baziCanonicalRepairForbidden(),
+		"learning_hints": repairLearningHintFeedback(RepairLearningHintsFor(failure)),
+	}
+}
+
+// baziCanonicalRepairAllowedFix 把 legacy 投影字段收束到可改的 canonical 单元。
+func baziCanonicalRepairAllowedFix(field string) []string {
+	switch strings.TrimSpace(field) {
+	case "static.tiaohou_anchor", "static.tiaohou_constraint", "static.usage.tiaohou", "static.tiaohou":
+		return []string{
+			"只修改 canonical.tiaohou.verdict",
+			"必要时修改 canonical.tiaohou.boundary",
+		}
+	default:
+		return []string{
+			"只修改导致本字段校验失败的 canonical 单元",
+			"保持未失败 canonical 单元的裁断语义不变",
+		}
+	}
+}
+
+// baziCanonicalRepairMustPreserve 列出 repair 不能改动的事实和主轴。
+func baziCanonicalRepairMustPreserve() []string {
+	return []string{
+		"四柱",
+		"日主",
+		"月令",
+		"藏干与透干",
+		"大运",
+		"流年",
+		"main_axis",
+		"strength",
+		"pattern",
+	}
+}
+
+// baziCanonicalRepairForbidden 列出 repair 禁止越界的内容。
+func baziCanonicalRepairForbidden() []string {
+	return []string{
+		"不得改排盘事实",
+		"不得新增具体现实应事",
+		"不得把证据不足写成强裁断",
+		"不得输出 markdown、解释文字或非 JSON 内容",
 	}
 }
 

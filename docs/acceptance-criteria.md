@@ -14,10 +14,17 @@
 - **When** 用户追问“我的财运怎么样”
 - **Then** 产出 `ApprovedRoute{PrimaryDomain: "bazi", TaskIntent: "interpret_chart"}`，不重新走 collect_profile
 
-### AC-1.3 奇门主链触发
-- **Given** 用户询问“今天运气怎么样”且没有出生信息
+### AC-1.3 无出生资料的即时问事
+- **Given** 用户询问“今天运气怎么样”且没有出生信息，且当前没有明确的本月/今年阶段运势上下文
 - **When** RouteAdvisor 处理消息
-- **Then** 产出 `ApprovedRoute{PrimaryDomain: "qimen", PolicyHints: {QimenMode: "primary"}}`，不追问出生信息
+- **Then** 产出 `ApprovedRoute{ConsultationKind: "event_question", PrimaryDomain: "qimen", PolicyHints: {QimenMode: "primary", ProfileRequirement: "none"}}`，不追问出生信息
+
+### AC-1.7 近期运势综合分类
+- **Given** 用户分别询问“本月运势如何”“这个面试能不能成”“最近身体健康如何”“分析八字”
+- **When** RouteAdvisor 和 Policy Gate 完成本轮路由
+- **Then** 四类路线分别为 `period_fortune`（bazi primary + ziwei support + qimen none）、`event_question`（qimen primary + profile none）、`health_risk`（bazi primary + ziwei support + health_observation）和 `natal_chart`（仅用户明确的方法）
+- **And** “用八字看看最近身体”仍归入 `health_risk`，不因方法词改成普通出生盘
+- **And** `collect_profile`、`amend_profile` 和澄清短路不伪装成四类咨询，也不创建 specialist plan
 
 ### AC-1.4 误路由纠偏
 - **Given** 用户首轮消息包含出生时间，但 RouteAdvisor 误判为 interpret_chart
@@ -47,9 +54,10 @@
 - **Then** 不重新调用 `bazi_calc`，直接复用该精确资产；其他对象或旧资料版本的盘不得满足该条件
 
 ### AC-2.3 奇门 runner 排盘
-- **Given** `QimenMode=primary` 且当前 `Case` 没有兼容的 `qimen_chart`
+- **Given** `ConsultationKind=event_question` 且当前 `Case` 没有兼容的 `qimen_case_chart`
 - **When** manager-owned runtime dispatch 到奇门 specialist runner
-- **Then** 调用 `qimen_dunjia`，结果写入该 Case 的 `DomainAsset`；`SessionState.QimenResult` 只作为活动资产兼容投影
+- **Then** 调用 `qimen_dunjia`，结果写入 OwnerRef.Kind 为 `case` 的 `DomainAsset`；`SessionState.QimenResult` 只作为活动资产兼容投影
+- **And** `Case.EventTime`、payload.question_time 和本轮 `TurnContext.QuestionTime` 相等
 
 ### AC-2.4 manager-owned 受控调度
 - **Given** `ApprovedRoute` 只批准八字域
@@ -62,9 +70,15 @@
 - **Then** specialist 结果先聚合，再由 manager 统一 compose 最终回复
 
 ### AC-2.6 RequiredArtifacts 前置校验
-- **Given** `ExecutionPlan.Requirements` 包含归属指定 Case 的 `qimen_chart`
+- **Given** `ExecutionPlan.Requirements` 包含归属指定 Case 的 `qimen_case_chart`
 - **When** prefill 结束后没有该 Case 的兼容资产，或仅存在其他对象 / Case 的盘
 - **Then** dispatch 在进入 `qimen` runner 前直接报错，不等待 final guard 才发现缺盘
+
+### AC-2.11 动态事实能力状态
+- **Given** 用户目标范围为流年或尚未实现的流月
+- **When** Prefill 完成动态准备
+- **Then** runtime 产出包含 `scope`、`target_at`、`status` 和结构化 `facts` 的动态事实对象
+- **And** 流月未实现时 `status` 只能是 `unavailable` 或 `degraded`，最终回答明确说明缺口，不由模型补算流月
 
 ### AC-2.7 排盘结果自动推送卡片
 - **Given** `bazi_calc` 返回排盘结果
@@ -155,7 +169,8 @@
 ### AC-5.4 奇门盘渲染
 - **Given** SSE 推送 `qimen-chart` component 事件
 - **When** 前端收到事件
-- **Then** `QimenChart` 按后天八卦方位排列九宫格
+- **Then** `QimenChart` 按后天八卦方位排列九宫格，并展示结构化的 `case_id`、`purpose`、`question_time`、`time_source`、`pan_schema` 和 `symbol_system`
+- **And** `pan_schema=rotating_8` 的异常符号不被静默删除，复制 Markdown 也保留 warning
 
 ### AC-5.5 Run Inspector 排障面板
 - **Given** 一轮对话完成

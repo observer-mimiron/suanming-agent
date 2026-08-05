@@ -13,9 +13,21 @@
       <div class="qm-info">
         <span class="qm-info-chip">{{ data.ju_text || '局数未定' }}</span>
         <span class="qm-info-chip accent">{{ data.duty_text || '值符值使未定' }}</span>
+        <span class="qm-info-chip">{{ data.pan_schema || '口径未标注' }}</span>
         <span class="qm-info-chip">{{ data.question_time || '未提供起局时间' }}</span>
       </div>
     </header>
+
+    <section class="qm-case-meta" aria-label="问事 Case 信息">
+      <div><span>问事目的</span><strong>{{ data.purpose || '—' }}</strong></div>
+      <div><span>Case ID</span><strong>{{ data.case_id || '—' }}</strong></div>
+      <div><span>资产归属</span><strong>{{ ownerRefText(data.owner_ref) }}</strong></div>
+      <div><span>提问时间</span><strong>{{ data.question_time || '—' }}</strong></div>
+      <div><span>时间来源</span><strong>{{ data.time_source || '—' }}</strong></div>
+      <div><span>符号体系</span><strong>{{ data.symbol_system || '—' }}</strong></div>
+    </section>
+
+    <p v-if="rotatingEightWarning" class="qm-warning" role="alert">{{ rotatingEightWarning }}</p>
 
     <section class="qm-board" aria-label="奇门九宫盘">
       <article
@@ -25,7 +37,7 @@
         :class="[
           'qm-' + palaceElement(cell.palace),
           {
-            'is-duty': cell.palace === dutyPalace && cell.palace !== '中',
+            'is-duty': isDutyCell(cell.palace),
             'is-center': cell.palace === '中',
             'is-empty-center': cell.isCenterDummy,
           },
@@ -60,7 +72,7 @@
           <div class="qm-symbol-row top">
             <span class="qm-layer-label">神</span>
             <strong class="qm-god">{{ cell.god || '—' }}</strong>
-            <span v-if="cell.palace === dutyPalace" class="qm-duty-badge">值</span>
+            <span v-if="dutyBadge(cell.palace)" class="qm-duty-badge">{{ dutyBadge(cell.palace) }}</span>
           </div>
 
           <div class="qm-main-layer">
@@ -89,7 +101,7 @@
     </section>
 
     <div class="qm-legend">
-      <span><i class="qm-dot duty"></i>值符/值使所在宫</span>
+      <span><i class="qm-dot duty"></i>值符/值使宫</span>
       <span><i class="qm-dot door"></i>八门为行动入口</span>
       <span><i class="qm-dot star"></i>九星为天时性质</span>
       <span><i class="qm-dot stem"></i>天盘干 / 地盘干看组合</span>
@@ -105,23 +117,29 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import type { QimenCell, QimenChartPayload } from '../types/chat'
 
-const props = defineProps<{ data: any }>()
+const props = defineProps<{ data: QimenChartPayload }>()
 const copied = ref(false)
+
+const rotatingEightWarnings = ['中门', '太常', '勾陈', '朱雀']
+
+const rotatingEightWarning = computed(() => rotatingEightWarningFor(props.data))
 
 const gridLayoutPalaces = ['巽', '离', '坤', '震', '中', '兑', '艮', '坎', '乾']
 
 const gridCells = computed(() => {
   const raw = props.data?.cells || []
-  const map = new Map<string, any>()
+  const map = new Map<string, QimenCell>()
   for (const c of raw) {
     map.set(c.palace, c)
   }
 
   return gridLayoutPalaces.map((name) => {
-    if (map.has(name)) {
+    const cell = map.get(name)
+    if (cell) {
       return {
-        ...map.get(name),
+        ...cell,
         isCenterDummy: false,
       }
     }
@@ -137,7 +155,8 @@ const gridCells = computed(() => {
   })
 })
 
-const dutyPalace = computed(() => props.data?.duty_palace || '')
+const dutyStarPalace = computed(() => props.data?.duty_star_palace || props.data?.duty_palace || '')
+const dutyDoorPalace = computed(() => props.data?.duty_door_palace || props.data?.duty_palace || '')
 
 const palaceWuxingZh: Record<string, string> = {
   坎: '水',
@@ -217,9 +236,24 @@ function doorClass(door?: string) {
   return 'door-neutral'
 }
 
+// isDutyCell marks value-star and value-door palaces separately when available.
+function isDutyCell(palace: string) {
+  return palace !== '中' && (palace === dutyStarPalace.value || palace === dutyDoorPalace.value)
+}
+
+// dutyBadge labels whether the palace holds the value star, value door, or both.
+function dutyBadge(palace: string) {
+  const hasStar = palace === dutyStarPalace.value
+  const hasDoor = palace === dutyDoorPalace.value
+  if (hasStar && hasDoor) return '符使'
+  if (hasStar) return '符'
+  if (hasDoor) return '使'
+  return ''
+}
+
 // copyMarkdown copies the complete Qi Men board as readable Markdown.
 async function copyMarkdown() {
-  await navigator.clipboard.writeText(formatQimenMarkdown(props.data || {}))
+  await navigator.clipboard.writeText(formatQimenMarkdown(props.data))
   copied.value = true
   window.setTimeout(() => {
     copied.value = false
@@ -227,21 +261,31 @@ async function copyMarkdown() {
 }
 
 // formatQimenMarkdown keeps the copied board in the visible nine-palace order.
-function formatQimenMarkdown(data: any): string {
-  const cellMap = new Map<string, any>()
+function formatQimenMarkdown(data: QimenChartPayload): string {
+  const cellMap = new Map<string, QimenCell>()
   for (const cell of data.cells || []) cellMap.set(cell.palace, cell)
 
   const lines = ['# 奇门遁甲命盘', '', '## 基本信息']
   lines.push('- 局数：' + field(data.ju_text))
+  lines.push('- 问事目的：' + field(data.purpose))
+  lines.push('- Case ID：' + field(data.case_id))
+  lines.push('- 资产归属：' + ownerRefText(data.owner_ref))
   lines.push('- 值符值使：' + field(data.duty_text))
-  lines.push('- 值符/值使宫：' + field(data.duty_palace))
+  lines.push('- 盘式口径：' + field(data.pan_schema))
+  lines.push('- 符号体系：' + field(data.symbol_system))
+  lines.push('- 起局来源：' + field(data.time_source))
+  lines.push('- 值符宫：' + field(data.duty_star_palace || data.duty_palace))
+  lines.push('- 值使宫：' + field(data.duty_door_palace || data.duty_palace))
   lines.push('- 起局时间：' + field(data.question_time))
+  const warning = rotatingEightWarningFor(data)
+  if (warning) lines.push('- 异常警告：' + warning)
   lines.push('', '## 九宫')
 
   for (const palace of gridLayoutPalaces) {
     const cell = cellMap.get(palace) || { palace }
     lines.push('### ' + palace + '宫（' + palaceDirection[palace] + ' · ' + palaceWuxingZh[palace] + '）')
-    if (palace === data.duty_palace) lines.push('- 标记：值符/值使所在宫')
+    if (palace === (data.duty_star_palace || data.duty_palace)) lines.push('- 标记：值符所在宫')
+    if (palace === (data.duty_door_palace || data.duty_palace)) lines.push('- 标记：值使所在宫')
     lines.push('- 神：' + field(cell.god))
     lines.push('- 门：' + field(cell.door))
     lines.push('- 星：' + field(cell.star))
@@ -249,6 +293,22 @@ function formatQimenMarkdown(data: any): string {
     lines.push('- 地盘干：' + field(cell.host_gan))
   }
   return lines.join('\n')
+}
+
+// rotatingEightWarningFor reports only the payload/schema contract violation.
+function rotatingEightWarningFor(data: QimenChartPayload): string {
+  if (data.pan_schema !== 'rotating_8') return ''
+  const serialized = JSON.stringify(data)
+  const found = rotatingEightWarnings.filter((term) => serialized.includes(term))
+  if (!found.length) return ''
+  return `盘式合同异常：rotating_8 payload 出现${found.map((term) => `“${term}”`).join('、')}，请核对后端起局结果。`
+}
+
+// ownerRefText keeps the Case ownership contract visible in copied Markdown.
+function ownerRefText(owner: unknown): string {
+  if (!owner || typeof owner !== 'object') return field(owner)
+  const ref = owner as { kind?: unknown; id?: unknown }
+  return `${field(ref.kind)}/${field(ref.id)}`
 }
 
 // field normalizes absent copied fields to an em dash.
@@ -315,6 +375,44 @@ function field(value: unknown): string {
   border-color: rgba(184, 149, 106, 0.28);
   background: rgba(184, 149, 106, 0.14);
   color: #f3e0b7;
+}
+
+.qm-case-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-left: 2px solid rgba(184, 149, 106, 0.42);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.qm-case-meta div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.qm-case-meta span {
+  color: rgba(243, 236, 223, 0.56);
+}
+
+.qm-case-meta strong {
+  overflow-wrap: anywhere;
+  color: rgba(243, 236, 223, 0.9);
+  font-weight: 600;
+}
+
+.qm-warning {
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border: 1px solid rgba(244, 151, 102, 0.52);
+  background: rgba(112, 48, 34, 0.28);
+  color: #ffd2b8;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .qm-board {
@@ -606,6 +704,10 @@ function field(value: unknown): string {
     justify-content: flex-start;
   }
 
+  .qm-case-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .qm-board {
     grid-template-columns: 1fr;
   }
@@ -619,6 +721,10 @@ function field(value: unknown): string {
 
   .qm-main-layer,
   .qm-stem-stack {
+    grid-template-columns: 1fr;
+  }
+
+  .qm-case-meta {
     grid-template-columns: 1fr;
   }
 }

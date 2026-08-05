@@ -22,6 +22,7 @@ var phase1Allowlist = map[string]bool{
 
 // ApprovedRoute 是经策略门控批准的执行路线，包含领域、任务意图、槽位和策略提示。
 type ApprovedRoute struct {
+	ConsultationKind      contracts.ConsultationKind
 	ConversationIntent    string
 	PrimaryDomain         string
 	SecondaryDomains      []string
@@ -38,6 +39,7 @@ type ApprovedRoute struct {
 // Apply 对 supervisor 的决策进行阶段一策略校验并返回批准后的执行路线。
 func Apply(decision schemas.SupervisorDecision, st *state.SessionState) ApprovedRoute {
 	route := ApprovedRoute{
+		ConsultationKind:      consultationKindForRoute(decision.PrimaryDomain, decision.TaskIntent, decision.PolicyHints),
 		ConversationIntent:    decision.ConversationIntent,
 		PrimaryDomain:         decision.PrimaryDomain,
 		SecondaryDomains:      decision.SecondaryDomains,
@@ -62,8 +64,8 @@ func Apply(decision schemas.SupervisorDecision, st *state.SessionState) Approved
 	applyPhase1Allowlist(&route)
 	applyParallelHardDisable(&route)
 	applyConfidenceClarification(&route, decision.Confidence)
-	applyProfileClarification(&route, st)
 	applyQimenRouting(&route)
+	applyProfileClarification(&route, st)
 
 	return route
 }
@@ -120,6 +122,15 @@ func applyProfileClarification(route *ApprovedRoute, st *state.SessionState) {
 
 // applyQimenRouting 奇门主域路由：仅在明确批准时作为主域，否则降级为 bazi。
 func applyQimenRouting(route *ApprovedRoute) {
+	if route.ConsultationKind == contracts.ConsultationKindEventQuestion {
+		route.PrimaryDomain = "qimen"
+		route.SecondaryDomains = removeDomain(route.SecondaryDomains, "qimen")
+		route.PolicyHints.QimenMode = "primary"
+		route.PolicyHints.NeedsQimen = true
+		route.PolicyHints.ProfileRequirement = "none"
+		route.Gate.AllowedDomains = []string{"qimen"}
+		return
+	}
 	if route.PrimaryDomain == "qimen" && !wantsQimenPrimary(*route) {
 		route.PrimaryDomain = "bazi"
 		route.TaskIntent = "collect_profile"
@@ -130,6 +141,45 @@ func applyQimenRouting(route *ApprovedRoute) {
 		route.Gate.ExecutionMode = "collect"
 	}
 	route.Gate.AllowedDomains = append([]string{route.PrimaryDomain}, route.SecondaryDomains...)
+}
+
+// consultationKindForRoute supplies a conservative baseline before supervisor text normalization.
+func consultationKindForRoute(primary, task string, hints schemas.PolicyHints) contracts.ConsultationKind {
+	if primary == "qimen" || hints.QimenMode == "primary" {
+		return contracts.ConsultationKindEventQuestion
+	}
+	switch task {
+	case "fortune_followup":
+		return contracts.ConsultationKindPeriodFortune
+	case "interpret_chart":
+		return contracts.ConsultationKindNatalChart
+	default:
+		return ""
+	}
+}
+
+// ValidConsultationKind reports whether a route carries one of the frozen classifications.
+func ValidConsultationKind(kind contracts.ConsultationKind) bool {
+	switch kind {
+	case contracts.ConsultationKindPeriodFortune,
+		contracts.ConsultationKindEventQuestion,
+		contracts.ConsultationKindHealthRisk,
+		contracts.ConsultationKindNatalChart:
+		return true
+	default:
+		return false
+	}
+}
+
+// removeDomain removes one domain while preserving the order of the remaining route.
+func removeDomain(domains []string, target string) []string {
+	filtered := domains[:0]
+	for _, domain := range domains {
+		if domain != target {
+			filtered = append(filtered, domain)
+		}
+	}
+	return filtered
 }
 
 func hasDomain(domains []string, target string) bool {

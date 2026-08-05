@@ -20,6 +20,8 @@ import (
 type orchestrationGraphState struct {
 	PreflightResult preflightResult
 	Route           policy.ApprovedRoute
+	Plan            ExecutionPlan
+	DynamicFacts    []DynamicFacts
 }
 
 // orchestrationInit carries per-request runtime state through context. This is
@@ -92,6 +94,7 @@ func genOrchestrationState(ctx context.Context) *orchestrationGraphState {
 	if init != nil {
 		return &orchestrationGraphState{
 			Route: init.Route,
+			Plan:  init.Plan,
 		}
 	}
 	return &orchestrationGraphState{}

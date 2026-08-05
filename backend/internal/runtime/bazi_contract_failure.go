@@ -1,9 +1,7 @@
-// Package runtime classifies BaZi synthesis contract failures for retry,
-// recovery and trace reporting.
+// Package runtime 分类八字综合合同失败，供 repair、恢复和 trace 投影使用。
 //
-// The independent audit owns semantic findings, while this file maps those
-// findings into deterministic runtime actions. It must not rewrite readings or
-// introduce chart-specific case handling.
+// 独立审计拥有语义 finding，本文件只映射成确定性 runtime 动作；
+// 不重写命理解读，也不引入命盘专项分支。
 package runtime
 
 import "strings"
@@ -35,8 +33,8 @@ type baziContractFailure struct {
 	RecoveryPolicy string
 }
 
-// baziContractFailureFromAuditFinding maps one audit finding into the runtime's
-// closed failure taxonomy without trusting model-authored recovery suggestions.
+// baziContractFailureFromAuditFinding 把审计 finding 映射到闭合失败分类。
+// recovery policy 只由 runtime 决定，不信任模型自报建议。
 func baziContractFailureFromAuditFinding(stage string, finding baziContractAuditFinding) baziContractFailure {
 	code := strings.TrimSpace(finding.Code)
 	failure := baziContractFailure{
@@ -60,11 +58,11 @@ func baziContractFailureFromAuditFinding(stage string, finding baziContractAudit
 		failure.Class = baziContractFailureMethodContract
 	}
 	failure.RecoveryPolicy = baziRecoveryPolicyForFailure(stage, failure.Class)
-	return failure
+	return withBaziStaticFallback(stage, failure)
 }
 
-// baziContractFailureFromViolation classifies deterministic validation errors
-// and preserves contract-audit metadata when the error originated in the judge.
+// baziContractFailureFromViolation 分类确定性 validator 错误。
+// 若错误来自审计 finding，则保留 finding metadata 供 repair 和 trace 使用。
 func baziContractFailureFromViolation(stage string, violation baziValidationViolation) baziContractFailure {
 	failure := baziContractFailure{
 		Class:          baziContractFailureUnknown,
@@ -94,11 +92,11 @@ func baziContractFailureFromViolation(stage string, violation baziValidationViol
 		failure.Class = baziContractFailureFactConflict
 	case baziViolationMethodContract, baziViolationClaimNotAuthorized:
 		failure.Class = baziContractFailureMethodContract
-	case baziViolationScopeEscalation, baziViolationSemanticContract:
+	case baziViolationScopeEscalation, baziViolationDayunCoverageMissing, baziViolationSemanticContract:
 		failure.Class = baziContractFailureProjectionMismatch
 	}
 	failure.RecoveryPolicy = baziRecoveryPolicyForFailure(stage, failure.Class)
-	return failure
+	return withBaziStaticFallback(stage, failure)
 }
 
 // baziContractFailureFromError extracts the classification from validation
@@ -111,8 +109,32 @@ func baziContractFailureFromError(stage string, err error) (baziContractFailure,
 	return baziContractFailureFromViolation(stage, violation), true
 }
 
-// baziRecoveryPolicyForFailure is the single source for model-text recovery
-// decisions after retry. Retry-only classes must not silently become facts-only.
+// repairFailureFromBaziContract maps BaZi-only validation failures into the
+// global Repair Harness contract without changing current control flow.
+func repairFailureFromBaziContract(stage string, err error) (RepairFailure, bool) {
+	failure, ok := baziContractFailureFromError(stage, err)
+	if !ok {
+		return RepairFailure{}, false
+	}
+	repairFailure := RepairFailure{
+		Domain:   "bazi",
+		Stage:    strings.TrimSpace(stage),
+		Class:    repairClassFromBaziContract(failure.Class),
+		Field:    strings.TrimSpace(failure.Field),
+		Code:     strings.TrimSpace(failure.FindingCode),
+		Message:  strings.TrimSpace(failure.Reason),
+		Excerpt:  strings.TrimSpace(failure.Excerpt),
+		Fallback: repairFallbackFromBaziRecoveryPolicy(failure.RecoveryPolicy),
+		Cause:    err,
+	}
+	decision := DefaultRepairPolicy().Decide(repairFailure, RepairState{})
+	repairFailure.Retryable = decision.Retryable
+	repairFailure.Repairable = decision.Repairable
+	return repairFailure, true
+}
+
+// baziRecoveryPolicyForFailure 是合同失败恢复策略的基础映射。
+// retry-only 类默认不能静默 facts-only；字段级例外由后续 helper 显式收窄。
 func baziRecoveryPolicyForFailure(stage, class string) string {
 	stage = strings.TrimSpace(stage)
 	switch class {
@@ -135,6 +157,28 @@ func baziRecoveryPolicyForFailure(stage, class string) string {
 	}
 }
 
+// withBaziStaticFallback 收窄允许 static facts-only 的静态投影失败字段。
+// 普通 fact_conflict 和 method_contract 仍不放宽，避免模型或降级吞掉确定性错误。
+func withBaziStaticFallback(stage string, failure baziContractFailure) baziContractFailure {
+	if failure.Class == baziContractFailureFactConflict &&
+		strings.HasPrefix(strings.TrimSpace(stage), "static") &&
+		strings.TrimSpace(failure.Field) == "static.strength_balance" {
+		failure.RecoveryPolicy = baziRecoveryPolicyStaticFactsOnly
+		return failure
+	}
+	if failure.Class != baziContractFailureProjectionMismatch {
+		return failure
+	}
+	if !strings.HasPrefix(strings.TrimSpace(stage), "static") {
+		return failure
+	}
+	if strings.TrimSpace(failure.Field) != "static.tiaohou_anchor" {
+		return failure
+	}
+	failure.RecoveryPolicy = baziRecoveryPolicyStaticFactsOnly
+	return failure
+}
+
 // baziTraceAttrsForContractFailure projects compact failure details into traces
 // without retaining full candidate text.
 func baziTraceAttrsForContractFailure(stage string, err error) map[string]any {
@@ -155,7 +199,50 @@ func baziTraceAttrsForContractFailure(stage string, err error) map[string]any {
 	if failure.DetectedDomain != "" {
 		attrs["bazi.contract.detected_domain"] = failure.DetectedDomain
 	}
+	if repairFailure, ok := repairFailureFromBaziContract(stage, err); ok {
+		decision := DefaultRepairPolicy().Decide(repairFailure, RepairState{})
+		for key, value := range RepairTraceAttrs(RepairTraceEvent{
+			Failure:     repairFailure,
+			Attempt:     0,
+			MaxAttempts: decision.MaxAttempts,
+			Action:      decision.Action,
+			Exhausted:   decision.Exhausted,
+			FinalAction: decision.Action,
+		}) {
+			attrs[key] = value
+		}
+	}
 	return attrs
+}
+
+// repairClassFromBaziContract bridges the BaZi-local closed taxonomy into the
+// global Repair Harness taxonomy.
+func repairClassFromBaziContract(class string) RepairClass {
+	switch class {
+	case baziContractFailureEvidenceOverclaim:
+		return RepairEvidenceOverclaim
+	case baziContractFailureDomainUnauthorized:
+		return RepairDomainUnauthorized
+	case baziContractFailureProjectionMismatch:
+		return RepairProjectionMismatch
+	case baziContractFailureFactConflict:
+		return RepairFactConflict
+	case baziContractFailureMethodContract:
+		return RepairMethodContract
+	default:
+		return RepairUnknown
+	}
+}
+
+// repairFallbackFromBaziRecoveryPolicy preserves existing BaZi recovery policy
+// as a global fallback marker without running fallback here.
+func repairFallbackFromBaziRecoveryPolicy(policy string) string {
+	switch policy {
+	case baziRecoveryPolicyStaticFactsOnly, baziRecoveryPolicyDynamicFactsOnly, baziRecoveryPolicyFullFactsOnly:
+		return "facts_only"
+	default:
+		return ""
+	}
 }
 
 // isBaziInnerAgentParseError identifies malformed JSON transport from the

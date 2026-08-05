@@ -5,13 +5,14 @@ package qimen
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/6tail/lunar-go/calendar"
 	"github.com/deminzhang/qimen-go/qimen"
 )
 
-// Tool 奇门遁甲排盘工具（时家奇门）。依据给定的年月日时分起局，生成九宫格局信息，
-// 包括八门（休生伤杜景死惊开）、九星（天蓬天芮等）、八神（值符腾蛇等）和引干等。
+// Tool 奇门遁甲排盘工具（时家奇门）。依据问事时间起局，生成转盘八门八神九宫格局，
+// 不接收出生资料，也不把年月日时分拆成对外参数。
 type Tool struct{}
 
 func (t *Tool) Name() string        { return "qimen_dunjia" }
@@ -20,28 +21,26 @@ func (t *Tool) Description() string { return "奇门遁甲排盘，返回时家�
 func (t *Tool) Label() string { return "奇门遁甲" }
 
 func (t *Tool) Execute(_ context.Context, params map[string]any) (any, error) {
-	year, _ := params["year"].(float64)
-	month, _ := params["month"].(float64)
-	day, _ := params["day"].(float64)
-	hour, _ := params["hour"].(float64)
-	minute, _ := params["minute"].(float64)
-
-	if year < 1900 || year > 2100 {
-		return nil, fmt.Errorf("year out of range")
+	for key := range params {
+		if key != "question_time" {
+			return nil, fmt.Errorf("unknown qimen parameter %q", key)
+		}
 	}
-	if month < 1 || month > 12 {
-		return nil, fmt.Errorf("month out of range")
+	rawQuestionTime, ok := params["question_time"].(string)
+	if !ok || rawQuestionTime == "" {
+		return nil, fmt.Errorf("question_time is required")
 	}
-	if day < 1 || day > 31 {
-		return nil, fmt.Errorf("day out of range")
+	questionTime, err := time.Parse(time.RFC3339, rawQuestionTime)
+	if err != nil {
+		return nil, fmt.Errorf("question_time must be RFC3339: %w", err)
 	}
-	if hour < 0 || hour > 23 {
-		return nil, fmt.Errorf("hour out of range")
+	if questionTime.Year() < 1900 || questionTime.Year() > 2100 {
+		return nil, fmt.Errorf("question_time year out of range")
 	}
 
-	solar := calendar.NewSolar(int(year), int(month), int(day), int(hour), int(minute), 0)
+	solar := calendar.NewSolar(questionTime.Year(), int(questionTime.Month()), questionTime.Day(), questionTime.Hour(), questionTime.Minute(), questionTime.Second())
 	pan := qimen.NewQMGame(solar, qimen.QMParams{
-		Type:        qimen.QMTypeAmaze,     // 鸣法（含转盘+飞盘信息）
+		Type:        qimen.QMTypeRotating,  // 默认用传统转盘，避免九门/九神混入八门八神展示。
 		HostingType: qimen.QMHostingType28, // 阳艮阴坤寄宫法
 		FlyType:     qimen.QMFlyTypeAllOrder,
 		JuType:      qimen.QMJuTypeSplit, // 拆补法
@@ -66,6 +65,9 @@ func (t *Tool) Execute(_ context.Context, params map[string]any) (any, error) {
 			"guest_gan": g.GuestGan,
 		}
 	}
+	if err := validateRotatingSymbols(cells); err != nil {
+		return nil, err
+	}
 
 	method := "拆补"
 	if qimen.QMJuType[pp.StartType] == "置闰" {
@@ -75,15 +77,38 @@ func (t *Tool) Execute(_ context.Context, params map[string]any) (any, error) {
 	}
 
 	return map[string]any{
-		"pan_type":      "时家奇门",
-		"question_time": fmt.Sprintf("%d-%02d-%02dT%02d:%02d:00+08:00", int(year), int(month), int(day), int(hour), int(minute)),
-		"method":        method,
-		"value_star":    pp.DutyStar,
-		"value_door":    pp.DutyDoor,
-		"duty_palace":   palaceNames[pp.DutyStarPos],
-		"ju_text":       pp.JuText,
-		"duty_text":     pp.DutyText,
-		"jie_qi":        pp.JieQi,
-		"cells":         cells,
+		"pan_type":           "时家奇门",
+		"pan_schema":         "rotating_8",
+		"symbol_system":      "eight_gate_eight_god",
+		"time_source":        "question_time",
+		"question_time":      questionTime.Format(time.RFC3339),
+		"method":             method,
+		"value_star":         pp.DutyStar,
+		"value_door":         pp.DutyDoor,
+		"duty_palace":        palaceNames[pp.DutyStarPos], // legacy: 值符宫，前端新字段用 duty_star_palace。
+		"duty_star_palace":   palaceNames[pp.DutyStarPos],
+		"duty_door_palace":   palaceNames[pp.DutyDoorPos],
+		"duty_star_position": pp.DutyStarPos,
+		"duty_door_position": pp.DutyDoorPos,
+		"ju_text":            pp.JuText,
+		"duty_text":          pp.DutyText,
+		"jie_qi":             pp.JieQi,
+		"cells":              cells,
 	}, nil
+}
+
+// validateRotatingSymbols rejects symbols from other Qi Men display systems;
+// silently replacing them would make the returned rotating_8 chart inaccurate.
+func validateRotatingSymbols(cells []map[string]any) error {
+	for _, cell := range cells {
+		switch cell["door"] {
+		case "中门", "中":
+			return fmt.Errorf("rotating_8 does not allow door symbol %q", cell["door"])
+		}
+		switch cell["god"] {
+		case "太常", "勾陈", "朱雀":
+			return fmt.Errorf("rotating_8 does not allow god symbol %q", cell["god"])
+		}
+	}
+	return nil
 }

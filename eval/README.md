@@ -23,6 +23,7 @@ Langfuse 页面不是唯一验收信号；UI 没有显示正文，不等于运�
 | Langfuse trace/session/dataset/dataset run/score | 已验证 | 本地 WSL Docker 的 self-hosted v3 |
 | 双回合 follow-up 在线 smoke | 待最新报告确认 | 评测器已修复总预算和 setup trace 排除，需重新跑完整在线样本 |
 | 八字质量合同评测 | 已接入 | `bazi-quality-v1` 通过真实 `/api/chat`、SSE、Langfuse trace 与结构化响应/属性断言；仍需人工复核命理质量 |
+| Repair Harness 回归 | 已接入 | `runtime-repair-v1` 固化最近静态调候投影失败样本；`make eval-repair` 先跑本地 repair 合同测试再跑真实 `/api/chat` |
 | LLM Judge / 文本质量评测 | 未接入 | 运行时独立合同审计是二值语义门，不是离线 LLM-as-Judge；当前不能单独证明回答质量或用户满意度 |
 | Experiments / Evals UI | 非主流程 | 当前 v3 部署不能作为稳定入口 |
 
@@ -43,6 +44,9 @@ make eval-bazi-quality
 
 # 八字稳定性合同（同一输入重复 10 次）
 make eval-bazi-stability
+
+# Repair Harness 合同（本地 repair 单测 + 真实请求）
+make eval-repair
 
 # cheap gate 样本聚合
 make cheap-gate-report
@@ -69,6 +73,7 @@ eval/
     retrieval-benchmark-v1.json     # 检索链路基准
     bazi-quality-v1.json            # 八字候选裁定、年龄边界与独立审计质量合同
     bazi-stability-v1.json          # 同一八字输入重复运行稳定性合同
+    runtime-repair-v1.json          # Repair Harness 最近失败样本回归
   runner/
     run-agent-regression.sh         # make regression 底层编排
     run_langfuse_eval.py            # 真实请求、trace 轮询和断言
@@ -103,6 +108,7 @@ eval/
 - 首轮八字主链和完成事件。
 - 同 session follow-up。
 - 检索证据链路。
+- Repair Harness 最近静态调候投影失败样本。
 - 多对象、出生资料修订、解读来源绑定与奇门 Case 隔离的 Go 合同回归。
 
 ## Hosted dataset 与 Langfuse

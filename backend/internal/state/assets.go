@@ -19,8 +19,11 @@ const (
 	AssetKindBaziChart = "bazi_chart"
 	// AssetKindZiweiChart identifies a ZiWei natal-chart result.
 	AssetKindZiweiChart = "ziwei_chart"
-	// AssetKindQimenChart identifies a QiMen event-chart result.
+	// AssetKindQimenChart identifies the legacy Qi Men event-chart alias.
+	// New writes are normalized to AssetKindQimenCaseChart under an explicit Case.
 	AssetKindQimenChart = "qimen_chart"
+	// AssetKindQimenCaseChart identifies a QiMen chart bound to one exact Case.
+	AssetKindQimenCaseChart = "qimen_case_chart"
 	// AssetKindInterpretation identifies a follow-up-ready reading bound to one chart asset.
 	AssetKindInterpretation = "interpretation"
 )
@@ -226,28 +229,53 @@ func (s *SessionState) ActiveProfile() map[string]any {
 // A tool result is never allowed to replace an older subject's chart in place.
 func (s *SessionState) StoreChart(kind string, payload map[string]any, methodVersion string) AssetRef {
 	s.MigrateLegacyAssets()
-	subject := s.ActiveSubject()
-	ownerKind, ownerID := "profile_revision", s.ActiveFocus.ProfileRevisionID
-	inputRefs := []AssetRef{}
-	if ownerID != "" {
-		inputRefs = append(inputRefs, AssetRef{Kind: AssetKindProfileRevision, ID: ownerID, Version: profileVersion(s, ownerID)})
+	if kind == AssetKindQimenCaseChart {
+		caseID := strings.TrimSpace(s.ActiveFocus.CaseID)
+		if caseID == "" {
+			return AssetRef{}
+		}
+		return s.StoreChartForOwner(kind, AssetRef{Kind: "case", ID: caseID}, payload, methodVersion)
 	}
 	if kind == AssetKindQimenChart {
-		ownerKind, ownerID = "case", s.ensureActiveCase("qimen", "").ID
-		inputRefs = nil
+		caseID := strings.TrimSpace(s.ActiveFocus.CaseID)
+		if caseID == "" {
+			return AssetRef{}
+		}
+		// Keep old callers readable during migration, but never persist the legacy
+		// kind or create a Case from a chart write.
+		return s.StoreChartForOwner(AssetKindQimenCaseChart, AssetRef{Kind: "case", ID: caseID}, payload, methodVersion)
+	}
+	return s.StoreChartForOwner(kind, AssetRef{Kind: AssetKindProfileRevision, ID: s.ActiveFocus.ProfileRevisionID}, payload, methodVersion)
+}
+
+// StoreChartForOwner appends a chart under an explicit owner and selects it for
+// the active subject. Qimen case charts require a non-empty case owner; the
+// method never infers an owner from ActiveFocus or ProfileRevision.
+func (s *SessionState) StoreChartForOwner(kind string, owner AssetRef, payload map[string]any, methodVersion string) AssetRef {
+	if s == nil || owner.Kind == "" || owner.ID == "" {
+		return AssetRef{}
+	}
+	if kind == AssetKindQimenCaseChart && owner.Kind != "case" {
+		return AssetRef{}
+	}
+	s.MigrateLegacyAssets()
+	subject := s.ActiveSubject()
+	inputRefs := []AssetRef{}
+	if owner.Kind == AssetKindProfileRevision {
+		inputRefs = append(inputRefs, AssetRef{Kind: AssetKindProfileRevision, ID: owner.ID, Version: profileVersion(s, owner.ID)})
 	}
 
 	version := 1
 	for _, asset := range s.Assets {
-		if asset.Ref.Kind == kind && asset.OwnerKind == ownerKind && asset.OwnerID == ownerID && asset.Ref.Version >= version {
+		if asset.Ref.Kind == kind && asset.OwnerKind == owner.Kind && asset.OwnerID == owner.ID && asset.Ref.Version >= version {
 			version = asset.Ref.Version + 1
 		}
 	}
 	copyPayload := cloneMap(payload)
 	asset := DomainAsset{
-		Ref:           AssetRef{Kind: kind, ID: fmt.Sprintf("%s-%s-v%d", kind, ownerID, version), Version: version},
-		OwnerKind:     ownerKind,
-		OwnerID:       ownerID,
+		Ref:           AssetRef{Kind: kind, ID: fmt.Sprintf("%s-%s-v%d", kind, owner.ID, version), Version: version},
+		OwnerKind:     owner.Kind,
+		OwnerID:       owner.ID,
 		SubjectIDs:    []string{subject.ID},
 		InputRefs:     inputRefs,
 		MethodVersion: methodVersion,
@@ -335,7 +363,7 @@ func chartKindForDomain(domain string) string {
 	case "ziwei":
 		return AssetKindZiweiChart
 	case "qimen":
-		return AssetKindQimenChart
+		return AssetKindQimenCaseChart
 	default:
 		return ""
 	}
@@ -366,16 +394,51 @@ func (s *SessionState) InvalidateActiveChart(kind string) {
 // Event-chart callers should request a fresh case when the user starts a new
 // question; natal-chart callers normally do not need a case at all.
 func (s *SessionState) StartCase(domain, question string, fresh bool) Case {
+	return s.StartCaseAt(domain, question, nil, fresh)
+}
+
+// StartCaseAt selects a compatible Case or creates one with an optional event
+// time. A supplied event time prevents reusing a Case cast at another instant.
+func (s *SessionState) StartCaseAt(domain, question string, eventTime *time.Time, fresh bool) Case {
 	s.MigrateLegacyAssets()
 	if !fresh && s.ActiveFocus.CaseID != "" {
 		for _, item := range s.Cases {
 			if item.ID == s.ActiveFocus.CaseID && item.Domain == domain {
-				return item
+				if eventTime == nil {
+					return item
+				}
+				if item.EventTime == nil {
+					item.EventTime = cloneTime(eventTime)
+					s.replaceCase(item)
+					return item
+				}
+				if item.EventTime.Equal(*eventTime) {
+					return item
+				}
 			}
 		}
 	}
 	s.ActiveFocus.CaseID = ""
-	return s.ensureActiveCase(domain, question)
+	return s.ensureActiveCaseAt(domain, question, eventTime)
+}
+
+// QimenChartForCase returns the latest qimen chart whose owner is the exact
+// supplied Case. It does not consult ActiveFocus or ProfileRevision fallbacks.
+func (s *SessionState) QimenChartForCase(caseID string) map[string]any {
+	if s == nil || strings.TrimSpace(caseID) == "" {
+		return nil
+	}
+	for i := len(s.Assets) - 1; i >= 0; i-- {
+		asset := s.Assets[i]
+		if asset.OwnerKind != "case" || asset.OwnerID != caseID {
+			continue
+		}
+		if asset.Ref.Kind != AssetKindQimenCaseChart && asset.Ref.Kind != AssetKindQimenChart {
+			continue
+		}
+		return asset.Payload
+	}
+	return nil
 }
 
 // ActiveChart returns the exact active payload for one chart kind. It returns a
@@ -384,12 +447,15 @@ func (s *SessionState) StartCase(domain, question string, fresh bool) Case {
 func (s *SessionState) ActiveChart(kind string) map[string]any {
 	s.MigrateLegacyAssets()
 	for _, ref := range s.ActiveFocus.PrimaryAssetRefs {
-		if ref.Kind != kind {
+		if !sameChartKind(ref.Kind, kind) {
 			continue
 		}
 		if asset, ok := s.assetByRef(ref); ok {
 			return asset.Payload
 		}
+	}
+	if isQimenChartKind(kind) {
+		return nil
 	}
 	profileID := s.ActiveFocus.ProfileRevisionID
 	for i := len(s.Assets) - 1; i >= 0; i-- {
@@ -400,6 +466,14 @@ func (s *SessionState) ActiveChart(kind string) map[string]any {
 		}
 	}
 	return nil
+}
+
+func isQimenChartKind(kind string) bool {
+	return kind == AssetKindQimenChart || kind == AssetKindQimenCaseChart
+}
+
+func sameChartKind(left, right string) bool {
+	return left == right || (isQimenChartKind(left) && isQimenChartKind(right))
 }
 
 // MigrateLegacyAssets imports pre-asset sessions once. Legacy fields remain a
@@ -497,6 +571,10 @@ func (s *SessionState) latestProfileForSubject(subjectID string) (ProfileRevisio
 }
 
 func (s *SessionState) ensureActiveCase(domain, question string) Case {
+	return s.ensureActiveCaseAt(domain, question, nil)
+}
+
+func (s *SessionState) ensureActiveCaseAt(domain, question string, eventTime *time.Time) Case {
 	if s.ActiveFocus.CaseID != "" {
 		for _, item := range s.Cases {
 			if item.ID == s.ActiveFocus.CaseID {
@@ -505,15 +583,24 @@ func (s *SessionState) ensureActiveCase(domain, question string) Case {
 		}
 	}
 	subject := s.ActiveSubject()
-	item := Case{ID: fmt.Sprintf("case-%d", len(s.Cases)+1), Domain: domain, Question: question, SubjectIDs: []string{subject.ID}, CreatedAt: time.Now().UTC()}
+	item := Case{ID: fmt.Sprintf("case-%d", len(s.Cases)+1), Domain: domain, Question: question, SubjectIDs: []string{subject.ID}, EventTime: cloneTime(eventTime), CreatedAt: time.Now().UTC()}
 	s.Cases = append(s.Cases, item)
 	s.ActiveFocus.CaseID = item.ID
 	return item
 }
 
+func (s *SessionState) replaceCase(updated Case) {
+	for i := range s.Cases {
+		if s.Cases[i].ID == updated.ID {
+			s.Cases[i] = updated
+			return
+		}
+	}
+}
+
 func (s *SessionState) selectPrimaryAsset(ref AssetRef) {
 	for i, existing := range s.ActiveFocus.PrimaryAssetRefs {
-		if existing.Kind == ref.Kind {
+		if sameChartKind(existing.Kind, ref.Kind) {
 			s.ActiveFocus.PrimaryAssetRefs[i] = ref
 			return
 		}
@@ -533,11 +620,19 @@ func (s *SessionState) isExcludedAsset(ref AssetRef) bool {
 func (s *SessionState) clearExcludedAssets(kind string) {
 	filtered := s.ActiveFocus.ExcludedAssetRefs[:0]
 	for _, ref := range s.ActiveFocus.ExcludedAssetRefs {
-		if ref.Kind != kind {
+		if !sameChartKind(ref.Kind, kind) {
 			filtered = append(filtered, ref)
 		}
 	}
 	s.ActiveFocus.ExcludedAssetRefs = filtered
+}
+
+func cloneTime(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func (s *SessionState) assetByRef(ref AssetRef) (DomainAsset, bool) {

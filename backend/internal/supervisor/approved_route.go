@@ -41,6 +41,7 @@ func (c *Client) Approve(ctx context.Context, msg string, st *state.SessionState
 		sp.End()
 		if c.reporter != nil {
 			_ = c.reporter.Record(ctx, msg, contracts.ExecutionSnapshot{
+				ConsultationKind:   route.ConsultationKind,
 				PrimaryDomain:      route.PrimaryDomain,
 				SecondaryDomains:   append([]string(nil), route.SecondaryDomains...),
 				TaskIntent:         route.TaskIntent,
@@ -70,6 +71,7 @@ func (c *Client) Approve(ctx context.Context, msg string, st *state.SessionState
 // fortune_followup）已经下沉到 manager 侧，由 runtime conversation owner 统一处理。
 func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *state.SessionState, route policy.ApprovedRoute) policy.ApprovedRoute {
 	c.applyExplicitMethodPreference(ctx, msg, &route)
+	applyConsultationContract(msg, st, &route)
 	if intent.ContainsBirthInfo(msg) {
 		normalizeExplicitBirthClock(msg, &route)
 	}
@@ -147,10 +149,179 @@ func applyRegexMethodPreference(msg string, route *policy.ApprovedRoute) {
 		if route.PolicyHints.QimenMode == "" {
 			route.PolicyHints.QimenMode = "none"
 		}
-	case intent.ContainsTimingKeyword(trimmed) && route.PolicyHints.QimenMode == "none":
-		route.PolicyHints.QimenMode = "supplement"
-		route.PolicyHints.NeedsQimen = true
 	}
+}
+
+// applyConsultationContract maps user-visible semantics to the frozen route contract.
+// Timing words alone stay on the period-fortune path and never add qimen.
+func applyConsultationContract(msg string, st *state.SessionState, route *policy.ApprovedRoute) {
+	if route == nil {
+		return
+	}
+	// 四值分类只属于已准入的咨询执行轮次；资料收集、修订、直答和澄清
+	// 都会在 preflight 短路，保留分类会让 snapshot 虚报 specialist 已执行。
+	if route.NeedsClarification || route.TaskIntent == "collect_profile" ||
+		route.TaskIntent == "amend_profile" || route.TaskIntent == "direct_bazi" {
+		route.ConsultationKind = ""
+		return
+	}
+	if isUnsupportedConsultationCombination(msg) {
+		markConsultationClarification(route)
+		return
+	}
+
+	kind := consultationKindForMessage(msg, *route)
+	route.ConsultationKind = kind
+	switch kind {
+	case contracts.ConsultationKindEventQuestion:
+		route.PrimaryDomain = "qimen"
+		route.SecondaryDomains = nil
+		route.PolicyHints.QimenMode = "primary"
+		route.PolicyHints.NeedsQimen = true
+		route.PolicyHints.ProfileRequirement = "none"
+		if route.Gate.Reason == "profile_incomplete" {
+			route.NeedsClarification = false
+			route.ClarificationQuestion = ""
+			route.Gate.Admitted = true
+			route.Gate.Reason = ""
+			route.Gate.ExecutionMode = "execute"
+		}
+	case contracts.ConsultationKindHealthRisk:
+		route.PrimaryDomain = "bazi"
+		route.SecondaryDomains = []string{"ziwei"}
+		route.PolicyHints.QimenMode = "none"
+		route.PolicyHints.NeedsQimen = false
+		route.PolicyHints.ProfileRequirement = "full"
+	case contracts.ConsultationKindPeriodFortune:
+		route.PrimaryDomain = "bazi"
+		route.SecondaryDomains = []string{"ziwei"}
+		route.PolicyHints.QimenMode = "none"
+		route.PolicyHints.NeedsQimen = false
+		route.PolicyHints.ProfileRequirement = "full"
+	case contracts.ConsultationKindNatalChart:
+		if intent.MentionsZiweiMethod(msg) {
+			route.PrimaryDomain = "ziwei"
+		} else if intent.MentionsBaziMethod(msg) {
+			route.PrimaryDomain = "bazi"
+		}
+		route.SecondaryDomains = nil
+		route.PolicyHints.QimenMode = "none"
+		route.PolicyHints.NeedsQimen = false
+		route.PolicyHints.ProfileRequirement = "full"
+	}
+
+	if kind != contracts.ConsultationKindEventQuestion && st != nil &&
+		!st.IsProfileComplete() && !st.HasBaziResult() &&
+		route.TaskIntent != "collect_profile" && route.TaskIntent != "amend_profile" &&
+		route.TaskIntent != "direct_bazi" {
+		// 分类合同只描述已准入执行轮次；进入资料澄清后必须清空，避免
+		// trace 和后续重建把等待状态误认为已经执行 specialist。
+		route.ConsultationKind = ""
+		route.NeedsClarification = true
+		route.Gate.Admitted = false
+		route.Gate.Reason = "profile_incomplete"
+		route.Gate.ExecutionMode = "clarify"
+	}
+}
+
+// consultationKindForMessage applies the frozen classification priority to one message.
+func consultationKindForMessage(msg string, route policy.ApprovedRoute) contracts.ConsultationKind {
+	trimmed := strings.TrimSpace(msg)
+	if isUnsupportedConsultationCombination(trimmed) {
+		return ""
+	}
+	switch {
+	case isEventQuestion(trimmed):
+		return contracts.ConsultationKindEventQuestion
+	case mentionsHealthRisk(trimmed):
+		return contracts.ConsultationKindHealthRisk
+	case isNatalChartRequest(trimmed):
+		return contracts.ConsultationKindNatalChart
+	case intent.ContainsTimingKeyword(trimmed):
+		return contracts.ConsultationKindPeriodFortune
+	case policy.ValidConsultationKind(route.ConsultationKind):
+		return route.ConsultationKind
+	case route.PrimaryDomain == "qimen":
+		return contracts.ConsultationKindEventQuestion
+	case route.PrimaryDomain == "ziwei" || route.TaskIntent == "interpret_chart":
+		return contracts.ConsultationKindNatalChart
+	case route.TaskIntent == "fortune_followup":
+		return contracts.ConsultationKindPeriodFortune
+	default:
+		return ""
+	}
+}
+
+// isUnsupportedConsultationCombination rejects health actions and explicit natal
+// methods attached to concrete events before any route method preference applies.
+func isUnsupportedConsultationCombination(msg string) bool {
+	trimmed := strings.TrimSpace(msg)
+	if isEventQuestion(trimmed) && mentionsHealthRisk(trimmed) {
+		return true
+	}
+	return isEventQuestion(trimmed) &&
+		(intent.MentionsBaziMethod(trimmed) || intent.MentionsZiweiMethod(trimmed)) &&
+		!intent.MentionsQimenMethod(trimmed)
+}
+
+// markConsultationClarification routes an unsupported combination to the existing
+// clarification short circuit without inventing another consultation kind.
+func markConsultationClarification(route *policy.ApprovedRoute) {
+	if route == nil {
+		return
+	}
+	route.ConsultationKind = ""
+	route.NeedsClarification = true
+	route.ClarificationQuestion = "这个问题同时包含具体事件和方法选择，请确认是按奇门问事，还是按出生盘方法分析。"
+	route.Gate.Admitted = false
+	route.Gate.Reason = "consultation_method_conflict"
+	route.Gate.ExecutionMode = "clarify"
+}
+
+// isNatalChartRequest recognizes an explicit birth-chart method request.
+func isNatalChartRequest(msg string) bool {
+	return (intent.ContainsExplicitDivinationAction(msg) || strings.Contains(msg, "命盘") || strings.Contains(msg, "排盘")) &&
+		(intent.MentionsBaziMethod(msg) || intent.MentionsZiweiMethod(msg))
+}
+
+// isEventQuestion recognizes a concrete event or qimen question.
+func isEventQuestion(msg string) bool {
+	for _, marker := range []string{"面试", "签约", "谈合作", "出行", "择时", "择日", "起局", "问事", "这件事", "能否成", "要不要"} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	if strings.Contains(msg, "合作") {
+		for _, marker := range []string{"这次", "此次", "项目", "谈", "能否", "能不能", "是否", "成不成"} {
+			if strings.Contains(msg, marker) {
+				return true
+			}
+		}
+	}
+	if intent.MentionsQimenMethod(msg) && !intent.ContainsTimingKeyword(msg) {
+		return true
+	}
+	// 没有出生资料时，“今天/此刻运气如何”是本时刻问事，不应先走
+	// 需要完整命盘的阶段运势路径；本月/今年/最近仍由 period_fortune 处理。
+	if !intent.HasTimingFocus(msg) {
+		return false
+	}
+	for _, marker := range []string{"今天", "今日", "此刻", "现在", "当前"} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// mentionsHealthRisk recognizes the broad health-risk category for the safety profile.
+func mentionsHealthRisk(msg string) bool {
+	for _, marker := range []string{"健康", "身体", "生病", "疾病", "就医", "检查"} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // applyExplicitMethodPreference 在用户显式指定术数方法时做主领域纠偏。

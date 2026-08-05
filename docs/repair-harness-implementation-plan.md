@@ -384,11 +384,19 @@ Run Inspector 展示摘要：
     "allowed_final_actions": ["repair_success", "facts_only"],
     "trace_has": [
       "repair.stage=static_projection",
-      "repair.class=projection_mismatch"
+      "repair.class in {projection_mismatch, evidence_overclaim}"
     ]
   }
 }
 ~~~
+
+当前 `static.tiaohou_anchor` 样本可能因 validator finding code 记录为
+`evidence_overclaim`；两者都属于字段级可分类失败，验收以字段、attempt、final action、
+无 SSE error 和 facts-only/canonical repair 终态为准。
+
+在线样本只锁定“无 SSE error、无裸错误码、路由和基础响应完整”。
+`static.tiaohou_anchor`、400/401/402 与 `fact_conflict` 等确定性 repair 合同
+由 `make eval-repair` 前置 Go tests 覆盖，不用在线 LLM 随机路径证明。
 
 每个线上失败沉淀四字段：
 

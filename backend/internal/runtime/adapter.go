@@ -42,15 +42,9 @@ type dayunInput struct {
 	Gender   string `json:"gender" jsonschema_description:"性别 (男/女)"`
 }
 
-// qimenInput 奇门遁甲排盘工具的输入参数。
+// qimenInput 奇门问事盘适配器的唯一输入参数。
 type qimenInput struct {
-	Year   int    `json:"year" jsonschema_description:"年份"`
-	Month  int    `json:"month" jsonschema_description:"月份"`
-	Day    int    `json:"day" jsonschema_description:"日期"`
-	Hour   int    `json:"hour" jsonschema_description:"时辰 (0-23)"`
-	Minute int    `json:"minute,omitempty" jsonschema_description:"分钟 (0-59)"`
-	TermID int    `json:"term_id,omitempty" jsonschema_description:"节气 ID"`
-	Ju     string `json:"ju,omitempty" jsonschema_description:"局数"`
+	QuestionTime string `json:"question_time" jsonschema_description:"本轮提问时间（RFC3339）"`
 }
 
 // ziweiInput 紫微斗数排盘工具的输入参数。
@@ -211,7 +205,7 @@ func buildYongshenParamsFromBaziResult(baziResult map[string]any) map[string]any
 
 // newQimenAdapter 创建奇门遁甲排盘工具的 Eino BaseTool 适配器。
 func newQimenAdapter(reg *tools.Registry) (tool.BaseTool, error) {
-	return inferRegistryTool[qimenInput](reg, "qimen_dunjia", "奇门遁甲排盘，返回时家奇门九宫信息")
+	return inferRegistryTool[qimenInput](reg, "qimen_dunjia", "按本轮提问时间起奇门问事盘；仅接收 RFC3339 格式的 question_time")
 }
 
 // newZiweiAdapter 创建紫微斗数排盘工具的 Eino BaseTool 适配器。

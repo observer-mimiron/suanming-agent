@@ -118,4 +118,19 @@ func TestAnnotateBaziGraphErrorProjectsContractFindingTraceAttrs(t *testing.T) {
 	if got := tr.Attributes["bazi.contract.recovery_policy"]; got != baziRecoveryPolicyDynamicFactsOnly {
 		t.Fatalf("recovery_policy = %v", got)
 	}
+	if got := tr.Attributes["repair.domain"]; got != "bazi" {
+		t.Fatalf("repair.domain = %v", got)
+	}
+	if got := tr.Attributes["repair.stage"]; got != "dynamic_synthesis" {
+		t.Fatalf("repair.stage = %v", got)
+	}
+	if got := tr.Attributes["repair.class"]; got != string(RepairDomainUnauthorized) {
+		t.Fatalf("repair.class = %v", got)
+	}
+	if got := tr.Attributes["repair.field"]; got != "dynamic.dayun_judgments[0].interpretation" {
+		t.Fatalf("repair.field = %v", got)
+	}
+	if got := tr.Attributes["repair.action"]; got != string(RepairActionFallback) {
+		t.Fatalf("repair.action = %v", got)
+	}
 }

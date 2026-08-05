@@ -1,0 +1,36 @@
+{
+  "name": "runtime-repair-v1",
+  "description": "Repair Harness 回归：固化最近静态调候投影失败样本，验证无 SSE error、无裸错误码和 repair trace 收口",
+  "cases": [
+    {
+      "id": "repair-bazi-static-tiaohou-anchor-1991-nanjing",
+      "timeout_seconds": 300,
+      "message": "1991年10月5日12点40分 南京 男",
+      "include_response": true,
+      "sse_must_not_emit_error": true,
+      "response_must_contain_all": ["强弱", "大运"],
+      "response_must_not_contain": ["BAZI_STATIC_PROJECTION_FAILED"],
+      "expected_route_primary": "bazi",
+      "expected_task_intent_any": ["collect_profile", "interpret_chart", "amend_profile"],
+      "expected_turn_type_any": ["agent_reading"],
+      "required_observations": ["preflight", "sse_emit"],
+      "optional_trace_attribute_any": {
+        "repair.domain": [],
+        "repair.stage": [],
+        "repair.class": [],
+        "repair.field": [],
+        "repair.attempt": [],
+        "repair.action": [],
+        "repair.final_action": [],
+        "bazi.static.source": ["model", "model_partial", "facts_only_degraded"],
+        "bazi.dynamic.source": ["model", "model_partial", "facts_only_degraded", "unknown"]
+      },
+      "failure_learning": {
+        "conjectured": "静态投影合同会把调候锚点不完整拦在用户可见错误前",
+        "refuted_by": "线上 SSE 曾裸出 BAZI_STATIC_PROJECTION_FAILED",
+        "learned": "static.tiaohou_anchor 需要有限 canonical repair；失败后必须 facts-only 降级",
+        "criterion_now": "在线断言无 SSE error、无裸错误码；确定性 repair 细节由 make eval-repair 前置 Go tests 覆盖"
+      }
+    }
+  ]
+}

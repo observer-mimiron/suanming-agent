@@ -6,6 +6,8 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -33,6 +35,14 @@ type fakeToolCallingModel struct {
 	emitCallbacks bool
 	tools         []*schema.ToolInfo
 	generateFn    func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error)
+}
+
+type supervisorHTTPStatusError struct {
+	HTTPStatusCode int
+}
+
+func (e supervisorHTTPStatusError) Error() string {
+	return fmt.Sprintf("status code: %d", e.HTTPStatusCode)
 }
 
 func (m *fakeToolCallingModel) Generate(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
@@ -368,7 +378,7 @@ func TestADKRouteEngine_DecideStopsAfterSecondValidationError(t *testing.T) {
 	}
 }
 
-func TestADKRouteEngine_DecideOnlyUsesModelRetryOnNonValidationError(t *testing.T) {
+func TestADKRouteEngine_DecideDoesNotRetryNonTransientError(t *testing.T) {
 	callCount := 0
 	var seenCorrectionFeedback bool
 	model := &fakeToolCallingModel{
@@ -391,14 +401,72 @@ func TestADKRouteEngine_DecideOnlyUsesModelRetryOnNonValidationError(t *testing.
 	if err == nil {
 		t.Fatal("Decide() error = nil, want upstream model error")
 	}
-	if callCount != 3 {
-		t.Fatalf("Generate call count = %d, want 3 from ModelRetryConfig", callCount)
+	if callCount != 1 {
+		t.Fatalf("Generate call count = %d, want 1 without transient retry", callCount)
 	}
 	if seenCorrectionFeedback {
 		t.Fatal("non-validation error should not trigger outer correction retry message")
 	}
 	if !strings.Contains(err.Error(), "upstream model unavailable") {
 		t.Fatalf("Decide() error = %q, want upstream model unavailable", err.Error())
+	}
+}
+
+func TestADKRouteEngine_DecideRetriesTransientModelError(t *testing.T) {
+	callCount := 0
+	model := &fakeToolCallingModel{
+		generateFn: func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
+			callCount++
+			if callCount < 3 {
+				return nil, supervisorHTTPStatusError{HTTPStatusCode: http.StatusTooManyRequests}
+			}
+			return schema.AssistantMessage("calling output", []schema.ToolCall{
+				{
+					ID:   "call-ok",
+					Type: "function",
+					Function: schema.FunctionCall{
+						Name:      decisionToolName,
+						Arguments: "{\"conversation_intent\":\"consult\",\"primary_domain\":\"bazi\",\"task_intent\":\"collect_profile\",\"confidence\":0.82,\"slots\":{\"profile\":{\"year\":1991,\"month\":10,\"day\":5,\"hour\":12,\"minute\":40,\"gender\":\"男\",\"birthplace\":\"南京\"},\"question_text\":\"\"},\"policy_hints\":{\"needs_knowledge\":true}}",
+					},
+				},
+			}), nil
+		},
+	}
+
+	engine, err := NewADKRouteEngine(context.Background(), model)
+	if err != nil {
+		t.Fatalf("NewADKRouteEngine() error = %v", err)
+	}
+
+	_, err = engine.Decide(context.Background(), "系统提示", "1991年10月5日12点40分 南京 男")
+	if err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+	if callCount != 3 {
+		t.Fatalf("Generate call count = %d, want 3 with transient retries", callCount)
+	}
+}
+
+func TestADKRouteEngine_DecideDoesNotRetryFatalModelStatus(t *testing.T) {
+	callCount := 0
+	model := &fakeToolCallingModel{
+		generateFn: func(ctx context.Context, input []*schema.Message, opts ...einomodel.Option) (*schema.Message, error) {
+			callCount++
+			return nil, supervisorHTTPStatusError{HTTPStatusCode: http.StatusPaymentRequired}
+		},
+	}
+
+	engine, err := NewADKRouteEngine(context.Background(), model)
+	if err != nil {
+		t.Fatalf("NewADKRouteEngine() error = %v", err)
+	}
+
+	_, err = engine.Decide(context.Background(), "系统提示", "看看事业")
+	if err == nil {
+		t.Fatal("Decide() error = nil, want fatal model error")
+	}
+	if callCount != 1 {
+		t.Fatalf("Generate call count = %d, want 1 without fatal retry", callCount)
 	}
 }
 

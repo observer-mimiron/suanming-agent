@@ -3,7 +3,10 @@
 // It stores session truth; routing and interpretation decisions stay outside state structs.
 package state
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func completeProfile(year float64) map[string]any {
 	return map[string]any{
@@ -65,11 +68,14 @@ func TestSessionAssets_MigratesAllLegacyChartsFromOneSnapshot(t *testing.T) {
 	st.ZiWeiResult = map[string]any{"ming_gong": "ziwei"}
 	st.QimenResult = map[string]any{"ju": "qimen"}
 
-	if !st.HasBaziResult() || !st.HasZiWeiResult() || !st.HasQimenResult() {
-		t.Fatalf("legacy charts did not all migrate: bazi=%v ziwei=%v qimen=%v", st.HasBaziResult(), st.HasZiWeiResult(), st.HasQimenResult())
+	if !st.HasBaziResult() || !st.HasZiWeiResult() {
+		t.Fatalf("legacy profile charts did not migrate: bazi=%v ziwei=%v", st.HasBaziResult(), st.HasZiWeiResult())
 	}
-	if len(st.Assets) != 3 {
-		t.Fatalf("asset count = %d, want 3", len(st.Assets))
+	if st.HasQimenResult() {
+		t.Fatal("unowned legacy qimen chart must not become an active asset")
+	}
+	if len(st.Assets) != 2 {
+		t.Fatalf("asset count = %d, want 2 profile-owned charts", len(st.Assets))
 	}
 }
 
@@ -102,5 +108,78 @@ func TestSessionAssets_CloneDoesNotShareNestedPayload(t *testing.T) {
 	clone.ActiveChart(AssetKindBaziChart)["nested"].(map[string]any)["value"] = "changed"
 	if got := st.ActiveChart(AssetKindBaziChart)["nested"].(map[string]any)["value"]; got != "original" {
 		t.Fatalf("original nested payload = %v, clone mutation leaked", got)
+	}
+}
+
+func TestSessionAssets_StartCaseAtBindsEventTimeAndSeparatesDifferentTimes(t *testing.T) {
+	zone := time.FixedZone("CST", 8*60*60)
+	firstTime := time.Date(2026, time.August, 5, 14, 30, 0, 0, zone)
+	secondTime := time.Date(2026, time.August, 5, 14, 31, 0, 0, zone)
+	st := NewSession("qimen-event-time")
+
+	first := st.StartCaseAt("qimen", "第一件事", &firstTime, false)
+	if first.EventTime == nil || !first.EventTime.Equal(firstTime) {
+		t.Fatalf("first EventTime = %v, want %v", first.EventTime, firstTime)
+	}
+	same := st.StartCaseAt("qimen", "第一件事", &firstTime, false)
+	if same.ID != first.ID {
+		t.Fatalf("same event time selected case %q, want %q", same.ID, first.ID)
+	}
+	different := st.StartCaseAt("qimen", "第二件事", &secondTime, false)
+	if different.ID == first.ID {
+		t.Fatal("different event time reused the active case")
+	}
+	if len(st.Cases) != 2 {
+		t.Fatalf("case count = %d, want 2", len(st.Cases))
+	}
+}
+
+func TestSessionAssets_QimenChartForCaseUsesExactOwnerAndLegacyAlias(t *testing.T) {
+	st := NewSession("qimen-exact-owner")
+	first := st.StartCase("qimen", "第一件事", true)
+	st.StoreChartForOwner(AssetKindQimenCaseChart, AssetRef{Kind: "case", ID: first.ID}, map[string]any{"ju": "first"}, "test")
+	second := st.StartCase("qimen", "第二件事", true)
+	st.StoreChart(AssetKindQimenChart, map[string]any{"ju": "legacy-second"}, "test")
+
+	if got := st.QimenChartForCase(first.ID)["ju"]; got != "first" {
+		t.Fatalf("first case chart = %v, want first", got)
+	}
+	if got := st.QimenChartForCase(second.ID)["ju"]; got != "legacy-second" {
+		t.Fatalf("second case legacy chart = %v, want legacy-second", got)
+	}
+	if got := st.QimenChartForCase("case-does-not-exist"); got != nil {
+		t.Fatalf("unknown case chart = %v, want nil", got)
+	}
+}
+
+func TestSessionAssets_StoreQimenChartForOwnerRejectsNonCaseOwner(t *testing.T) {
+	st := NewSession("qimen-owner-contract")
+	ref := st.StoreChartForOwner(AssetKindQimenCaseChart, AssetRef{Kind: AssetKindProfileRevision, ID: "profile-1"}, map[string]any{}, "test")
+	if ref != (AssetRef{}) {
+		t.Fatalf("invalid owner ref = %+v, want zero ref", ref)
+	}
+}
+
+func TestSessionAssets_StoreQimenCaseChartDoesNotInferCaseOwner(t *testing.T) {
+	st := NewSession("qimen-case-owner")
+	st.MergeProfile(completeProfile(1991))
+	if ref := st.StoreChart(AssetKindQimenChart, map[string]any{"ju": "orphan-legacy"}, "test"); ref != (AssetRef{}) {
+		t.Fatalf("orphan legacy qimen chart ref = %+v, want zero ref", ref)
+	}
+	if ref := st.StoreChart(AssetKindQimenCaseChart, map[string]any{"ju": "orphan"}, "test"); ref != (AssetRef{}) {
+		t.Fatalf("orphan qimen case chart ref = %+v, want zero ref", ref)
+	}
+	if len(st.Cases) != 0 || len(st.Assets) != 0 {
+		t.Fatalf("orphan qimen case chart mutated state: cases=%d assets=%d", len(st.Cases), len(st.Assets))
+	}
+
+	item := st.StartCase("qimen", "具体事件", true)
+	ref := st.StoreChart(AssetKindQimenCaseChart, map[string]any{"ju": "bound"}, "test")
+	if ref.ID == "" {
+		t.Fatal("case-owned qimen chart was not stored")
+	}
+	asset, ok := st.assetByRef(ref)
+	if !ok || asset.OwnerKind != "case" || asset.OwnerID != item.ID {
+		t.Fatalf("qimen case asset = %+v, want owner case %q", asset, item.ID)
 	}
 }

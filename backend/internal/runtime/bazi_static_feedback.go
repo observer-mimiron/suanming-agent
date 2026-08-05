@@ -1,6 +1,7 @@
-// This file belongs to the manager-owned runtime layer.
-// It owns BaZi static feedback shaping for this package.
-// It owns execution contracts and Manager flow; specialists do not own final answers.
+// Package runtime 包含 Manager 拥有的八字静态反馈与校验入口。
+//
+// 本文件负责静态综合的字段级反馈、确定性校验和 retry 后降级；
+// 不拥有最终答复权，也不让 specialist 绕过 Manager 流程。
 package runtime
 
 import (
@@ -9,8 +10,7 @@ import (
 	"strings"
 )
 
-// runStaticSynthesisWithFeedback gives the generator one structured retry when
-// deterministic or independent semantic contracts reject its first output.
+// runStaticSynthesisWithFeedback 在静态综合未通过合同时给模型一次结构化反馈。
 func (e *Executor) runStaticSynthesisWithFeedback(chartState baziCharterState, run func(map[string]any) (baziStaticSynthesis, error), audits ...func(baziStaticSynthesis) (baziContractAudit, error)) (baziStaticSynthesis, error) {
 	audit := func(baziStaticSynthesis) (baziContractAudit, error) { return baziContractAudit{Compliant: true}, nil }
 	if len(audits) > 0 && audits[0] != nil {
@@ -47,10 +47,8 @@ func (e *Executor) runStaticSynthesisWithFeedback(chartState baziCharterState, r
 	return output, nil
 }
 
-// recoverStaticSynthesisAfterRetry replaces a retry candidate that still fails
-// fatal semantic contracts with deterministic chart facts. The candidate text is
-// discarded; this path only prevents user-visible hard errors for parseable
-// model output that could not be safely shown.
+// recoverStaticSynthesisAfterRetry 用确定性 facts-only 替换二次仍不安全的静态候选。
+// 候选文本必须丢弃，避免把未通过合同的模型判断交给 renderer。
 func recoverStaticSynthesisAfterRetry(chartState baziCharterState, output baziStaticSynthesis, cause error) (baziStaticSynthesis, error) {
 	failure, ok := baziContractFailureFromError("static_synthesis", cause)
 	if !ok || failure.RecoveryPolicy != baziRecoveryPolicyStaticFactsOnly {
@@ -68,10 +66,8 @@ func recoverStaticSynthesisAfterRetry(chartState baziCharterState, output baziSt
 	return recovered, nil
 }
 
-// acceptPartialStaticSynthesisAfterRetry keeps a usable model reading when the
-// second attempt is missing only renderer-owned detail fields. Fact conflicts,
-// methodology violations, and missing core judgments still return errors so the
-// runtime does not replace a failed reading with invented facts-only prose.
+// acceptPartialStaticSynthesisAfterRetry 只接受 renderer 可省略字段的二次缺漏。
+// 事实冲突、方法合同和核心裁断缺失仍返回错误，不能用模型文本冒充安全输出。
 func acceptPartialStaticSynthesisAfterRetry(chartState baziCharterState, output baziStaticSynthesis, cause error) (baziStaticSynthesis, bool) {
 	if !isOmittableStaticSynthesisError(cause) {
 		return baziStaticSynthesis{}, false
@@ -86,8 +82,7 @@ func acceptPartialStaticSynthesisAfterRetry(chartState baziCharterState, output 
 	return output, true
 }
 
-// validateStaticSynthesisWithAudit runs deterministic validation first so the
-// semantic reviewer only evaluates a structurally valid candidate.
+// validateStaticSynthesisWithAudit 先跑确定性校验，再让语义审计评估候选。
 func validateStaticSynthesisWithAudit(chartState baziCharterState, output baziStaticSynthesis, audit func(baziStaticSynthesis) (baziContractAudit, error)) (baziStaticSynthesis, error) {
 	if err := validateStaticSynthesisResult(chartState, output); err != nil {
 		return output, err
@@ -122,9 +117,8 @@ func validateStaticSynthesisResult(chartState baziCharterState, output baziStati
 	return validateCharterConsistency(checkState)
 }
 
-// validateStaticStrengthAgainstEvidence prevents a model from reversing a
-// decisive runtime-owned balance result. The middle band remains open to
-// synthesis; only explicit "偏强" versus "偏弱" reversals are rejected.
+// validateStaticStrengthAgainstEvidence 防止模型反写 runtime 已计算的强弱方向。
+// 中和附近仍交给综合判断；只有“偏强/偏弱”显式反转才进入机器可读恢复口。
 func validateStaticStrengthAgainstEvidence(state baziCharterState) error {
 	strength := strings.TrimSpace(stringValue(state.Input.Yongshen["strength"]))
 	reading := strings.Join([]string{
@@ -137,11 +131,11 @@ func validateStaticStrengthAgainstEvidence(state baziCharterState) error {
 	switch strength {
 	case "偏弱":
 		if strings.Contains(reading, "偏强") || strings.Contains(reading, "身强") {
-			return fmt.Errorf("static strength reverses balance evidence: %s", strength)
+			return baziViolationError(baziViolationFactConflict, "static.strength_balance", "", fmt.Sprintf("static strength reverses balance evidence: %s", strength), nil, []string{strength})
 		}
 	case "偏强":
 		if strings.Contains(reading, "偏弱") || strings.Contains(reading, "身弱") {
-			return fmt.Errorf("static strength reverses balance evidence: %s", strength)
+			return baziViolationError(baziViolationFactConflict, "static.strength_balance", "", fmt.Sprintf("static strength reverses balance evidence: %s", strength), nil, []string{strength})
 		}
 	}
 	return nil

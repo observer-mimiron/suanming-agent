@@ -537,6 +537,25 @@ func (b *AgentBuilder) buildQimenDataBlock(st *state.SessionState) string {
 
 	var sb strings.Builder
 
+	if value := stringValue(qr["case_id"]); value != "" {
+		sb.WriteString(fmt.Sprintf("**Case**：%s\n", value))
+	}
+	if value := stringValue(qr["purpose"]); value != "" {
+		sb.WriteString(fmt.Sprintf("**问事目的**：%s\n", value))
+	}
+	if owner, ok := qr["owner_ref"].(map[string]any); ok {
+		sb.WriteString(fmt.Sprintf("**资产归属**：%s/%s\n", stringValue(owner["kind"]), stringValue(owner["id"])))
+	}
+	if value := stringValue(qr["question_time"]); value != "" {
+		sb.WriteString(fmt.Sprintf("**提问时间**：%s\n", value))
+	}
+	if value := stringValue(qr["time_source"]); value != "" {
+		sb.WriteString(fmt.Sprintf("**起局时间来源**：%s\n", value))
+	}
+	if value := stringValue(qr["symbol_system"]); value != "" {
+		sb.WriteString(fmt.Sprintf("**符号体系**：%s\n", value))
+	}
+
 	if juText, ok := qr["ju_text"].(string); ok && juText != "" {
 		sb.WriteString(fmt.Sprintf("**局数**：%s\n", juText))
 	}
@@ -546,15 +565,31 @@ func (b *AgentBuilder) buildQimenDataBlock(st *state.SessionState) string {
 	if dutyDoor, ok := qr["value_door"].(string); ok && dutyDoor != "" {
 		sb.WriteString(fmt.Sprintf("**值使门**：%s\n", dutyDoor))
 	}
+	if schema := stringValue(qr["pan_schema"]); schema != "" {
+		sb.WriteString(fmt.Sprintf("**盘式口径**：%s\n", schema))
+	}
+	if palace := stringValue(qr["duty_star_palace"]); palace != "" {
+		sb.WriteString(fmt.Sprintf("**值符宫**：%s\n", palace))
+	}
+	if palace := stringValue(qr["duty_door_palace"]); palace != "" {
+		sb.WriteString(fmt.Sprintf("**值使宫**：%s\n", palace))
+	}
 
 	// 九宫信息
-	if palaces, ok := qr["palaces"].([]interface{}); ok {
+	if cells, ok := qr["cells"].([]interface{}); ok {
 		sb.WriteString("**九宫**：")
-		for _, p := range palaces {
+		for _, p := range cells {
 			if pm, ok := p.(map[string]interface{}); ok {
-				sb.WriteString(fmt.Sprintf(" %v(%v%v)",
-					pm["name"], pm["star"], pm["door"]))
+				sb.WriteString(fmt.Sprintf(" %v(%v星/%v门/%v神/天%v地%v)",
+					pm["palace"], pm["star"], pm["door"], pm["god"], pm["guest_gan"], pm["host_gan"]))
 			}
+		}
+		sb.WriteString("\n")
+	} else if cells, ok := qr["cells"].([]map[string]any); ok {
+		sb.WriteString("**九宫**：")
+		for _, pm := range cells {
+			sb.WriteString(fmt.Sprintf(" %v(%v星/%v门/%v神/天%v地%v)",
+				pm["palace"], pm["star"], pm["door"], pm["god"], pm["guest_gan"], pm["host_gan"]))
 		}
 		sb.WriteString("\n")
 	}
@@ -640,12 +675,7 @@ func (b *AgentBuilder) buildZiWeiDataBlock(st *state.SessionState) string {
 // defaultRetryConfig 返回共享的 ModelRetryConfig，所有 Agent 统一使用。
 func defaultRetryConfig() *adk.ModelRetryConfig {
 	return &adk.ModelRetryConfig{
-		MaxRetries: 2,
-		ShouldRetry: func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision {
-			if rc.Err != nil {
-				return &adk.RetryDecision{Retry: true, Backoff: time.Second}
-			}
-			return &adk.RetryDecision{Retry: false}
-		},
+		MaxRetries:  2,
+		ShouldRetry: ModelCallRetryDecision,
 	}
 }

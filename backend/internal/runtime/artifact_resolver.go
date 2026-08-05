@@ -37,9 +37,6 @@ func resolveArtifactFocus(st *state.SessionState, route policy.ApprovedRoute, me
 		resetTopicOnlyActiveSubject(st)
 	}
 
-	if route.PrimaryDomain == "qimen" && route.TaskIntent != "fortune_followup" {
-		st.StartCase("qimen", firstNonEmpty(strings.TrimSpace(route.Slots.QuestionText), strings.TrimSpace(message)), true)
-	}
 	return route
 }
 

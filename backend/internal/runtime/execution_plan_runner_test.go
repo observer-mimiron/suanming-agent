@@ -5,10 +5,12 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
 	"github.com/observer-mimiron/suanming-agent/internal/specialists"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
@@ -51,6 +53,14 @@ func (sinkAwareRunner) Run(ctx context.Context, req specialists.Request) (specia
 	return specialists.Result{Domain: req.Route.PrimaryDomain, Summary: req.Route.PrimaryDomain + "-summary"}, nil
 }
 
+type errorResultRunner struct {
+	err error
+}
+
+func (r errorResultRunner) Run(context.Context, specialists.Request) (specialists.Result, error) {
+	return specialists.Result{}, r.err
+}
+
 func TestExecutor_RunExecutionPlan_DispatchesBoundedSpecialistRunnersForMultiDomain(t *testing.T) {
 	registry := specialists.NewRegistry()
 	var calls []string
@@ -71,6 +81,10 @@ func TestExecutor_RunExecutionPlan_DispatchesBoundedSpecialistRunnersForMultiDom
 		Route: policy.ApprovedRoute{
 			PrimaryDomain:    "bazi",
 			SecondaryDomains: []string{"ziwei"},
+		},
+		DomainSteps: []contracts.DomainStep{
+			{Domain: "bazi", Role: executionStepRolePrimary},
+			{Domain: "ziwei", Role: executionStepRoleSupport},
 		},
 		Domains: []string{"bazi", "ziwei"},
 	}
@@ -110,6 +124,9 @@ func TestExecutor_RunExecutionPlan_BlocksWhenRequiredArtifactMissing(t *testing.
 			PrimaryDomain: "qimen",
 			TaskIntent:    "fortune_followup",
 		},
+		DomainSteps: []contracts.DomainStep{
+			{Domain: "qimen", Role: executionStepRolePrimary},
+		},
 		Domains:      []string{"qimen"},
 		Requirements: selectArtifactRequirements(st, []string{"qimen"}),
 	}
@@ -118,7 +135,7 @@ func TestExecutor_RunExecutionPlan_BlocksWhenRequiredArtifactMissing(t *testing.
 	if err == nil {
 		t.Fatal("runExecutionPlan() error = nil, want missing artifact error")
 	}
-	if !strings.Contains(err.Error(), "required artifact qimen_chart") {
+	if !strings.Contains(err.Error(), "required artifact qimen_case_chart") {
 		t.Fatalf("runExecutionPlan() error = %q, want missing qimen artifact", err.Error())
 	}
 }
@@ -146,6 +163,10 @@ func TestExecutor_RunExecutionPlan_StartsBoundedSpecialistRunnersConcurrentlyAnd
 		Route: policy.ApprovedRoute{
 			PrimaryDomain:    "bazi",
 			SecondaryDomains: []string{"ziwei"},
+		},
+		DomainSteps: []contracts.DomainStep{
+			{Domain: "bazi", Role: executionStepRolePrimary},
+			{Domain: "ziwei", Role: executionStepRoleSupport},
 		},
 		Domains: []string{"bazi", "ziwei"},
 	}
@@ -199,8 +220,9 @@ func TestExecutor_RunExecutionPlan_ProvidesSharedEventSinkWithoutLegacyDeps(t *t
 	st := state.NewSession("s-sink")
 	st.BaziResult = map[string]any{"calendar_rule_version": currentBaziCalendarRule()}
 	plan := ExecutionPlan{
-		Route:   policy.ApprovedRoute{PrimaryDomain: "bazi"},
-		Domains: []string{"bazi"},
+		Route:       policy.ApprovedRoute{PrimaryDomain: "bazi"},
+		DomainSteps: []contracts.DomainStep{{Domain: "bazi", Role: executionStepRolePrimary}},
+		Domains:     []string{"bazi"},
 	}
 
 	result, err := executor.runExecutionPlan(context.Background(), &recordingSink{}, st, plan, "看看事业")
@@ -209,6 +231,69 @@ func TestExecutor_RunExecutionPlan_ProvidesSharedEventSinkWithoutLegacyDeps(t *t
 	}
 	if result.Summary != "bazi-summary" {
 		t.Fatalf("result.Summary = %q, want bazi-summary", result.Summary)
+	}
+}
+
+func TestExecutor_RunExecutionPlan_UsesDomainStepRolesAndDegradesSupport(t *testing.T) {
+	registry := specialists.NewRegistry()
+	registry.Register(specialists.Config{Domain: "bazi", Name: "bazi_specialist"}, recordingRunner{
+		result: specialists.Result{Domain: "bazi", Summary: "八字主线"},
+	})
+	registry.Register(specialists.Config{Domain: "ziwei", Name: "ziwei_specialist"}, errorResultRunner{
+		err: errors.New("ziwei unavailable"),
+	})
+
+	executor := &Executor{specialistRegistry: registry}
+	plan := ExecutionPlan{
+		// Deliberately put support first; role, not slice order, defines the main line.
+		DomainSteps: []contracts.DomainStep{
+			{Domain: "ziwei", Role: executionStepRoleSupport},
+			{Domain: "bazi", Role: executionStepRolePrimary},
+		},
+	}
+
+	result, err := executor.runExecutionPlan(context.Background(), nil, state.NewSession("s-role"), plan, "本月运势")
+	if err != nil {
+		t.Fatalf("runExecutionPlan() error = %v, want support degradation only", err)
+	}
+	if result.Summary != "八字主线" {
+		t.Fatalf("result.Summary = %q, want primary summary only", result.Summary)
+	}
+	outcomes, ok := result.DomainContextPatch["execution_outcomes"].([]executionStepOutcome)
+	if !ok {
+		t.Fatalf("execution_outcomes = %T, want typed outcomes", result.DomainContextPatch["execution_outcomes"])
+	}
+	for _, outcome := range outcomes {
+		if outcome.Domain == "ziwei" && (outcome.Role != executionStepRoleSupport || outcome.Status != executionStepStatusDegraded) {
+			t.Fatalf("ziwei outcome = %+v, want support/degraded", outcome)
+		}
+		if outcome.Domain == "bazi" && outcome.Role != executionStepRolePrimary {
+			t.Fatalf("bazi outcome = %+v, want primary", outcome)
+		}
+	}
+	if degraded, _ := result.DomainContextPatch["support_degraded"].(bool); !degraded {
+		t.Fatal("support_degraded = false, want true")
+	}
+}
+
+func TestExecutor_RunExecutionPlan_PrimaryFailureBlocksComposition(t *testing.T) {
+	registry := specialists.NewRegistry()
+	registry.Register(specialists.Config{Domain: "bazi", Name: "bazi_specialist"}, errorResultRunner{
+		err: errors.New("bazi unavailable"),
+	})
+	registry.Register(specialists.Config{Domain: "ziwei", Name: "ziwei_specialist"}, recordingRunner{
+		result: specialists.Result{Domain: "ziwei", Summary: "紫微复核"},
+	})
+
+	executor := &Executor{specialistRegistry: registry}
+	plan := ExecutionPlan{DomainSteps: []contracts.DomainStep{
+		{Domain: "bazi", Role: executionStepRolePrimary},
+		{Domain: "ziwei", Role: executionStepRoleSupport},
+	}}
+
+	_, err := executor.runExecutionPlan(context.Background(), nil, state.NewSession("s-primary-failure"), plan, "本月运势")
+	if err == nil || !strings.Contains(err.Error(), "primary specialist bazi failed") {
+		t.Fatalf("runExecutionPlan() error = %v, want primary failure", err)
 	}
 }
 

@@ -16,6 +16,39 @@ export type Segment =
   | { type: "component"; componentType: string; payload: any }
   | { type: "error"; message: string };
 
+/** QimenOwnerRef 标识问事盘所属的 Case 资产。 */
+export interface QimenOwnerRef {
+  kind: string;
+  id: string;
+}
+
+/** QimenCell 描述奇门九宫中的结构化盘面事实。 */
+export interface QimenCell {
+  palace: string;
+  god?: string;
+  star?: string;
+  door?: string;
+  guest_gan?: string;
+  host_gan?: string;
+}
+
+/** QimenChartPayload 是后端奇门 Case 盘及其展示元信息的前端合同。 */
+export interface QimenChartPayload {
+  purpose?: string;
+  case_id?: string;
+  owner_ref?: QimenOwnerRef;
+  question_time?: string;
+  time_source?: string;
+  symbol_system?: string;
+  pan_schema?: string;
+  ju_text?: string;
+  duty_text?: string;
+  duty_star_palace?: string;
+  duty_door_palace?: string;
+  duty_palace?: string;
+  cells?: QimenCell[];
+}
+
 export interface RunInspection {
   trace_id: string;
   session_id: string;

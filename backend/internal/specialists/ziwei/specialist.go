@@ -11,9 +11,9 @@ import (
 var cfg = specialists.Config{
 	Domain:               "ziwei",
 	Name:                 "ziwei_specialist",
-	Description:          "紫微斗数专家。根据出生信息排盘，分析十二宫星曜布局、四化飞星。",
+	Description:          "紫微斗数专家。读取 runtime 预执行的命盘和动态事实，分析十二宫星曜布局、四化飞星。",
 	Instruction:          prompts.ZiWeiInstruction,
-	ToolNames:            []string{"knowledge_catalog", "knowledge_search", "ziwei_liunian"},
+	ToolNames:            []string{"knowledge_catalog", "knowledge_search"},
 	InjectSessionContext: true,
 }
 

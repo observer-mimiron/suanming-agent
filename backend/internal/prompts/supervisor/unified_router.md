@@ -11,15 +11,15 @@
 {
   "conversation_intent": "consult",
   "primary_domain": "bazi",
-  "secondary_domains": [],
+  "secondary_domains": ["ziwei"],
   "task_intent": "collect_profile",
   "needs_clarification": false,
   "clarification_question": "",
   "confidence": 0.9,
   "slots": {
     "profile": {"year": 1990, "month": 5, "day": 20, "hour": 8, "gender": "男", "birthplace": "北京"},
-    "question_text": "今年运势如何",
-    "time_scope": "今年",
+    "question_text": "本月运势如何",
+    "time_scope": "本月",
     "target_subject": "",
     "language": "zh"
   },
@@ -70,26 +70,26 @@
   - 不适合：今天要不要做、此刻时机、方位、短期行动择时
 
 - **ziwei**
-- 适合：夫妻宫、子女宫、命宫、财帛宫等宫位型议题；婚姻结构、感情模式、配偶特征、人生主题、阶段运势
-- 适合：疾厄宫（健康体质）、夫妻宫、子女宫、命宫、财帛宫等宫位型议题；婚姻结构、感情模式、配偶特征、人生主题、阶段运势
+  - 适合：夫妻宫、子女宫、命宫、财帛宫、疾厄宫等宫位型议题；婚姻结构、感情模式、配偶特征、人生主题和阶段复核
   - 不适合：纯当下时机与行动择时
 
 - **qimen**
-  - 适合：今天/最近/本月/此刻的运势，时机、成败、宜忌、方位、行动策略、近期推进与否
+  - 适合：具体事件、择时、时机、成败、宜忌、方位和行动策略，例如“这个面试能不能成”“这次签约是否顺利”
+  - 只有具体事件问事才作为 primary；不把一般“本月/今年/最近个人运势”默认路由到奇门
   - 不适合：纯本命结构分析、长期底盘判断
 
 ### 常见判题原则
 
-- **首次咨询或纯模糊**（如”帮我算算命/看看命”）→ 默认 `bazi`
-- **运势/时机/近期窗口**（如”看看运势””最近运势””今年运势”）→ 优先 `qimen`
-- **本命结构/长期趋势** → 优先 `bazi`
-- **宫位主题/婚姻结构/子女结构/人生主题** → 优先 `ziwei`
-- **今天/最近/本月/当前时机/是否适合行动** → 优先 `qimen`
-- **fate-adjacent 但尚未形成明确问题** → conversation_intent 设为 `consult`，task_intent 设为 `collect_profile`，引导用户补充出生资料或明确问题
-- **婚姻/感情问题不自动等于 ziwei**
-  - 如果在问“婚姻结构、夫妻关系模式、配偶特征、感情命题” → `ziwei` 通常更强
-  - 如果在问“最近感情要不要推进、这个月适不适合复合、当前是否宜行动” → `qimen` 通常更强
-  - 如果在问“长期婚运、整体感情底盘、命局里的婚姻倾向” → `bazi` 或 `ziwei` 都可，但不能落到 `qimen`
+按以下顺序判断。`ConsultationKind` 由 runtime 根据同一语义合同确定，模型只负责提供领域、任务和槽位信号：
+
+1. **具体事件 / 择时优先**：明确问面试、签约、合作、出行或“这件事能否成” → `qimen` primary，`qimen_mode=primary`，`profile_requirement=none`。
+2. **方法与具体事件冲突时澄清**：如“用八字分析这个面试能不能成”或“用紫微命盘判断这次签约” → `needs_clarification=true`，不要静默改成出生盘或奇门补充；明确要求奇门问事则仍按具体事件处理。
+3. **明确出生盘方法**：没有具体事件，且用户明确说分析/排盘/命盘并点名八字或紫微 → 只路由到点名方法，不自动扩成三域。
+4. **健康风险**：如“最近身体健康如何”“会不会生病” → `bazi` primary、`ziwei` secondary、`qimen_mode=none`；只做风险观察，不做医疗诊断。
+5. **个人阶段运势**：如“本月/今年/最近运势如何” → `bazi` primary、`ziwei` secondary、`qimen_mode=none`；奇门不参与。
+6. **无法判断**：进入澄清，不用奇门兜底。
+
+**婚姻/感情问题不自动等于 ziwei**：婚姻结构、夫妻关系模式和配偶特征偏紫微；长期命局和婚运底盘偏八字；具体复合、推进或谈判事件按奇门问事。
 
 ### 口语化补充示例（用于隐式主题，不覆盖上面的判题原则）
 
@@ -106,13 +106,14 @@
 | 我的婚姻结构怎么样 | ziwei | bazi | 夫妻关系模式与宫位主题优先紫微 |
 | 帮我全面看看我这个人 | bazi | ziwei | 全景型问题，允许跨域 |
 | 我想看看紫微斗数怎么说 | ziwei | - | 用户显式指名术数 |
-| 今年运势怎么样 | qimen | - | 运势=时空窗口，奇门主场 |
-| 最近运势如何 | qimen | - | 近期时机判断 |
-| 本月适合换工作吗 | qimen | bazi | 时机+结构双判 |
+| 今年运势怎么样 | bazi | ziwei | 八字主线、紫微复核，奇门不参与 |
+| 最近运势如何 | bazi | ziwei | 个人阶段运势，不是奇门默认路径 |
+| 这个面试能不能成 | qimen | - | 具体事件问事，使用本轮提问时间 |
 
 ## 领域关系铁律
-- **紫微必须结合八字**：ziwei primary → bazi 自动 secondary（硬约束，无需 LLM 判断）
-- **奇门独立于八字**：qimen primary 时不需要出生资料，用当前时间排盘；qimen supplement 时配合八字
+- **阶段运势和健康风险**：bazi primary + ziwei support；奇门 mode 必须为 `none`。
+- **具体事件问事**：qimen primary，使用本轮 `question_time` 创建 Case；不要求出生资料，不注入出生上下文。
+- **出生盘**：只执行用户明确点名的方法；紫微底层若需要八字字段，只是确定性输入，不调度八字 specialist。
 
 
 ## task_intent（任务意图）⚠️ 必须参考会话状态
@@ -158,8 +159,8 @@
 ## policy_hints（策略提示）⚠️ 参考会话状态
 
 - `needs_knowledge`: 绝大多数情况为 true。仅纯闲聊或寒暄时为 false
-- `needs_qimen`: 用户明确问时机/择日/最近运势/何时做某事时为 true
-- `qimen_mode`: `none`=不用奇门，`supplement`=结合八字时作为补充，`primary`=直接用奇门分析当下时机/今日运势/近期走势
+- `needs_qimen`: 只有具体事件、择时或行动成败问题为 true；一般本月/今年/最近个人运势为 false
+- `qimen_mode`: `none`=不用奇门，`primary`=具体事件问事；本期不把奇门作为个人阶段运势的默认 supplement
 - `profile_requirement`: `none`=当前问题可不依赖个人出生资料直接起奇门，`full`=必须结合个人命盘才能答
 - `can_reuse_session_profile`: 会话已有资料且用户在做补充/追问/纠错时为 true。首次提供完整出生信息时为 false
 - `can_reuse_cached_result`: 会话已有排盘结果且用户在做追问（非重新排盘）时为 true

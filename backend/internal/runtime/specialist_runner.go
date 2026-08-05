@@ -7,6 +7,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/cloudwego/eino/adk"
 
@@ -22,6 +23,30 @@ type ADKSpecialistRunner struct {
 	Domain   string
 	Config   specialists.Config
 	Executor *Executor
+}
+
+// specialistSessionView returns the smallest session view a domain worker needs.
+// Qimen is deliberately isolated from profile and conversation history because
+// its event chart is a Case fact, not a birth-chart reading.
+func specialistSessionView(st *state.SessionState, plan ExecutionPlan, domain string) *state.SessionState {
+	if st == nil || domain != "qimen" {
+		return st
+	}
+	view := state.NewSession(st.SessionID)
+	caseID := strings.TrimSpace(plan.TurnContext.CaseID)
+	view.ActiveFocus.CaseID = caseID
+	for _, item := range st.Cases {
+		if item.ID == caseID {
+			view.Cases = []state.Case{item}
+			break
+		}
+	}
+	if chart := st.QimenChartForCase(caseID); chart != nil {
+		// 通过 typed asset 投影盘面，避免直接写 legacy QimenResult 后被
+		// MigrateLegacyAssets 清空；视图仍不包含出生资料或历史对话。
+		view.StoreChartForOwner(state.AssetKindQimenCaseChart, state.AssetRef{Kind: "case", ID: caseID}, chart, "runtime-case-view")
+	}
+	return view
 }
 
 // Run builds the configured specialist agent, streams its ADK events to SSE,
@@ -107,6 +132,9 @@ func assetMatchesRequirement(asset state.DomainAsset, requirement ArtifactRequir
 	if asset.OwnerKind != requirement.OwnerRef.Kind || asset.OwnerID != requirement.OwnerRef.ID {
 		return false
 	}
+	if requirement.Kind == artifactQimenChart && !qimenPayloadMatchesRequirement(asset.Payload, requirement) {
+		return false
+	}
 	if rule := requirement.CalendarRule; rule != "" && asset.CalendarRule != rule {
 		return false
 	}
@@ -121,6 +149,28 @@ func assetMatchesRequirement(asset state.DomainAsset, requirement ArtifactRequir
 		if !found {
 			return false
 		}
+	}
+	return true
+}
+
+// qimenPayloadMatchesRequirement verifies the runtime metadata that legacy
+// QimenResult projections do not carry and therefore cannot satisfy.
+func qimenPayloadMatchesRequirement(payload map[string]any, requirement ArtifactRequirement) bool {
+	if len(payload) == 0 || stringValue(payload["case_id"]) != requirement.OwnerRef.ID {
+		return false
+	}
+	owner, ok := payload["owner_ref"].(map[string]any)
+	if !ok || stringValue(owner["kind"]) != "case" || stringValue(owner["id"]) != requirement.OwnerRef.ID {
+		return false
+	}
+	if stringValue(payload["purpose"]) != "event_question" ||
+		stringValue(payload["time_source"]) != "question_time" ||
+		stringValue(payload["pan_schema"]) != "rotating_8" ||
+		stringValue(payload["symbol_system"]) != "eight_gate_eight_god" {
+		return false
+	}
+	if targetAt := strings.TrimSpace(requirement.TargetAt); targetAt != "" && stringValue(payload["question_time"]) != targetAt {
+		return false
 	}
 	return true
 }

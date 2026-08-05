@@ -103,6 +103,10 @@ Run Inspector 是聊天页内唯一排障入口：后端在每轮结束时发送
 
 八字单域采用 authority-first graph：分析模式 -> 证据规划 -> 受控检索 -> 静态综合 -> 动态综合 -> 程序 renderer。四柱、大运顺逆、起运时刻、交运边界等确定性事实来自 Go 工具；LLM 只能解释结构化结果。
 
+#### Strict Schema 迁移状态
+
+项目已决定：所有会被 Go 消费的模型结构化结果必须迁移到 provider-native Strict JSON Schema，再经 Go 严格解码与通用事实引用校验。当前实现仍有 DeepSeek `json_object` JSON Mode，迁移尚未完成；当前 `deepseek-v4-flash` endpoint 已实测拒绝 `response_format.type=json_schema`。迁移不得绕过 Manager、`ExecutionPlan`、Prefill、final guard、renderer 或 SSE wire shape；详细范围、provider probe 和删除顺序见 [Strict JSON Schema 迁移实施方案](strict-json-schema-implementation-plan.md)。
+
 八字输入继续细分为 `chart_facts -> rule_materials -> static/dynamic synthesis -> minimal_guard -> renderer -> eval`：排盘、藏干层级、透干和标准冲合刑害属于可复算事实；runtime 不再注入默认 `ziping_classic_v1` rule profile，也不从 Go 代码生成 claim、调候单行 overlay 或逐运趋势。静态/动态综合器负责整盘主轴、旺衰倾向、层次和逐运判断。硬门禁只阻断可证明的事实冲突、结构字段错误、大运覆盖缺失、未声明关系事实和直接医疗/法律/伤灾断语；未知 `fact_ref` 别名、未知 `claim_ref`、普通命理措辞进入 trace soft audit 与 eval，不得仅凭词面让整段综合失败。静态/动态综合第一次失败时把机器可读 violation 或审计 findings 注入同节点重试；重试后仍存在严重合同错误则返回 `RuntimeFailure`，只在缺少展示性细节且核心裁断、事实引用、逐运覆盖和年龄授权均成立时接受为 `model_partial` 并省略缺失展示块。renderer 只转写上游 synthesis verdict 或 partial 可展示字段，不把失败的模型输出改造成 facts-only 兜底。
 
 大运合同必须保留出生分钟、顺逆和顺逆依据、起运时刻以及每步日期边界。流年判断优先比较真实交运日；缺少时间边界的历史资产才可回退虚岁区间。动态层可解释标准关系触发，但趋势和吉凶只能来自动态 synthesis；Go runtime 不按固定分值自动生成“承托/压力/结构承接”。当前运缺失时可按保留的日期边界回补，仍无法定位则明确标为未识别，不能猜测某一步为当前运。
@@ -110,6 +114,19 @@ Run Inspector 是聊天页内唯一排障入口：后端在每轮结束时发送
 ### 奇门与紫微
 
 奇门和紫微使用同一 Manager/Prefill/ToolRunner 边界。奇门新问事必须新建或选择正确的 `Case`，不能覆盖此前问事盘；紫微本命盘按资料版本隔离。
+
+近期运势和问事的规范分类由 `ConsultationKind` 固定为四类：
+
+| 分类 | 主线 | 复核 / 安全边界 | 奇门 |
+|---|---|---|---|
+| `period_fortune` | 八字 | 紫微 support | 不参与 |
+| `event_question` | 奇门 | `ProfileRequirement=none` | 本轮提问时间起新 Case 盘 |
+| `health_risk` | 八字 | 紫微 support，`health_observation` | 不参与 |
+| `natal_chart` | 用户明确点名的方法 | 不自动扩域 | 不参与 |
+
+`event_question` 的 `qimen_case_chart` 必须由 Manager 绑定到当前 Case；`Case.EventTime`、`TurnContext.QuestionTime` 和 payload 的 `question_time` 相同，OwnerRef.Kind 必须为 `case`。Prefill/ToolRunner 是唯一的奇门排盘入口，运行时和 Eino 适配器只暴露 `question_time`，Qimen specialist 只接收当前 Case 盘、问题文本和结构化问事事实，不接收 profile、出生历史或完整会话上下文。
+
+阶段运势的 `DynamicFacts` 是本轮 Prefill 的临时能力投影，不是持久化资产；只有目标时点匹配的确定性事实才能标记 `ready`。流月尚未实现时固定为 `unavailable/degraded`，由 Manager 明示缺口，模型不得补算。健康类免责声明由 final guard 强制追加，不由 prompt 或 renderer 负责。
 
 ### 检索
 

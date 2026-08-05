@@ -69,6 +69,85 @@ func TestCanonicalFailureFactsOnly_UsesSpecificAuditCode(t *testing.T) {
 	}
 }
 
+func TestBuildCanonicalSynthesisRepairPayloadAddsOnlyFeedback(t *testing.T) {
+	feedback := buildBaziCanonicalRepairFeedback(RepairFailure{
+		Domain:  "bazi",
+		Stage:   "static_projection",
+		Class:   RepairProjectionMismatch,
+		Field:   "static.tiaohou_anchor",
+		Message: "调候锚点缺少明确裁断",
+	}, 1)
+	payload := buildCanonicalSynthesisRepairPayload(baziCharterState{}, "看八字", feedback)
+
+	if payload["validation_feedback"] == nil {
+		t.Fatal("repair payload should include validation_feedback")
+	}
+	for _, forbidden := range []string{"trace", "full_trace", "prompt", "current_canonical", "candidate_text"} {
+		if _, ok := payload[forbidden]; ok {
+			t.Fatalf("repair payload leaked forbidden key %q", forbidden)
+		}
+	}
+	required := []string{"failed_stage", "failure_class", "field", "reason", "allowed_fix", "must_preserve", "forbidden", "learning_hints"}
+	for _, key := range required {
+		if _, ok := feedback[key]; !ok {
+			t.Fatalf("repair feedback missing key %q", key)
+		}
+	}
+	allowedFix, ok := feedback["allowed_fix"].([]string)
+	if !ok || !containsString(allowedFix, "只修改 canonical.tiaohou.verdict") {
+		t.Fatalf("tiaohou repair allowed_fix = %#v", feedback["allowed_fix"])
+	}
+	hints, ok := feedback["learning_hints"].([]map[string]string)
+	if !ok {
+		t.Fatalf("learning_hints type = %T, want []map[string]string", feedback["learning_hints"])
+	}
+	if len(hints) == 0 || len(hints) > maxRepairLearningHintsPerField {
+		t.Fatalf("learning_hints count = %d", len(hints))
+	}
+	if !repairHintsContain(hints, "bad_example", "调候上喜水润局") ||
+		!repairHintsContain(hints, "good_example", "调候受限") {
+		t.Fatalf("learning_hints missing tiaohou examples: %#v", hints)
+	}
+}
+
+func TestBuildBaziCanonicalRepairFeedbackSkipsUnmatchedLearningHints(t *testing.T) {
+	feedback := buildBaziCanonicalRepairFeedback(RepairFailure{
+		Domain:  "bazi",
+		Stage:   "static_projection",
+		Class:   RepairProjectionMismatch,
+		Field:   "static.pattern",
+		Message: "格局投影缺少裁断",
+	}, 1)
+	hints, ok := feedback["learning_hints"].([]map[string]string)
+	if !ok {
+		t.Fatalf("learning_hints type = %T, want []map[string]string", feedback["learning_hints"])
+	}
+	if len(hints) != 0 {
+		t.Fatalf("unmatched repair should not receive hints: %#v", hints)
+	}
+}
+
+func TestRepairLearningHintsForCapsPerField(t *testing.T) {
+	hints := RepairLearningHintsFor(RepairFailure{
+		Domain: "bazi",
+		Stage:  "static_projection",
+		Class:  RepairProjectionMismatch,
+		Field:  "static.tiaohou_anchor",
+	})
+	if len(hints) == 0 || len(hints) > maxRepairLearningHintsPerField {
+		t.Fatalf("hint count = %d, want 1..%d", len(hints), maxRepairLearningHintsPerField)
+	}
+}
+
+func repairHintsContain(hints []map[string]string, key, needle string) bool {
+	for _, hint := range hints {
+		if strings.Contains(hint[key], needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestBaziFieldAuditResult_IgnoresRuntimeTierWithholdingNote(t *testing.T) {
 	if got := baziFieldAuditResult([]string{"canonical_tier_withheld_by_runtime"}); got != "clean" {
 		t.Fatalf("audit result = %q, want clean", got)

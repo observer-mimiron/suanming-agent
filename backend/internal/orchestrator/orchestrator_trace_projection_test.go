@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
 	appRuntime "github.com/observer-mimiron/suanming-agent/internal/runtime"
 	"github.com/observer-mimiron/suanming-agent/internal/specialists"
@@ -83,8 +84,9 @@ func TestRun_EmitsErrorAndDoneOnRuntimeFailure(t *testing.T) {
 	}
 	orc := New(exec, nil, state.NewPersistentStore(""), state.NewMemoryLocker(), tracing.NewRealTracer(nil))
 	orc.SetSupervisor(staticRouteAdvisor{route: policy.ApprovedRoute{
-		PrimaryDomain: "qimen",
-		TaskIntent:    "fortune_followup",
+		ConsultationKind: contracts.ConsultationKindEventQuestion,
+		PrimaryDomain:    "qimen",
+		TaskIntent:       "fortune_followup",
 	}})
 	sink := &recordingSink{}
 

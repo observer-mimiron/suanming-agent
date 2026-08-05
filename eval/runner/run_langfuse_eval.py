@@ -159,6 +159,18 @@ def extract_response_text(chat_content: str) -> str:
     return chat_content.strip()
 
 
+def has_sse_event(chat_content: str, event_name: str) -> bool:
+    """Report whether an SSE body emitted one named event."""
+    expected = str(event_name).strip()
+    if not expected:
+        return False
+    for line in chat_content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("event:") and stripped.split(":", 1)[1].strip() == expected:
+            return True
+    return False
+
+
 def remaining_timeout_seconds(deadline: float) -> int:
     """Return a positive request timeout without exceeding one case deadline."""
     remaining = deadline - time.monotonic()
@@ -192,7 +204,7 @@ def classify_failure(error: Exception) -> str:
     message = str(error).lower()
     if "timeout" in message or "exceeded its total time budget" in message:
         return "timeout"
-    if "sse done" in message:
+    if "sse done" in message or "sse error" in message:
         return "sse"
     if "response missing" in message or "forbidden content" in message:
         return "response_contract"
@@ -439,6 +451,8 @@ def smoke_case(
     try:
         if "event: done" not in chat_content:
             raise RuntimeError("missing SSE done event")
+        if case.get("sse_must_not_emit_error") and has_sse_event(chat_content, "error"):
+            raise RuntimeError("forbidden SSE error event")
 
         response_must_contain = str(case.get("response_must_contain") or "").strip()
         if response_must_contain and response_must_contain not in response_text:
@@ -503,6 +517,13 @@ def smoke_case(
             if allowed and str(actual) not in allowed:
                 raise RuntimeError(f"trace attribute mismatch for {key}: {actual!r} not in {allowed!r}")
 
+        optional_trace_attribute_any = case.get("optional_trace_attribute_any") or {}
+        for key, allowed_raw in optional_trace_attribute_any.items():
+            allowed = parse_expected_any_values(allowed_raw)
+            actual = get_trace_field(trace_detail, str(key))
+            if actual not in (None, "") and allowed and str(actual) not in allowed:
+                raise RuntimeError(f"trace attribute mismatch for {key}: {actual!r} not in {allowed!r}")
+
         if write_scores:
             if not score_config_ids:
                 raise RuntimeError("missing resolved Langfuse ScoreConfig ids")
@@ -524,6 +545,10 @@ def smoke_case(
             | {
                 str(key): get_trace_field(trace_detail, str(key))
                 for key in expected_trace_attribute_any
+            }
+            | {
+                str(key): get_trace_field(trace_detail, str(key))
+                for key in optional_trace_attribute_any
             },
             "quality_violations": [],
         }

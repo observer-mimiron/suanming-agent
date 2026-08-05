@@ -38,6 +38,16 @@ func (c *Client) tryCheapFollowupRoute(msg string, st *state.SessionState) (poli
 	if !snapshot.HasSignal() || !snapshot.Gate.Admitted {
 		return policy.ApprovedRoute{}, false
 	}
+	if !policy.ValidConsultationKind(snapshot.ConsultationKind) {
+		return policy.ApprovedRoute{}, false
+	}
+	// 事件和健康轮次不能走复用捷径：事件需要为当前问题重新绑定 Case，
+	// 健康需要重新应用 safety profile。只有阶段运势和单域出生盘追问可复用。
+	switch snapshot.ConsultationKind {
+	case contracts.ConsultationKindPeriodFortune, contracts.ConsultationKindNatalChart:
+	default:
+		return policy.ApprovedRoute{}, false
+	}
 	if snapshot.Gate.ExecutionMode != "" && snapshot.Gate.ExecutionMode != "execute" {
 		return policy.ApprovedRoute{}, false
 	}
@@ -63,6 +73,9 @@ func (c *Client) tryCheapFollowupRoute(msg string, st *state.SessionState) (poli
 	if intent.MentionsBaziMethod(trimmed) || intent.MentionsZiweiMethod(trimmed) || intent.MentionsQimenMethod(trimmed) {
 		return policy.ApprovedRoute{}, false
 	}
+	if isEventQuestion(trimmed) || mentionsHealthRisk(trimmed) || isNatalChartRequest(trimmed) {
+		return policy.ApprovedRoute{}, false
+	}
 	if intent.HasTimingFocus(trimmed) || intent.ContainsTimingKeyword(trimmed) {
 		return policy.ApprovedRoute{}, false
 	}
@@ -72,6 +85,7 @@ func (c *Client) tryCheapFollowupRoute(msg string, st *state.SessionState) (poli
 
 	secondaryDomains := append([]string(nil), snapshot.SecondaryDomains...)
 	route := policy.ApprovedRoute{
+		ConsultationKind:   snapshot.ConsultationKind,
 		ConversationIntent: firstNonEmptyLocal(snapshot.ConversationIntent, "consult"),
 		PrimaryDomain:      snapshot.PrimaryDomain,
 		SecondaryDomains:   secondaryDomains,

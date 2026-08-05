@@ -57,16 +57,15 @@ func TestZiweiInstruction_AnalysisGuide(t *testing.T) {
 	}
 }
 
-func TestZiweiToolNames_IncludesLiuNian(t *testing.T) {
+func TestZiweiToolNames_OnlyAllowKnowledgeTools(t *testing.T) {
 	cfg := GetConfig()
-	hasLiuNian := false
-	for _, name := range cfg.ToolNames {
-		if name == "ziwei_liunian" {
-			hasLiuNian = true
-			break
-		}
+	want := []string{"knowledge_catalog", "knowledge_search"}
+	if len(cfg.ToolNames) != len(want) {
+		t.Fatalf("ToolNames = %v, want exactly %v", cfg.ToolNames, want)
 	}
-	if !hasLiuNian {
-		t.Error("ToolNames should contain ziwei_liunian")
+	for i, name := range want {
+		if cfg.ToolNames[i] != name {
+			t.Fatalf("ToolNames[%d] = %q, want %q", i, cfg.ToolNames[i], name)
+		}
 	}
 }

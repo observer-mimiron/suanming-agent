@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
 	"github.com/observer-mimiron/suanming-agent/internal/schemas"
 	"github.com/observer-mimiron/suanming-agent/internal/specialists"
@@ -44,13 +45,21 @@ func TestExecute_ManagerOwnedPathDispatchesBoundedRunnerThroughGraph(t *testing.
 		manager:            &Manager{},
 		reg:                tools.NewRegistry(),
 	}
+	exec.reg.Register(stubTool{
+		name: "qimen_dunjia",
+		result: map[string]any{
+			"pan_schema":    "rotating_8",
+			"symbol_system": "eight_gate_eight_god",
+			"palaces":       []map[string]any{{"position": "坎"}},
+		},
+	})
 	st := state.NewSession("sess-manager-owned")
-	st.QimenResult = map[string]any{"ready": true}
 	sink := &recordingSink{}
 
 	turnType, text, err := exec.Execute(context.Background(), sink, st, policy.ApprovedRoute{
-		PrimaryDomain: "qimen",
-		TaskIntent:    "fortune_followup",
+		PrimaryDomain:    "qimen",
+		TaskIntent:       "fortune_followup",
+		ConsultationKind: contracts.ConsultationKindEventQuestion,
 		PolicyHints: schemas.PolicyHints{
 			QimenMode:          "primary",
 			ProfileRequirement: "none",
@@ -91,8 +100,9 @@ func TestExecute_ReturnsAgentErrorWhenPrefillCannotSatisfyRequiredArtifact(t *te
 	st := state.NewSession("sess-missing-qimen")
 
 	turnType, _, err := exec.Execute(context.Background(), &recordingSink{}, st, policy.ApprovedRoute{
-		PrimaryDomain: "qimen",
-		TaskIntent:    "fortune_followup",
+		PrimaryDomain:    "qimen",
+		TaskIntent:       "fortune_followup",
+		ConsultationKind: contracts.ConsultationKindEventQuestion,
 		PolicyHints: schemas.PolicyHints{
 			QimenMode:          "primary",
 			ProfileRequirement: "none",
@@ -104,7 +114,7 @@ func TestExecute_ReturnsAgentErrorWhenPrefillCannotSatisfyRequiredArtifact(t *te
 	if turnType != "agent_error" {
 		t.Fatalf("turnType = %q, want agent_error", turnType)
 	}
-	if !strings.Contains(err.Error(), "required artifact qimen_chart missing") {
+	if !strings.Contains(err.Error(), "required artifact qimen_case_chart missing") {
 		t.Fatalf("error = %q, want missing qimen artifact", err.Error())
 	}
 }

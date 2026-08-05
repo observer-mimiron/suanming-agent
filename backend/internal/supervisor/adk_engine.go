@@ -19,6 +19,7 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 	"github.com/cloudwego/eino/compose"
+	appRuntime "github.com/observer-mimiron/suanming-agent/internal/runtime"
 	"github.com/observer-mimiron/suanming-agent/internal/schemas"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
@@ -124,13 +125,8 @@ func (e *adkRouteEngine) runOnce(ctx context.Context, prompt, msg string) (strin
 			ReturnDirectly: map[string]bool{decisionToolName: true},
 		},
 		ModelRetryConfig: &adk.ModelRetryConfig{
-			MaxRetries: 2,
-			ShouldRetry: func(ctx context.Context, retryCtx *adk.RetryContext) *adk.RetryDecision {
-				if retryCtx.Err != nil {
-					return &adk.RetryDecision{Retry: true}
-				}
-				return &adk.RetryDecision{Retry: false}
-			},
+			MaxRetries:  2,
+			ShouldRetry: appRuntime.ModelCallRetryDecision,
 		},
 	})
 	if err != nil {

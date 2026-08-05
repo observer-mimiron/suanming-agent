@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/observer-mimiron/suanming-agent/internal/contracts"
@@ -411,7 +412,12 @@ func TestPrefillBazi_EmitsEnrichedChartPayload(t *testing.T) {
 	sink := &recordingSink{}
 	vals := map[string]any{}
 
-	ok := exec.prefillBazi(context.Background(), sink, st, vals)
+	ok := exec.prefillBaziForPlan(context.Background(), sink, st, ExecutionPlan{
+		TurnContext: contracts.TurnContext{
+			QuestionTime: "2026-08-05T12:00:00+08:00",
+			TargetAt:     "2026-08-05T12:00:00+08:00",
+		},
+	}, vals)
 	if !ok {
 		t.Fatal("prefillBazi() = false, want true")
 	}
@@ -580,6 +586,10 @@ func TestPrefill_CrossDomainFollowupPrefillsSecondaryZiwei(t *testing.T) {
 		Route:        route,
 		Domains:      []string{"bazi", "ziwei"},
 		Requirements: selectArtifactRequirements(st, []string{"bazi", "ziwei"}),
+		TurnContext: contracts.TurnContext{
+			QuestionTime: "2026-08-05T12:00:00+08:00",
+			TargetAt:     "2026-08-05T12:00:00+08:00",
+		},
 	}
 	vals := map[string]any{}
 
@@ -657,7 +667,7 @@ func TestPrefillBazi_RecalculatesLegacyCalendarRuleCache(t *testing.T) {
 		"hour":   23.0,
 		"gender": "男",
 	})
-	st.BaziResult = map[string]any{
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{
 		"calendar_rule_version": "late_zi_next_day_v1",
 		"dayGan":                "甲",
 		"dayZhi":                "申",
@@ -672,9 +682,14 @@ func TestPrefillBazi_RecalculatesLegacyCalendarRuleCache(t *testing.T) {
 			{"name": "日柱", "stem": "甲", "branch": "申"},
 			{"name": "时柱", "stem": "甲", "branch": "子"},
 		},
-	}
+	}, "test")
 
-	ok := exec.prefillBazi(context.Background(), nil, st, map[string]any{})
+	ok := exec.prefillBaziForPlan(context.Background(), nil, st, ExecutionPlan{
+		TurnContext: contracts.TurnContext{
+			QuestionTime: "2026-08-05T12:00:00+08:00",
+			TargetAt:     "2026-08-05T12:00:00+08:00",
+		},
+	}, map[string]any{})
 	if !ok {
 		t.Fatal("prefillBazi() = false, want true")
 	}
@@ -734,6 +749,30 @@ func TestGuardFinalAnswerWithTrace_RecordsContractGate(t *testing.T) {
 	}
 	if got := guardSpan.Attributes["guardrail_result"]; got != "blocked" {
 		t.Fatalf("guardrail_result = %v, want blocked", got)
+	}
+}
+
+func TestGuardFinalAnswerWithPlan_AppendsHealthDisclaimer(t *testing.T) {
+	st := state.NewSession("sess-health-guard")
+	st.MergeProfile(map[string]any{
+		"year": 1991.0, "month": 10.0, "day": 5.0, "hour": 12.0,
+		"gender": "男", "birthplace": "北京",
+	})
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{
+		"calendar_rule_version": currentBaziCalendarRule(),
+	}, "test")
+	route := policy.ApprovedRoute{
+		ConsultationKind: contracts.ConsultationKindHealthRisk,
+		PrimaryDomain:    "bazi",
+	}
+	plan := (&Manager{}).BuildExecutionPlan(st, route, "最近身体健康如何")
+
+	turnType, text := guardFinalAnswerWithPlan(context.Background(), plan, st, "仅作结构观察")
+	if turnType != "agent_reading" {
+		t.Fatalf("turnType = %q, want agent_reading", turnType)
+	}
+	if !strings.Contains(text, "命理仅供参考，不能替代医学诊断；如有不适请及时就医") {
+		t.Fatalf("health disclaimer missing from %q", text)
 	}
 }
 

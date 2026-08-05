@@ -141,6 +141,32 @@ func TestValidateDynamicRelationFacts_DetectsUndeclaredPeriodRelationForSoftAudi
 	}
 }
 
+func TestDynamicValidatorErrorsRemainClassifiable(t *testing.T) {
+	state := baziCharterState{
+		Input: baziCharterInput{Dayun: map[string]any{"dayun_analyzed": []map[string]any{{
+			"ganZhi": "丙戌", "dayun_chonghe": []map[string]any{},
+		}}}},
+		DynamicSynthesis: baziDynamicSynthesis{DayunPath: []string{
+			"丙戌运与日支未构成戌未相刑。",
+		}},
+	}
+
+	validationErr := validateDynamicRelationFacts(state)
+	if validationErr == nil {
+		t.Fatal("expected undeclared relation to fail dynamic validation")
+	}
+	failure, ok := baziContractFailureFromError("dynamic_projection", validationErr)
+	if !ok {
+		t.Fatalf("dynamic validator error must remain classifiable: %v", validationErr)
+	}
+	if failure.Class != baziContractFailureFactConflict {
+		t.Fatalf("failure class = %q, want %q", failure.Class, baziContractFailureFactConflict)
+	}
+	if failure.RecoveryPolicy != baziRecoveryPolicyHardError {
+		t.Fatalf("recovery policy = %q, want %q", failure.RecoveryPolicy, baziRecoveryPolicyHardError)
+	}
+}
+
 func TestSanitizeDynamicPresentationBoundaries_DoesNotRewriteUnsupportedOutcomeLanguage(t *testing.T) {
 	input := baziDynamicSynthesis{
 		DayunPath:      []string{"辛巳运称为冲开财库，并说可破财。", "壬午运写成关系触发，易有财务纠纷。"},

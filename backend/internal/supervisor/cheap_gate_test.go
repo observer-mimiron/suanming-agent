@@ -15,11 +15,20 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
 
+func seedBaziAsset(st *state.SessionState) {
+	st.Profile = map[string]any{
+		"year": 1990.0, "month": 5.0, "day": 5.0, "hour": 14.0,
+		"gender": "男", "birthplace": "北京",
+	}
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{"dayGan": "甲"}, "test")
+}
+
 func TestTryCheapFollowupRoute_ReusesExistingExecutionContract(t *testing.T) {
 	client := &Client{}
 	st := state.NewSession("sess-1")
-	st.BaziResult = map[string]any{"dayGan": "甲"}
+	seedBaziAsset(st)
 	st.Execution = contracts.ExecutionSnapshot{
+		ConsultationKind:   contracts.ConsultationKindPeriodFortune,
 		PrimaryDomain:      "bazi",
 		TaskIntent:         "fortune_followup",
 		ConversationIntent: "consult",
@@ -35,7 +44,7 @@ func TestTryCheapFollowupRoute_ReusesExistingExecutionContract(t *testing.T) {
 		},
 	}
 
-	route, ok := client.tryCheapFollowupRoute("那事业这两年呢", st)
+	route, ok := client.tryCheapFollowupRoute("那事业呢", st)
 	if !ok {
 		t.Fatal("ok = false, want cheap gate hit")
 	}
@@ -56,10 +65,11 @@ func TestTryCheapFollowupRoute_ReusesExistingExecutionContract(t *testing.T) {
 func TestTryCheapFollowupRoute_RejectsTimingQuestion(t *testing.T) {
 	client := &Client{}
 	st := state.NewSession("sess-2")
-	st.BaziResult = map[string]any{"dayGan": "甲"}
+	seedBaziAsset(st)
 	st.Execution = contracts.ExecutionSnapshot{
-		PrimaryDomain: "bazi",
-		TaskIntent:    "fortune_followup",
+		ConsultationKind: contracts.ConsultationKindPeriodFortune,
+		PrimaryDomain:    "bazi",
+		TaskIntent:       "fortune_followup",
 		Gate: contracts.GateContract{
 			Admitted:       true,
 			ExecutionMode:  "execute",
@@ -72,13 +82,54 @@ func TestTryCheapFollowupRoute_RejectsTimingQuestion(t *testing.T) {
 	}
 }
 
+func TestTryCheapFollowupRoute_RejectsConcreteEventQuestion(t *testing.T) {
+	client := &Client{}
+	st := state.NewSession("sess-event")
+	seedBaziAsset(st)
+	st.Execution = contracts.ExecutionSnapshot{
+		ConsultationKind: contracts.ConsultationKindPeriodFortune,
+		PrimaryDomain:    "bazi",
+		TaskIntent:       "fortune_followup",
+		Gate: contracts.GateContract{
+			Admitted:       true,
+			ExecutionMode:  "execute",
+			FollowupPolicy: "allow",
+		},
+	}
+
+	if _, ok := client.tryCheapFollowupRoute("这个面试能不能成", st); ok {
+		t.Fatal("cheap gate should reject concrete event question")
+	}
+}
+
+func TestTryCheapFollowupRoute_RejectsHealthQuestion(t *testing.T) {
+	client := &Client{}
+	st := state.NewSession("sess-health")
+	seedBaziAsset(st)
+	st.Execution = contracts.ExecutionSnapshot{
+		ConsultationKind: contracts.ConsultationKindPeriodFortune,
+		PrimaryDomain:    "bazi",
+		TaskIntent:       "fortune_followup",
+		Gate: contracts.GateContract{
+			Admitted:       true,
+			ExecutionMode:  "execute",
+			FollowupPolicy: "allow",
+		},
+	}
+
+	if _, ok := client.tryCheapFollowupRoute("健康如何", st); ok {
+		t.Fatal("cheap gate should reject health question")
+	}
+}
+
 func TestTryCheapFollowupRoute_RejectsBirthInfoAmend(t *testing.T) {
 	client := &Client{}
 	st := state.NewSession("sess-3")
-	st.BaziResult = map[string]any{"dayGan": "甲"}
+	seedBaziAsset(st)
 	st.Execution = contracts.ExecutionSnapshot{
-		PrimaryDomain: "bazi",
-		TaskIntent:    "fortune_followup",
+		ConsultationKind: contracts.ConsultationKindPeriodFortune,
+		PrimaryDomain:    "bazi",
+		TaskIntent:       "fortune_followup",
 		Gate: contracts.GateContract{
 			Admitted:       true,
 			ExecutionMode:  "execute",
@@ -94,10 +145,11 @@ func TestTryCheapFollowupRoute_RejectsBirthInfoAmend(t *testing.T) {
 func TestTryCheapFollowupRoute_RejectsExplicitMethodSwitch(t *testing.T) {
 	client := &Client{}
 	st := state.NewSession("sess-method-switch")
-	st.BaziResult = map[string]any{"dayGan": "甲"}
+	seedBaziAsset(st)
 	st.Execution = contracts.ExecutionSnapshot{
-		PrimaryDomain: "bazi",
-		TaskIntent:    "fortune_followup",
+		ConsultationKind: contracts.ConsultationKindPeriodFortune,
+		PrimaryDomain:    "bazi",
+		TaskIntent:       "fortune_followup",
 		Gate: contracts.GateContract{
 			Admitted:       true,
 			ExecutionMode:  "execute",
@@ -113,10 +165,11 @@ func TestTryCheapFollowupRoute_RejectsExplicitMethodSwitch(t *testing.T) {
 func TestTryCheapFollowupRoute_RejectsCrossDomainAsk(t *testing.T) {
 	client := &Client{}
 	st := state.NewSession("sess-cross-domain")
-	st.BaziResult = map[string]any{"dayGan": "甲"}
+	seedBaziAsset(st)
 	st.Execution = contracts.ExecutionSnapshot{
-		PrimaryDomain: "bazi",
-		TaskIntent:    "fortune_followup",
+		ConsultationKind: contracts.ConsultationKindPeriodFortune,
+		PrimaryDomain:    "bazi",
+		TaskIntent:       "fortune_followup",
 		Gate: contracts.GateContract{
 			Admitted:       true,
 			ExecutionMode:  "execute",
@@ -132,8 +185,9 @@ func TestTryCheapFollowupRoute_RejectsCrossDomainAsk(t *testing.T) {
 func TestTryCheapFollowupRoute_AllowsSingleDomainInterpretChartReuse(t *testing.T) {
 	client := &Client{}
 	st := state.NewSession("sess-interpret")
-	st.BaziResult = map[string]any{"dayGan": "甲"}
+	seedBaziAsset(st)
 	st.Execution = contracts.ExecutionSnapshot{
+		ConsultationKind:   contracts.ConsultationKindNatalChart,
 		PrimaryDomain:      "bazi",
 		TaskIntent:         "interpret_chart",
 		ConversationIntent: "consult",
@@ -160,8 +214,9 @@ func TestTryCheapFollowupRoute_AllowsSingleDomainInterpretChartReuse(t *testing.
 func TestTryCheapFollowupRoute_RejectsInterpretChartWithSecondaryDomain(t *testing.T) {
 	client := &Client{}
 	st := state.NewSession("sess-interpret-mixed")
-	st.BaziResult = map[string]any{"dayGan": "甲"}
+	seedBaziAsset(st)
 	st.Execution = contracts.ExecutionSnapshot{
+		ConsultationKind:   contracts.ConsultationKindPeriodFortune,
 		PrimaryDomain:      "bazi",
 		SecondaryDomains:   []string{"ziwei"},
 		TaskIntent:         "interpret_chart",
@@ -186,8 +241,9 @@ func TestApprove_CheapFollowupRouteSkipsSupervisorDecide(t *testing.T) {
 
 	client := &Client{}
 	st := state.NewSession("sess-4")
-	st.BaziResult = map[string]any{"dayGan": "甲"}
+	seedBaziAsset(st)
 	st.Execution = contracts.ExecutionSnapshot{
+		ConsultationKind:   contracts.ConsultationKindPeriodFortune,
 		PrimaryDomain:      "bazi",
 		TaskIntent:         "fortune_followup",
 		ConversationIntent: "consult",
@@ -198,7 +254,7 @@ func TestApprove_CheapFollowupRouteSkipsSupervisorDecide(t *testing.T) {
 		},
 	}
 
-	route, err := client.Approve(ctx, "那感情这两年呢", st)
+	route, err := client.Approve(ctx, "那感情呢", st)
 	if err != nil {
 		t.Fatalf("Approve() error = %v, want nil", err)
 	}
@@ -232,8 +288,9 @@ func TestApprove_CheapFollowupRouteWritesSampleReport(t *testing.T) {
 
 	client := &Client{reporter: reporter}
 	st := state.NewSession("sess-report-write")
-	st.BaziResult = map[string]any{"dayGan": "甲"}
+	seedBaziAsset(st)
 	st.Execution = contracts.ExecutionSnapshot{
+		ConsultationKind:   contracts.ConsultationKindPeriodFortune,
 		PrimaryDomain:      "bazi",
 		TaskIntent:         "fortune_followup",
 		ConversationIntent: "consult",
@@ -244,7 +301,7 @@ func TestApprove_CheapFollowupRouteWritesSampleReport(t *testing.T) {
 		},
 	}
 
-	if _, err := client.Approve(ctx, "那感情这两年呢", st); err != nil {
+	if _, err := client.Approve(ctx, "那感情呢", st); err != nil {
 		t.Fatalf("Approve() error = %v", err)
 	}
 

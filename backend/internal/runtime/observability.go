@@ -6,8 +6,10 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
@@ -40,12 +42,19 @@ func emitEventWithTrace(ctx context.Context, sink EventSink, evt Event, attrs ma
 // It blocks missing primary artifacts and obvious internal execution leakage,
 // annotating the trace so failures point to the runtime boundary that rejected them.
 func guardFinalAnswerWithTrace(ctx context.Context, route policy.ApprovedRoute, st *state.SessionState, finalText string) (turnType string, text string) {
+	return guardFinalAnswerWithPlan(ctx, ExecutionPlan{Route: route}, st, finalText)
+}
+
+// guardFinalAnswerWithPlan applies the exact current execution contract before
+// user-visible text. Production callers must provide the Manager-owned plan.
+func guardFinalAnswerWithPlan(ctx context.Context, plan ExecutionPlan, st *state.SessionState, finalText string) (turnType string, text string) {
+	route := plan.Route
 	sp := tracing.SpanFromContext(ctx, "contract_gate", tracing.KindChain)
 	sp.SetAttribute("primary_domain", route.PrimaryDomain)
 	sp.SetAttribute("buffer_final", true)
 	defer sp.End()
 
-	hasArtifact, failureMessage := primaryArtifactGuard(route, st)
+	hasArtifact, failureMessage := primaryArtifactGuardForPlan(plan, st)
 	sp.SetAttribute("artifact_present", hasArtifact)
 	if !hasArtifact {
 		failure := &RuntimeFailure{
@@ -87,6 +96,7 @@ func guardFinalAnswerWithTrace(ctx context.Context, route policy.ApprovedRoute, 
 		annotateRuntimeFailureTrace(ctx, failure)
 		return "guardrail_blocked", failure.Message
 	}
+	finalText = applySafetyProfile(plan.SafetyProfile, finalText)
 
 	sp.SetAttribute("guardrail_result", "passed")
 	return "agent_reading", finalText
@@ -115,6 +125,67 @@ func primaryArtifactGuard(route policy.ApprovedRoute, st *state.SessionState) (b
 	default:
 		return true, ""
 	}
+}
+
+// primaryArtifactGuardForPlan verifies the exact primary requirement instead of
+// trusting a legacy projection such as QimenResult.
+func primaryArtifactGuardForPlan(plan ExecutionPlan, st *state.SessionState) (bool, string) {
+	if len(plan.Requirements) == 0 {
+		return primaryArtifactGuard(plan.Route, st)
+	}
+	primary := firstNonEmpty(plan.Route.PrimaryDomain, firstNonEmpty(plan.Domains...))
+	for _, requirement := range plan.Requirements {
+		if requirement.Kind != artifactKindForDomain(primary) {
+			continue
+		}
+		if hasRequiredAsset(st, requirement) {
+			return true, ""
+		}
+		return false, fmt.Sprintf("本轮%s主链要求的精确资产未就绪，已拦截本轮结论输出。", primaryDomainLabel(primary))
+	}
+	return false, fmt.Sprintf("本轮%s主链没有对应的资产合同，已拦截本轮结论输出。", primaryDomainLabel(primary))
+}
+
+// artifactKindForDomain maps the primary domain to its exact chart kind.
+func artifactKindForDomain(domain string) string {
+	switch domain {
+	case "qimen":
+		return artifactQimenChart
+	case "ziwei":
+		return artifactZiweiChart
+	case "bazi":
+		return artifactBaziChart
+	default:
+		return ""
+	}
+}
+
+// primaryDomainLabel returns a short Chinese label for guard failures.
+func primaryDomainLabel(domain string) string {
+	switch domain {
+	case "qimen":
+		return "奇门"
+	case "ziwei":
+		return "紫微"
+	default:
+		return "八字"
+	}
+}
+
+// applySafetyProfile enforces the fixed health disclaimer at the final output boundary.
+func applySafetyProfile(profile contracts.SafetyProfile, text string) string {
+	if profile != contracts.SafetyProfileHealthObservation {
+		return text
+	}
+	const disclaimer = "命理仅供参考，不能替代医学诊断；如有不适请及时就医"
+	if strings.Contains(text, disclaimer) {
+		return text
+	}
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return disclaimer
+	}
+	return trimmed + "\n\n" + disclaimer
 }
 
 // outputBoundaryGuard blocks narrow, explicit internal-leak markers in final text.

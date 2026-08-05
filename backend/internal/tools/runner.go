@@ -206,6 +206,17 @@ func ClassifyToolError(err error) ToolErrorClass {
 }
 
 func validateParams(contract ToolContract, params map[string]any) error {
+	if len(contract.Params) > 0 {
+		allowed := make(map[string]struct{}, len(contract.Params))
+		for _, spec := range contract.Params {
+			allowed[spec.Name] = struct{}{}
+		}
+		for name := range params {
+			if _, ok := allowed[name]; !ok {
+				return fmt.Errorf("unknown parameter %s", name)
+			}
+		}
+	}
 	for _, spec := range contract.Params {
 		value, ok := params[spec.Name]
 		if spec.Required && (!ok || value == nil || value == "") {

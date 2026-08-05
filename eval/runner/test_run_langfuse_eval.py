@@ -149,6 +149,33 @@ class EvalTimeoutTest(unittest.TestCase):
 
         self.assertEqual(runner.extract_response_text(body), "强弱调候")
 
+    def test_smoke_case_rejects_forbidden_sse_error_event(self):
+        trace = {
+            "metadata": {
+                "resourceAttributes": {"service.name": "suanming-agent"},
+                "attributes": {},
+            },
+            "observations": [{"name": "preflight"}, {"name": "sse_emit"}],
+        }
+        body = "event: error\ndata: {\"code\":\"BAZI_STATIC_PROJECTION_FAILED\"}\n\nevent: done\ndata: {}\n\n"
+        with (
+            mock.patch.object(runner, "invoke_chat", return_value=body),
+            mock.patch.object(runner, "poll_trace_detail", return_value=("trace-1", trace)),
+            mock.patch.object(runner.uuid, "uuid4", return_value=SimpleNamespace(hex="fixed")),
+            mock.patch.object(runner.time, "monotonic", side_effect=[100.0, 101.0, 102.0]),
+        ):
+            with self.assertRaisesRegex(runner.SmokeCaseFailure, "forbidden SSE error event"):
+                runner.smoke_case(
+                    case={"id": "repair", "message": "分析八字", "sse_must_not_emit_error": True},
+                    server_url="http://example.test",
+                    langfuse_url="http://langfuse.test",
+                    headers={},
+                    timeout_seconds=120,
+                    poll_interval_seconds=1,
+                    max_polls=1,
+                    write_scores=False,
+                )
+
     def test_smoke_case_supports_answer_quality_checks(self):
         trace = {
             "metadata": {
@@ -280,6 +307,44 @@ class EvalTimeoutTest(unittest.TestCase):
                 write_scores=False,
             )
         self.assertEqual(result["trace_attributes"]["bazi.dynamic.source"], "facts_only_degraded")
+
+    def test_smoke_case_reports_optional_trace_attributes_without_requiring_them(self):
+        trace = {
+            "metadata": {
+                "resourceAttributes": {"service.name": "suanming-agent"},
+                "attributes": {
+                    "repair.stage": "dynamic_projection",
+                },
+            },
+            "observations": [{"name": "preflight"}, {"name": "sse_emit"}],
+        }
+        case = {
+            "id": "optional-trace",
+            "message": "分析八字",
+            "optional_trace_attribute_any": {
+                "repair.stage": ["static_projection", "dynamic_projection"],
+                "repair.field": [],
+            },
+        }
+        with (
+            mock.patch.object(runner, "invoke_chat", return_value="event: done\n"),
+            mock.patch.object(runner, "poll_trace_detail", return_value=("trace-1", trace)),
+            mock.patch.object(runner, "get_trace_detail", return_value=trace),
+            mock.patch.object(runner.uuid, "uuid4", return_value=SimpleNamespace(hex="fixed")),
+            mock.patch.object(runner.time, "monotonic", side_effect=[100.0, 101.0, 102.0, 103.0]),
+        ):
+            result = runner.smoke_case(
+                case=case,
+                server_url="http://example.test",
+                langfuse_url="http://langfuse.test",
+                headers={},
+                timeout_seconds=120,
+                poll_interval_seconds=1,
+                max_polls=1,
+                write_scores=False,
+            )
+        self.assertEqual(result["trace_attributes"]["repair.stage"], "dynamic_projection")
+        self.assertEqual(result["trace_attributes"]["repair.field"], "")
 
     def test_smoke_case_rejects_forbidden_response_content(self):
         trace = {

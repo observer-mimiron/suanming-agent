@@ -43,7 +43,11 @@ func TestGuardFinalAnswerWithTrace_BlocksInternalExecutionLeak(t *testing.T) {
 
 func TestGuardFinalAnswerWithTrace_AllowsNormalReadingText(t *testing.T) {
 	st := state.NewSession("sess-normal-output")
-	st.BaziResult = map[string]any{"dayGan": "甲"}
+	st.MergeProfile(map[string]any{"year": 1991.0, "month": 1.0, "day": 1.0, "hour": 12.0})
+	st.StoreChart(state.AssetKindBaziChart, map[string]any{
+		"calendar_rule_version": currentBaziCalendarRule(),
+		"dayGan":                "甲",
+	}, "test")
 	route := policy.ApprovedRoute{PrimaryDomain: "bazi"}
 
 	turnType, text := guardFinalAnswerWithTrace(context.Background(), route, st, "这盘重点看木火是否有承托，事业上宜先稳住节奏。")
