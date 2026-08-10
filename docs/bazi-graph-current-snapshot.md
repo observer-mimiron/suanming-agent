@@ -1,6 +1,6 @@
 # 八字 Graph 当前流程快照
 
-> **快照日期：2026-08-09**<br>
+> **快照日期：2026-08-10**<br>
 > 本文描述当前代码已经运行的流程、状态和边界，不记录改造过程，也不描述未来计划。代码变更后，本文需要与 `docs/architecture.md` 和 `PROGRESS.md` 一起复核。
 
 ## 1. 先看结论
@@ -301,13 +301,13 @@ Output
 各阶段 attempted / accepted 标志与预算
 ```
 
-`bazi_graph_adapter.go` 在每个节点调用前，把 Graph control fields 同步进 payload；节点完成后，再把 `ChartReady`、计划标志、accepted 标志、failure、预算和输出投影回 Graph state。候选文本、事实胶囊、引用目录和语义校验仍由 runtime payload 维护。
+`bazi_graph_adapter.go` 在每个节点调用前，把 Graph control fields 同步进 payload；节点完成后，再把 `ChartReady`、计划标志、accepted 标志、failure、预算和输出投影回 Graph state。候选文本、catalog allow-list 和语义校验仍由 runtime payload 维护；事实胶囊、年龄授权和引用目录 DTO 由无 runtime 依赖的 `specialists/bazi/domain` 负责，payload 只保存适配结果。
 
 因此，当前事实不是“所有八字语义代码都已经搬进 `specialists/bazi/graph`”，而是：
 
 - Graph 拓扑、动作选择、上限和终止已经在 specialist 包；
 - runtime 负责窄适配；
-- 八字事实胶囊、catalog、projection、合同、recovery 和 renderer 的实际实现仍有一部分位于 `backend/internal/runtime/`。
+- 八字事实胶囊、年龄授权和引用目录 DTO 已位于 `backend/internal/specialists/bazi/domain/`；catalog allow-list、projection、合同、recovery 和 renderer 的实际实现仍有一部分位于 `backend/internal/runtime/`。
 
 ### 5.4 八字 `decide_next` 的固定顺序
 
@@ -666,10 +666,15 @@ repair.action
 | `backend/internal/runtime/graph_loop_contracts.go` | 外层 action、failure、16 步上限和取消错误边界。 |
 | `backend/internal/runtime/execution_dispatch.go` | primary/support 角色校验、并行 worker、outcome 和 fan-out/fan-in 的底层执行。 |
 | `backend/internal/specialists/bazi/graph/graph.go` | 八字 Graph 的 action、state、Deps、拓扑、分支、24 步上限和终态包装；不依赖 runtime。 |
+| `backend/internal/specialists/bazi/domain/` | 确定性事实胶囊、可读事实视图、年龄授权范围和引用目录 DTO；不依赖 runtime、模型客户端或 SSE。 |
 | `backend/internal/runtime/bazi_graph_adapter.go` | 把 runtime 节点适配为 specialist Graph 的 `Deps`，同步 control state 与 payload。 |
 | `backend/internal/runtime/bazi_graph_loop.go` | evidence、evidence validation、contract check、全程大运、repair、facts-only、typed result 等循环动作实现。 |
 | `backend/internal/runtime/bazi_internal_graph.go` | bootstrap、analysis plan、静态/动态模型节点、render、failure 记录和领域 payload。 |
-| `backend/internal/runtime/bazi_charter_graph.go` | 八字结构类型、语义合同、Graph 选择边界、领域校验和 final writer 入口等现有 runtime 实现。 |
+| `backend/internal/runtime/bazi_graph_entry.go` | 八字内图选择、外层调用入口和领域失败归一；保留 Manager/Executor 的调用合同。 |
+| `backend/internal/runtime/bazi_charter_graph.go` | 补证触发、trace 审计、阶段事件和 final writer 适配。 |
+| `backend/internal/runtime/bazi_contract_validation.go` | 静态/动态投影、证据边界和年龄授权合同校验。 |
+| `backend/internal/runtime/bazi_final_contract.go` | 最终 writer 的标题顺序、结构和边界保留合同校验。 |
+| `backend/internal/runtime/bazi_model_runtime.go` | 分析规划、阶段提示构建和内层 agent 的文本/JSON 适配。 |
 | `backend/internal/runtime/bazi_final_renderer.go` | 把已接受的静态、全程和动态投影转成程序化中文文本，不负责重新裁断。 |
 | `backend/internal/repair/` | repair class、policy、attempt 和共享预算。 |
 | `backend/internal/orchestrator/orchestrator.go` | 把 runtime 返回的错误转为 SSE `error`，并保证最后发送 `done`。 |

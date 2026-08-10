@@ -266,20 +266,20 @@ func (m *Manager) ComposeFinalReply(userMessage string, result specialists.Resul
 	// 带有结构化 Role 的结果已经由 runtime 确认了主次；直接保留该投影，
 	// 防止 fast model 在自由改写时把 support 结论提升为 primary。
 	if roleAware && summary != "" {
-		return appendDynamicFactsNotice(summary, dynamicFacts)
+		return appendDynamicFactsNoticeIfRequired(summary, dynamicFacts, result.DomainContextPatch)
 	}
 	if shouldUseManagerSynthesis(m, result) {
 		if reply := m.synthesizeFinalReply(userMessage, result); reply != "" {
-			return appendDynamicFactsNotice(reply, dynamicFacts)
+			return appendDynamicFactsNoticeIfRequired(reply, dynamicFacts, result.DomainContextPatch)
 		}
 	}
 	if brief == "" {
 		if summary != "" {
-			return appendDynamicFactsNotice(summary, dynamicFacts)
+			return appendDynamicFactsNoticeIfRequired(summary, dynamicFacts, result.DomainContextPatch)
 		}
 		brief = "请结合当前问题继续给出清晰、直接的中文解读。"
 	}
-	return appendDynamicFactsNotice(fmt.Sprintf("基于当前问题“%s”，结合 %s 专家结果，%s", userMessage, result.Domain, brief), dynamicFacts)
+	return appendDynamicFactsNoticeIfRequired(fmt.Sprintf("基于当前问题“%s”，结合 %s 专家结果，%s", userMessage, result.Domain, brief), dynamicFacts, result.DomainContextPatch)
 }
 
 // withRoleAwareCompositionInput 将 runtime 私有 outcome 转成带明确角色标题的合成输入。

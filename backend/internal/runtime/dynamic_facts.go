@@ -14,6 +14,7 @@ const (
 	dynamicFactsStatusReady       = "ready"
 	dynamicFactsStatusDegraded    = "degraded"
 	dynamicFactsStatusUnavailable = "unavailable"
+	dynamicFactsNoticeRequiredKey = "dynamic_facts_notice_required"
 )
 
 // DynamicFacts describes deterministic facts available for one requested time scope.
@@ -135,6 +136,16 @@ func appendDynamicFactsNotice(text string, facts []DynamicFacts) string {
 		return notice
 	}
 	return strings.TrimSpace(text) + "\n\n" + notice
+}
+
+// appendDynamicFactsNoticeIfRequired exposes a missing dynamic capability only
+// when the execution plan explicitly requested a time scope. A static topic
+// answer should not end with an unrelated流年/流月 availability disclaimer.
+func appendDynamicFactsNoticeIfRequired(text string, facts []DynamicFacts, patch map[string]any) string {
+	if required, ok := patch[dynamicFactsNoticeRequiredKey].(bool); ok && !required {
+		return strings.TrimSpace(text)
+	}
+	return appendDynamicFactsNotice(text, facts)
 }
 
 // dynamicFactsFromResult reads the runtime-private projection attached to a specialist result.

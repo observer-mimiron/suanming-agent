@@ -88,41 +88,52 @@ func TestRenderer_OnlyFormatsUpstreamVerdicts(t *testing.T) {
 	}
 }
 
-func TestRenderer_RendersEachDayunAsAnIndependentAnalysisBlock(t *testing.T) {
+func TestRenderer_RendersEachLifetimeDayunAsAnIndependentAnalysisBlock(t *testing.T) {
 	state := baziCharterState{
+		AnalysisPlan: baziAnalysisPlan{WriterTemplate: "full", NeedLifetimeDayun: true},
+		Input: baziCharterInput{Dayun: map[string]any{"dayun_analyzed": []map[string]any{
+			{"ganZhi": "丙申", "tenGod": "食神", "startAge": 10, "endAge": 19},
+			{"ganZhi": "甲午", "tenGod": "七杀", "startAge": 30, "endAge": 39},
+		}}},
 		StaticSynthesis: baziStaticSynthesis{
 			MainAxis: "上游给出静态主轴。",
 		},
+		LifetimeSynthesis: baziLifetimeDayunSynthesis{
+			Status: "accepted",
+			PeriodClaims: []baziLifetimeDayunClaim{
+				{PeriodRef: "dayun[0]", PeriodEffect: "carry_balance", Verdict: "有助力但不纯顺。"},
+				{PeriodRef: "dayun[1]", PeriodEffect: "support_use", Verdict: "承托与扰动并见。"},
+			},
+		},
 		DynamicSynthesis: baziDynamicSynthesis{
 			CurrentTrend: "当前甲午运（30-39岁）：有转机，也有牵制。",
-			DayunPath: []string{
-				"### 丙申运（10-19岁）：有助力但不纯顺\n**解读**：扶抑两侧同时出现作用，不能按单边顺逆理解。\n- 扶抑面：丙火为承托；申金为牵制",
-				"### 甲午运（30-39岁）：承托与扰动并见\n**解读**：承托条件存在，同时关系触发提示过程会有变化与反复。\n- 扶抑面：甲木为压力；午火为承托",
-			},
 		},
 	}
 
 	out := renderBaziFinalReply(baziAnalysisPlan{WriterTemplate: "full"}, state, "")
-	for _, required := range []string{"### 丙申运（10-19岁）：有助力但不纯顺", "### 甲午运（30-39岁）：承托与扰动并见", "**解读**"} {
+	for _, required := range []string{"**丙申运（10-19岁）**", "**结构作用**：平衡承接", "**运干十神（工具事实）**：丙为食神", "**甲午运（30-39岁）**", "**运干十神（工具事实）**：甲为七杀"} {
 		if !strings.Contains(out, required) {
 			t.Fatalf("dayun analysis missing %q:\n%s", required, out)
 		}
 	}
-	if strings.Contains(out, "- ### 丙申") {
-		t.Fatalf("dayun analysis must not be flattened into a nested list:\n%s", out)
+	for _, forbidden := range []string{"有助力但不纯顺", "承托与扰动并见"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("dayun analysis must not expose model free prose %q:\n%s", forbidden, out)
+		}
 	}
 }
 
-func TestRenderer_DayunHeadingsIncludeCalculatedDateBoundaries(t *testing.T) {
+func TestRenderer_LifetimeDayunHeadingsIncludeCalculatedDateBoundaries(t *testing.T) {
 	state := baziCharterState{
+		AnalysisPlan: baziAnalysisPlan{WriterTemplate: "full", NeedLifetimeDayun: true},
 		Input: baziCharterInput{
 			Dayun: map[string]any{"dayun_analyzed": []map[string]any{
 				{
-					"ganZhi": "丙戌", "startAge": 3, "endAge": 12,
+					"ganZhi": "丙戌", "tenGod": "食神", "startAge": 3, "endAge": 12,
 					"startAt": "2027-01-11 00:15:00", "endAtExclusive": "2037-01-11 00:15:00",
 				},
 				{
-					"ganZhi": "乙酉", "startAge": 13, "endAge": 22,
+					"ganZhi": "乙酉", "tenGod": "劫财", "startAge": 13, "endAge": 22,
 					"startAt": "2037-01-11 00:15:00", "endAtExclusive": "2047-01-11 00:15:00",
 				},
 			}},
@@ -133,20 +144,30 @@ func TestRenderer_DayunHeadingsIncludeCalculatedDateBoundaries(t *testing.T) {
 		},
 		DynamicSynthesis: baziDynamicSynthesis{
 			CurrentTrend: "当前尚处童限，未交正式大运。",
-			DayunPath: []string{
-				"### 丙戌：偏顺\n**解读**：结构观察。",
-				"### 乙酉：利阻并见\n**解读**：结构观察。",
+		},
+		LifetimeSynthesis: baziLifetimeDayunSynthesis{
+			Status: "accepted",
+			PeriodClaims: []baziLifetimeDayunClaim{
+				{PeriodRef: "dayun[0]", PeriodEffect: "carry_balance", Verdict: "偏顺。"},
+				{PeriodRef: "dayun[1]", PeriodEffect: "damage_use", Verdict: "利阻并见。"},
 			},
 		},
 	}
 
 	out := renderBaziFinalReply(baziAnalysisPlan{WriterTemplate: "full"}, state, "")
 	for _, required := range []string{
-		"### 丙戌运（3-12岁；2027-01-11 00:15至2037-01-11 00:15前）：偏顺",
-		"### 乙酉运（13-22岁；2037-01-11 00:15至2047-01-11 00:15前）：利阻并见",
+		"**丙戌运（3-12岁；2027-01-11 00:15至2037-01-11 00:15前）**",
+		"**运干十神（工具事实）**：丙为食神",
+		"**乙酉运（13-22岁；2037-01-11 00:15至2047-01-11 00:15前）**",
+		"**运干十神（工具事实）**：乙为劫财",
 	} {
 		if !strings.Contains(out, required) {
 			t.Fatalf("dayun heading missing calculated boundary %q:\n%s", required, out)
+		}
+	}
+	for _, forbidden := range []string{"偏顺。", "利阻并见。"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("dayun output must not expose model free prose %q:\n%s", forbidden, out)
 		}
 	}
 }
@@ -170,7 +191,7 @@ func TestRenderer_DynamicDegradationKeepsValidStaticReading(t *testing.T) {
 	state.DynamicSynthesis = buildFactsOnlyDynamicSynthesis(state.Input, static, "dynamic synthesis uses undeclared branch relation")
 
 	out := renderBaziFinalReply(baziAnalysisPlan{WriterTemplate: "full"}, state, "")
-	for _, required := range []string{static.MainAxis, static.TierJudgment, "## 大运验证", "当前大运事实", "当前大运仅保留可复算事实"} {
+	for _, required := range []string{static.MainAxis, static.TierJudgment, "## 当前应期", "当前大运事实", "当前大运仅保留可复算事实"} {
 		if !strings.Contains(out, required) {
 			t.Fatalf("mixed output missing %q:\n%s", required, out)
 		}
@@ -204,7 +225,7 @@ func TestRenderer_DynamicDegradationShowsOnlyBoundCurrentPeriod(t *testing.T) {
 	state.DynamicSynthesis = buildFactsOnlyDynamicSynthesis(state.Input, static, "dynamic projection mismatch")
 
 	out := renderBaziFinalReply(baziAnalysisPlan{WriterTemplate: "full"}, state, "")
-	dayunSection := sectionContent(out, "## 大运验证", "## 流年应期")
+	dayunSection := sectionContent(out, "### 当前大运", "### 流年应期")
 	if !strings.Contains(dayunSection, "甲午运") {
 		t.Fatalf("facts-only dynamic output must retain the bound current period:\n%s", dayunSection)
 	}
@@ -279,9 +300,9 @@ func TestRenderer_BoundedTierAppearsAfterStandardOnlyOnce(t *testing.T) {
 		t.Fatalf("bounded tier output must not expose no-tier wording:\n%s", out)
 	}
 	if count := strings.Count(out, "命格层次中等（保守定位）"); count != 1 {
-		t.Fatalf("bounded tier verdict should appear only in 综合判定, got %d:\n%s", count, out)
+		t.Fatalf("bounded tier verdict should appear only in 命格层次, got %d:\n%s", count, out)
 	}
-	standardIndex := strings.Index(out, "## 评判标准")
+	standardIndex := strings.Index(out, "**判读口径**")
 	judgmentIndex := strings.Index(out, "命格层次中等（保守定位）")
 	if standardIndex < 0 || judgmentIndex < 0 || standardIndex > judgmentIndex {
 		t.Fatalf("tier standard must precede selected level:\n%s", out)
@@ -294,7 +315,7 @@ func TestRenderer_BoundedTierAppearsAfterStandardOnlyOnce(t *testing.T) {
 	if strings.Contains(sectionContent(out, "## 总览结论", "## 强弱视角"), "命格层次中等（保守定位）") {
 		t.Fatalf("overview must remain readable without the rank label:\n%s", out)
 	}
-	if !strings.Contains(sectionContent(out, "## 综合判定", "## 命格总结"), "命格层次中等（保守定位）") {
-		t.Fatalf("display must keep the canonical bounded tier at 综合判定:\n%s", out)
+	if !strings.Contains(sectionContent(out, "### 命格层次", "## 当前应期"), "命格层次中等（保守定位）") {
+		t.Fatalf("display must keep the canonical bounded tier at 命格层次:\n%s", out)
 	}
 }

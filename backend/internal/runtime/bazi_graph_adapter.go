@@ -98,7 +98,8 @@ func projectBaziGraphControl(graphState *bazigraph.State, in *baziInternalGraphS
 	if graphState == nil || in == nil {
 		return
 	}
-	graphState.Phase = in.Phase
+	// Graph 持有当前 phase。领域节点可以在分类失败时更新本地 phase，但不能
+	// 反写 Graph，否则会形成第二个动作选择权，旧 payload 可能劫持下一条边。
 	graphState.ChartReady = len(in.ChartState.Input.BaziResult) > 0
 	graphState.AnalysisPlanned = in.ChartState.AnalysisPlan.Mode != ""
 	graphState.NeedDynamic = in.ChartState.AnalysisPlan.NeedDynamic

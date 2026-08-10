@@ -227,17 +227,19 @@ func Run(ctx context.Context, deps Deps, state *State) (Result, error) {
 	return Result{Text: out.Output, RecoveryState: out.RecoveryState, TerminationReason: out.TerminationReason, Failure: out.Failure}, nil
 }
 
+// validateDeps 在编译前拒绝缺失 callback。这里保持逐项 typed 检查，因为把
+// nil 函数放进 any 会隐藏 nil 值，让错误延迟到 Graph 节点真正执行时才暴露。
 func validateDeps(deps Deps) error {
 	for _, item := range []struct {
-		name string
-		fn   any
+		name  string
+		isNil bool
 	}{
-		{"bootstrap", deps.Bootstrap}, {"analysis_plan", deps.AnalysisPlan}, {"evidence", deps.Evidence},
-		{"validate_evidence", deps.ValidateEvidence}, {"static", deps.Static}, {"lifetime", deps.Lifetime}, {"dynamic", deps.Dynamic},
-		{"contract_check", deps.ContractCheck}, {"repair", deps.Repair}, {"recover_facts", deps.RecoverFacts},
-		{"render", deps.Render}, {"hard_error", deps.HardError},
+		{"bootstrap", deps.Bootstrap == nil}, {"analysis_plan", deps.AnalysisPlan == nil}, {"evidence", deps.Evidence == nil},
+		{"validate_evidence", deps.ValidateEvidence == nil}, {"static", deps.Static == nil}, {"lifetime", deps.Lifetime == nil}, {"dynamic", deps.Dynamic == nil},
+		{"contract_check", deps.ContractCheck == nil}, {"repair", deps.Repair == nil}, {"recover_facts", deps.RecoverFacts == nil},
+		{"render", deps.Render == nil}, {"hard_error", deps.HardError == nil},
 	} {
-		if item.fn == nil {
+		if item.isNil {
 			return fmt.Errorf("bazi graph dependency %s is nil", item.name)
 		}
 	}

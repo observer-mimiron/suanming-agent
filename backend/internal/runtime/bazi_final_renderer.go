@@ -159,16 +159,12 @@ func anyMapSlice(raw any) []map[string]any {
 	}
 }
 
-// renderFullTemplate 以九级本命层次为第一层，再并列全程运路和当前阶段。
-// 三层分别消费独立投影，避免岁运结论覆盖本命评级。
+// renderFullTemplate 按总断、三项本命视角、运路与当前应期组织完整报告。
+// 每层只消费所属投影，避免主轴、层次与岁运结论在多个章节重复出现。
 func renderFullTemplate(state baziCharterState) string {
 	var b strings.Builder
 	writeHeading(&b, "总览结论")
 	writeConclusion(&b, buildOverviewAxisSummary(state))
-	writeHighlightBlock(&b,
-		"▲ 限制",
-		buildOverviewLimitationSummary(state),
-	)
 
 	writeHeading(&b, "强弱视角")
 	writeConclusion(&b, buildStrengthConclusion(state))
@@ -191,6 +187,7 @@ func renderFullTemplate(state baziCharterState) string {
 		seenStrength[key] = struct{}{}
 		strengthBullets = append(strengthBullets, labeledBullet(item.label, value))
 	}
+	strengthBullets = append(strengthBullets, labeledBullet("说明", "扶抑只说明日主受力，不自动等同于格局取用或调候用神。"))
 	writeBullets(&b, strengthBullets)
 
 	writeHeading(&b, "调候视角")
@@ -206,17 +203,25 @@ func renderFullTemplate(state baziCharterState) string {
 		labeledBullet("依据", buildPatternEvidence(state)),
 	})
 
+	writeSubheading(&b, "命格层次")
+	writeBullets(&b, []string{
+		labeledBullet("判读口径", tierAssessmentStandardText()),
+	})
+	writeConclusion(&b, strings.TrimPrefix(firstDisplayText(state.StaticSynthesis.TierJudgment, "本命命格层次暂未形成稳定裁断。"), "命格基础层次："))
+	writeBullets(&b, []string{
+		labeledBullet("判定依据", state.StaticSynthesis.TierBasis),
+	})
+	writeClassicalReferences(&b, state.EvidenceBundle.Citations)
+	writeHighlightBlock(&b, "断语所限", buildOverviewLimitationSummary(state))
+
 	if state.AnalysisPlan.NeedLifetimeDayun {
 		writeHeading(&b, "全程运路")
-		writeConclusion(&b, buildLifetimeDayunConclusion(state))
+		writeConclusion(&b, withoutAxisEcho(state, buildLifetimeDayunConclusion(state), "全程运路只说明各运对本命结构的承接与变化。"))
 		writeLifetimeDayunGroups(&b, state)
 	}
 
-	if state.AnalysisPlan.NeedLifetimeDayun {
-		writeHeading(&b, "当前大运")
-	} else {
-		writeHeading(&b, "大运验证")
-	}
+	writeHeading(&b, "当前应期")
+	writeSubheading(&b, "当前大运")
 	if isMinorBaziSubject(state) {
 		writeConclusion(&b, buildMinorDayunConclusion(state))
 		writeBullets(&b, buildMinorDayunBullets(state))
@@ -230,7 +235,7 @@ func renderFullTemplate(state baziCharterState) string {
 		writeBullets(&b, factsOnlyCurrentDayunBullets(state))
 	}
 
-	writeHeading(&b, "流年应期")
+	writeSubheading(&b, "流年应期")
 	if isFactsOnlyDynamicSynthesis(state.DynamicSynthesis) {
 		writeConclusion(&b, "流年只展示干支、十神和已计算关系，不展开现实应事。")
 		writeBullets(&b, buildLiunianFactBullets(state))
@@ -241,31 +246,6 @@ func renderFullTemplate(state baziCharterState) string {
 			labeledBullet("依据", joinOrDefault(state.DynamicSynthesis.TriggerSignals, "")),
 			labeledBullet("限制", buildDynamicConstraintText(state)),
 		})
-	}
-
-	writeHeading(&b, "评判标准")
-	if state.AnalysisPlan.NeedLifetimeDayun {
-		writeConclusion(&b, "本命命格层次仍按现有九级标准评价；再逐步观察全部大运对该结构的补、助、损、破；当前大运与流年只说明所处阶段和短期触发。")
-	} else {
-		writeConclusion(&b, tierAssessmentStandardText())
-	}
-
-	writeHeading(&b, "综合判定")
-	if state.AnalysisPlan.NeedLifetimeDayun {
-		writeSubheading(&b, "本命命格层次")
-		writeConclusion(&b, strings.TrimPrefix(firstDisplayText(state.StaticSynthesis.TierJudgment, "本命命格层次暂未形成稳定裁断。"), "命格基础层次："))
-		writeBullets(&b, []string{labeledBullet("判定依据", state.StaticSynthesis.TierBasis), labeledBullet("本命格局", state.StaticSynthesis.PatternOutcome)})
-
-		writeSubheading(&b, "全程运路")
-		writeConclusion(&b, lifetimeTrajectorySummary(state.LifetimeSynthesis.Trajectory))
-		writeBullets(&b, []string{labeledBullet("全程结论", buildLifetimeDayunConclusion(state))})
-
-		writeSubheading(&b, "当前阶段")
-		writeConclusion(&b, buildDayunConclusion(state))
-		writeBullets(&b, factsOnlyCurrentDayunBullets(state))
-	} else {
-		writeConclusion(&b, buildCombinedAssessmentConclusion(state))
-		writeBullets(&b, []string{labeledBullet("判定依据", state.StaticSynthesis.TierBasis), labeledBullet("岁运兑现", buildTierRealizationText(state))})
 	}
 
 	return strings.TrimSpace(b.String())
@@ -316,7 +296,7 @@ func renderLifetimeDayunBullets(state baziCharterState) []string {
 	}
 	items := make([]string, 0, len(state.LifetimeSynthesis.PeriodClaims))
 	for _, claim := range state.LifetimeSynthesis.PeriodClaims {
-		items = append(items, "**"+lifetimePeriodLabel(state, claim.PeriodRef)+"｜"+lifetimePeriodEffectLabel(claim.PeriodEffect)+"**："+conciseDisplayText(claim.Verdict, 100))
+		items = append(items, "**"+lifetimePeriodLabel(state, claim.PeriodRef)+"｜"+lifetimePeriodEffectLabel(claim.PeriodEffect)+"**："+lifetimePeriodStemTenGod(state, claim.PeriodRef)+"；"+lifetimePeriodEffectSummary(claim.PeriodEffect))
 	}
 	return items
 }
@@ -345,16 +325,89 @@ func writeLifetimeDayunGroups(b *strings.Builder, state baziCharterState) {
 		}
 		writeSubheading(b, group.label)
 		for _, claim := range group.claims {
-			b.WriteString("\n#### ")
+			b.WriteString("\n**")
 			b.WriteString(lifetimePeriodLabel(state, claim.PeriodRef))
-			b.WriteString("\n")
-			b.WriteString("**结构定位：")
-			b.WriteString(lifetimePeriodEffectLabel(claim.PeriodEffect))
 			b.WriteString("**\n")
-			b.WriteString(conciseDisplayText(claim.Verdict, 100))
-			b.WriteString("\n")
+			writeBullets(b, []string{
+				labeledBullet("结构作用", lifetimePeriodEffectLabel(claim.PeriodEffect)),
+				labeledBullet("运干十神（工具事实）", lifetimePeriodStemTenGod(state, claim.PeriodRef)),
+				labeledBullet("结构说明", lifetimePeriodEffectSummary(claim.PeriodEffect)),
+			})
 		}
 	}
+}
+
+// lifetimePeriodStemTenGod 从工具结果展示运干十神，避免模型断语误标
+// 已知的大运天干或十神事实。
+func lifetimePeriodStemTenGod(state baziCharterState, ref string) string {
+	periods := dayunPeriods(state.Input.Dayun)
+	index, ok := dynamicPeriodIndex(ref, periods)
+	if !ok {
+		return "工具未返回该步大运的运干十神。"
+	}
+	ganZhi := strings.TrimSpace(stringValue(periods[index]["ganZhi"]))
+	tenGod := strings.TrimSpace(stringValue(periods[index]["tenGod"]))
+	if ganZhi == "" || tenGod == "" {
+		return "工具未返回该步大运的运干十神。"
+	}
+	runes := []rune(ganZhi)
+	if len(runes) == 0 {
+		return "工具未返回该步大运的运干十神。"
+	}
+	return string(runes[0]) + "为" + tenGod
+}
+
+// lifetimePeriodEffectSummary 将已接受的枚举转换为有边界的结构说明。
+// 它不复用模型自由断语，避免已确定的运干或十神事实被不一致地重述。
+func lifetimePeriodEffectSummary(effect string) string {
+	return map[string]string{
+		"complete_pattern":  "此运对本命结构形成补全作用，具体兑现仍须结合流年观察。",
+		"support_use":       "此运对本命用神形成助力，具体力度仍以已计算关系为准。",
+		"carry_balance":     "此运以平衡承接为主，顺逆仍须结合原局限制观察。",
+		"damage_use":        "此运会削弱既有承接条件，宜以已计算关系保守观察。",
+		"break_pattern":     "此运对既有结构的扰动较大，不预设具体现实应事。",
+		"transform_pattern": "此运体现结构转化，是否成局仍须结合已声明事实判断。",
+		"undetermined":      "本运仅保留已计算事实，不扩展趋势判断。",
+	}[strings.TrimSpace(effect)]
+}
+
+// writeClassicalReferences 只展示实际检索到且带来源名的引文。
+// 引文用于说明取法，不自动生成命理结论。
+func writeClassicalReferences(b *strings.Builder, citations []baziCitation) {
+	lines := make([]string, 0, 3)
+	seen := map[string]struct{}{}
+	for _, citation := range citations {
+		classic := strings.TrimSpace(citation.Classic)
+		if classic == "" {
+			continue
+		}
+		if !strings.HasPrefix(classic, "《") {
+			classic = "《" + classic + "》"
+		}
+		for _, quote := range filterNonEmpty(citation.Quotes) {
+			quote = conciseDisplayText(quote, 120)
+			if quote == "" {
+				continue
+			}
+			line := "**" + classic + "**：" + quote
+			if _, exists := seen[line]; exists {
+				continue
+			}
+			seen[line] = struct{}{}
+			lines = append(lines, line)
+			if len(lines) == 3 {
+				break
+			}
+		}
+		if len(lines) == 3 {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	writeSubheading(b, "古籍参照")
+	writeBullets(b, lines)
 }
 
 // lifetimePeriodGroup maps a deterministic age boundary to one presentation group.
@@ -642,12 +695,13 @@ func buildStrengthConclusion(state baziCharterState) string {
 	return ""
 }
 
+// buildTiaohouConclusion 优先展示已通过合同的调候 anchor，再处理证据边界提示。
 func buildTiaohouConclusion(state baziCharterState) string {
-	if !buildBaziFactCapsule(state).FireEffectivenessKnown {
-		return "调候有效性尚待确认；当前只按月令寒暖燥湿需求与火的出现位置观察。"
-	}
 	if text := strings.TrimSpace(state.StaticSynthesis.TiaohouAnchor); text != "" {
 		return conciseDisplayText(text, 120)
+	}
+	if !buildBaziFactCapsule(state).FireEffectivenessKnown {
+		return "调候有效性尚待确认；当前只按月令寒暖燥湿需求与火的出现位置观察。"
 	}
 	if text := strings.TrimSpace(state.StaticSynthesis.TiaohouConstraint); text != "" {
 		return conciseDisplayText(text, 120)

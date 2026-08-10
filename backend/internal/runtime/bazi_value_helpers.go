@@ -1,15 +1,21 @@
-// This file belongs to the manager-owned runtime layer.
-// It owns BaZi value normalization helpers for this package.
-// It owns execution contracts and Manager flow; specialists do not own final answers.
+// Package runtime 包含 Manager 拥有的八字运行时辅助。
+//
+// 本文件负责动态值归一化、简单标量边界和跨节点文本判断；
+// 不负责执行合同、Manager 流程或最终答复。
 package runtime
 
-// stringValue returns a string only when the raw value is already string typed.
+import (
+	"fmt"
+	"strings"
+)
+
+// stringValue 仅在原始值已经是字符串时返回文本。
 func stringValue(raw any) string {
 	value, _ := raw.(string)
 	return value
 }
 
-// intValue converts common decoded JSON number shapes into int for guards.
+// intValue 将常见 JSON 数字形态转换为整数，供合同门禁使用。
 func intValue(value any) int {
 	switch typed := value.(type) {
 	case int:
@@ -18,5 +24,35 @@ func intValue(value any) int {
 		return int(typed)
 	default:
 		return 0
+	}
+}
+
+// minInt 返回两个整数中的较小值，供 runtime 合同边界计算使用。
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+// containsAnyText 判断文本集合中是否包含任一目标片段。
+func containsAnyText(texts []string, needles []string) bool {
+	for _, text := range texts {
+		for _, needle := range needles {
+			if needle != "" && strings.Contains(text, needle) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// anyToString 将动态载荷的值转成文本，隔离调用方的类型断言。
+func anyToString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return fmt.Sprint(value)
 	}
 }

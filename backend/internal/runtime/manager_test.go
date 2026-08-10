@@ -432,6 +432,23 @@ func TestManager_RoleAwareCompositionDoesNotLetFastModelRewritePrimary(t *testin
 	}
 }
 
+func TestManager_DynamicFactsNoticeRequiresExplicitTimeScope(t *testing.T) {
+	manager := &Manager{}
+	result := specialists.Result{
+		Domain:  "bazi",
+		Summary: "八字主线结论",
+		DomainContextPatch: map[string]any{
+			"dynamic_facts":               []DynamicFacts{{Scope: "liunian", Status: dynamicFactsStatusUnavailable}},
+			dynamicFactsNoticeRequiredKey: false,
+		},
+	}
+
+	reply := manager.ComposeFinalReply("事业、感情", result)
+	if strings.Contains(reply, "补充说明：本轮流年确定性资料当前不可用") {
+		t.Fatalf("static topic reply must not append an unrelated dynamic notice: %q", reply)
+	}
+}
+
 func TestRequiresQimenCase_UsesConsultationKindOnly(t *testing.T) {
 	if !requiresQimenCase(policy.ApprovedRoute{ConsultationKind: contracts.ConsultationKindEventQuestion}) {
 		t.Fatal("event_question should create a qimen Case")
