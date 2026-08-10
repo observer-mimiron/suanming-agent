@@ -42,6 +42,45 @@ flowchart LR
 
 `ApprovedRoute` 不是执行合同，`ExecutionPlan` 才是。`RequiredArtifacts` 是迁移兼容投影；实际校验使用带 owner、subject、历法规则的 `ArtifactRequirement`。
 
+## Backend 重构边界（Batch 1 冻结）
+
+本节只冻结后续文件迁移的事实边界，不代表 Batch 2-7 已实施；Batch 1 不改变运行时、API、SSE、Graph 或领域语义。
+
+| owner | 负责 | 明确不负责 |
+|---|---|---|
+| `RouteAdvisor` | 根据用户输入形成候选路由并执行路由降级 | `ExecutionPlan`、最终成文、领域事实、模型调用 retry 决策 |
+| `Policy Gate` | 对路由施加准入、白名单、澄清和确定性纠偏 | 领域解释、最终答复、模型 transport/retry 策略 |
+| `Manager` | 持有会话焦点，解析对象和资产，生成 `ExecutionPlan`，决定 follow-up，并做最终 compose | 路由审批、低层模型 transport/retry、自由工具发现、确定性命理计算 |
+| `ExecutionPlan` | 表达本轮 route、domain、subject、artifact requirement 和执行模式 | 执行副作用、模型调用、SSE 输出和状态持久化 |
+| `Prefill / ToolRunner` | 按 `ArtifactRequirement` 准备确定性资产，执行工具合同、参数校验、超时、工具 retry 和错误分类 | 语义路由、领域裁断、最终成文；不能替缺失资产让 specialist 猜测 |
+| bounded specialist | 在计划边界内完成限域解释、受控检索和领域结果 | 会话 owner、计划改写、跨对象猜测、最终答复权 |
+| `final guard / SSE bridge` | 校验最终输出合同，发送唯一最终 `text` 和 `done` 事件 | 补算资产、重做路由、替代领域解释或决定业务 retry |
+| trace / observability | 记录运行事实、阶段、错误、repair 和诊断投影；提供 `TurnTrace`/OTel/Langfuse 观测 | 作为执行真相源、改变下一动作、替业务 owner 做判断 |
+| `internal/repair` | 统一 failure class、repair action/policy、预算和 attempt 记录 | 传输层通用 retry、路由决策、最终文本生成和事实猜测 |
+
+### 依赖方向与禁止项
+
+目标依赖方向为：`handler/orchestrator -> supervisor -> route contract`，以及 `handler/orchestrator -> runtime -> state / tools / bounded specialists / repair / llm`；输出桥接只消费 runtime 结果和合同，trace 只消费各 owner 的观测事件。跨层调用必须通过窄 DTO 或明确合同，不以共享内部状态代替边界。
+
+- `supervisor` 不得反向依赖 `runtime`，尤其不得依赖 runtime 的模型调用、模型 transport 或 retry 决策。
+- 后续将模型 client、能力归一、transport timeout/retry 和相关错误合同收敛到 `backend/internal/llm/`；Batch 1 只记录目标，不移动代码、不新增兼容层。
+- `specialist` 不得依赖 `Manager`、Session owner、SSE bridge 或 final compose；`runtime` 只能通过 bounded runner 消费领域结果。
+- `final guard`、SSE bridge、trace 和 repair 不得反向决定路由、资产选择或领域语义；`ExecutionPlan` 不得依赖具体模型实现。
+- `backend/internal/specialists/bazi/graph` 继续保持不依赖 `internal/runtime`；domain DTO 不依赖 runtime。任何新反向 import 都是迁移阻塞，不通过增加 adapter 绕过。
+
+### 分阶段迁移规则
+
+先在现有 package 内按 owner 重组文件，稳定符号、调用方向和窄 DTO；只有同 package 重组完成、依赖图无新增反向边、合同验证通过后，才允许拆分 Go package。拆 package 不是 Batch 1 的工作，不能以目录变干净为理由提前引入接口、兼容代码或双轨实现。
+
+| 批次 | 迁移顺序与范围 | 前置条件 | 必须保持的不变量 |
+|---|---|---|---|
+| Batch 2 | 在 `supervisor` 内按 route、policy、fallback、adapter 重组文件 | Batch 1 文档冻结；完成符号和调用方清单 | 路由输出、准入规则、fallback 顺序和观测字段不变 |
+| Batch 3 | 在 `runtime` 内按 manager、plan、prefill、graph、output 重组文件 | Batch 2 完成；锁定 `ExecutionPlan`/`ArtifactRequirement` 合同 | Graph 拓扑、预算、错误出口、唯一 `text`/`done` 不变 |
+| Batch 4 | 在现有 package 内收拢 specialist runner、领域适配、trace/repair 调用边界 | Batch 3 完成；窄 DTO 和 owner 清单可验证 | specialist 无最终答复权；trace 只观测；repair 预算和分类不变 |
+| Batch 5 | 拆出 `backend/internal/llm/`，收拢模型调用和 transport/retry | Batch 2-4 的调用方向稳定；具备 retry/错误/trace 回归证据 | supervisor 不依赖 runtime retry；模型错误语义和 retry 计数不变 |
+| Batch 6 | 拆分 bounded specialist 与 domain package | Batch 5 完成；同 package 迁移无反向 import | specialist 只接收计划允许的输入；domain 不依赖 runtime；领域语义不变 |
+| Batch 7 | 清理旧 owner、兼容别名和残余跨层引用，完成依赖图收口 | Batch 5-6 全部通过；全量引用、构建和合同回归通过 | API/SSE/Graph/trace/repair 合同稳定；不保留双 owner 或反向依赖 |
+
 ## Manager 自主性边界
 
 - 当前 Manager 是 L2 工作流主控 + 定向 L3 编排器，不是 L4 autonomous agent，也不持有完整 ReAct 工具循环。
