@@ -5,14 +5,14 @@
 ## 当前阶段
 
 - **最后更新：** 2026-08-10
-- **阶段：** v1.5 收口；Eino 迁移完成；外层 orchestration 和八字内 Graph 已切换为 bounded self-loop；完整改造计划已补齐逐批验证、失败回退和 pre-mortem。
-- **当前任务：** 保持 `orchestration`/`bazi_deterministic` 两个 Graph 的状态机、预算、错误出口和 SSE 合同稳定；共享 repair 已迁入 `backend/internal/repair/`。八字循环控制已在无反向依赖的 `specialists/bazi/graph`，runtime 上下文、证据阶段和确定性投影已按职责切分；事实胶囊、年龄授权和引用目录 DTO 已下沉到无 runtime 依赖的 Bazi domain。Batch 1 已完成文档冻结；Batch 2-7 未开始，未获批准不得进入下一批。
+- **阶段：** v1.5 收口；Eino 迁移完成；外层 orchestration 和八字内 Graph 已切换为 bounded self-loop；完整改造计划已补齐目标目录树、文件/文件组处置表、逐批验证、失败回退和 pre-mortem。
+- **当前任务：** 保持 `orchestration`/`bazi_deterministic` 两个 Graph 的状态机、预算、错误出口和 SSE 合同稳定；共享 repair 已迁入 `backend/internal/repair/`。八字循环控制已在无反向依赖的 `specialists/bazi/graph`，runtime 上下文、证据阶段和确定性投影已按职责切分；事实胶囊、年龄授权和引用目录 DTO 已下沉到无 runtime 依赖的 Bazi domain。Batch 1 已完成文档冻结，目标树和处置表已落盘；Batch 2-7 未开始，未获批准不得进入下一批。
 - **代码原则：** 普通命理分歧进 `eval/` 数据集和 Langfuse trace，不进运行时专项分支。
 
 ## 当前批次
 
 - Batch 0：基线冻结已完成，仅作只读验证。
-- Batch 1：已完成 `docs/architecture.md` 与本文件的事实快照更新；完整改造计划已补齐逐批验证、失败回退、事实标记、pre-mortem 和统一执行协议。
+- Batch 1：已完成 `docs/architecture.md` 与本文件的事实快照更新；完整改造计划已补齐目标树、文件/文件组处置表、逐批验证、失败回退、事实标记、pre-mortem 和统一执行协议。
 - 当前批次仍为 Batch 1；Batch 2-7 未开始。Batch 2 的目标是把模型调用级 retry 移到已有 `backend/internal/llm/`，消除 `supervisor -> runtime.ModelCallRetryDecision` 反向依赖；必须先复核 Batch 1 并单独批准。
 
 ## 已验证事实

@@ -68,6 +68,73 @@ flowchart LR
 - `final guard`、SSE bridge、trace 和 repair 不得反向决定路由、资产选择或领域语义；`ExecutionPlan` 不得依赖具体模型实现。
 - `backend/internal/specialists/bazi/graph` 继续保持不依赖 `internal/runtime`；domain DTO 不依赖 runtime。任何新反向 import 都是迁移阻塞，不通过增加 adapter 绕过。
 
+### 当前结构清单
+
+| 目录 / 文件组 | 当前职责与代表内容 |
+|---|---|
+| **[KNOWN]** `internal/supervisor/` | route、fallback、ADK；代表 `approved_route.go`、`cheap_gate.go`、`client.go`、`adk_engine.go`、`decision_contract.go` |
+| **[KNOWN]** `internal/runtime/` | Manager、ExecutionPlan、Graph、Executor、Prefill、事件、观测及大量 `bazi_*`；runtime 结构过载是当前已确认的结构事实 |
+| **[KNOWN]** `internal/llm/` | 已有模型 factory、chat、embedding；Batch 2 追加模型调用 retry owner |
+| **[KNOWN]** `internal/repair/` | failure class、policy、budget 和 attempt 合同 |
+| **[KNOWN]** `internal/specialists/bazi/domain/` | 事实 DTO、授权范围、引用目录 |
+| **[KNOWN]** `internal/specialists/bazi/graph/` | 八字 Graph 拓扑与状态机，禁止依赖 runtime |
+| **[KNOWN]** `internal/tools/`、`internal/state/`、`internal/tracing/`、`internal/sse/`、`internal/handler/`、`internal/orchestrator/` | 保持现有 owner 和对外合同，本计划不预先改写其职责 |
+
+具体 executor、事件桥接、trace/final guard、Bazi renderer 拆分簇是 **[INFERRED]**，每批实施前需重读文件注释和调用图确认；package 拆分安全性及部署级多实例高可用是 **[UNKNOWN]**，本计划不承诺。
+
+### 最小目标目录树（先不拆 Go package）
+
+以下是同 package 文件重组的最小目标形状，不代表当前文件已全部存在；Batch 2-5 的目标文件名均为建议名，实施前必须重读职责注释、函数注释和调用图确认。
+
+```text
+internal/
+├── handler/
+├── orchestrator/
+├── supervisor/
+├── policy/
+├── runtime/
+│   ├── manager.go
+│   ├── execution_plan.go
+│   ├── orchestration_graph*.go
+│   ├── executor_entry.go       # Batch 3 建议名
+│   ├── executor_prefill.go     # Batch 3 建议名
+│   ├── executor_tools.go       # Batch 3 建议名
+│   ├── event.go
+│   ├── event_bridge.go          # Batch 4 建议名
+│   ├── event_trace.go           # Batch 4 建议名
+│   ├── final_guard.go           # Batch 4 建议名
+│   └── bazi_*.go
+├── llm/
+├── repair/
+├── tools/
+├── specialists/
+│   └── bazi/
+│       ├── domain/
+│       └── graph/
+├── state/
+├── sse/
+└── tracing/
+```
+
+不预先指定删除文件；不新增 package、接口、DAG、checkpoint 或 supervisor。目标树只约束 owner 和文件职责，不承诺 Batch 7 的 package 拆分。
+
+### 文件 / 文件组处置
+
+| 文件组 | 处置 | 批次 | 目标 owner | 明确不负责 |
+|---|---|---|---|---|
+| `supervisor/*.go` | 保留同 package；Batch 2 只更新 retry 引用 | Batch 2 | `supervisor` | 模型 transport/retry owner、ExecutionPlan、最终成文 |
+| `runtime/model_retry.go` | 移动到已有 `internal/llm/` | Batch 2 | `internal/llm` | 路由审批、领域语义、SSE 输出 |
+| `runtime/manager.go`、`execution_plan.go`、`orchestration_graph*.go` | 保留，暂缓拆分 | 暂缓 | `runtime` | 低层模型 retry、SSE sink、领域事实裁断 |
+| `runtime/executor.go` | 在同 package 内拆执行入口、Prefill、工具调用 | Batch 3 | `runtime` | 路由、Graph 拓扑、最终 SSE 合同改写 |
+| `runtime/event.go` | 保留事件合同 | 保留 | `runtime` | 改写事件类型、SSE wire shape |
+| `runtime/bridge.go` | 拆事件桥接 | Batch 4 | `runtime` | 重新路由、补算资产、决定领域语义 |
+| `runtime/observability.go` | 拆 event trace / final guard 函数簇 | Batch 4 | `runtime` | 让 trace 改变执行真相、让 guard 替代领域解释 |
+| `runtime/bazi_final_renderer.go` | 在同 package 内拆 renderer 函数簇 | Batch 5 | `runtime` | 新增命理裁断、改变领域合同或 SSE wire shape |
+| `runtime/repair_compat.go` 及旧兼容别名 | 先审计；只有零调用方才允许删除 | Batch 6 | `runtime` 兼容层 | 删除未确认引用、改变 repair 合同 |
+| `internal/llm/*.go` | 保留，追加 retry owner | Batch 2 | `internal/llm` | 路由、资产准备、领域解释 |
+| `specialists/bazi/domain/` 与 `specialists/bazi/graph/` | 保留现有边界 | 暂缓 | Bazi domain / graph | 依赖 runtime、拥有 Manager 或最终答复权 |
+| 其余 `runtime/bazi_*.go` | 暂缓，不在 Batch 3/4 顺手改 | 暂缓 | `runtime` | 借重构改变 Graph、领域语义或 renderer 合同 |
+
 ### 分阶段迁移规则
 
 Batch 2 是已存在的 `internal/llm` 边界上的责任迁移，不是新增 package；其后先在现有 package 内按 owner 重组文件。只有同 package 重组完成、依赖图无新增反向边、合同验证通过后，才进入 Batch 7 的 package 拆分可行性审查；审查不等于承诺拆分。每批只完成当前批次，不自动开始下一批。
