@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "boundary": {"type": "string", "minLength": 1},
+        "claim_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "confidence": {"type": "string", "enum": ["保守判断", "倾向成立", "明确成立"]},
+        "evidence_topics": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "fact_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "relation_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "verdict": {"type": "string", "minLength": 1}
+      },
+      "required": ["verdict", "fact_refs", "relation_refs", "claim_refs", "evidence_topics", "confidence", "boundary"]
+    },
+    "period_claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "boundary": {"type": "string", "minLength": 1},
+        "claim_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "confidence": {"type": "string", "enum": ["保守判断", "倾向成立", "明确成立"]},
+        "evidence_topics": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "fact_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "period_ref": {"type": "string", "pattern": "^dayun\\[[0-9]+\\]$"},
+        "relation_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "verdict": {"type": "string", "minLength": 1}
+      },
+      "required": ["period_ref", "verdict", "fact_refs", "relation_refs", "claim_refs", "evidence_topics", "confidence", "boundary"]
+    }
+  },
+  "properties": {
+    "current_period_ref": {"type": "string", "pattern": "^dayun\\[[0-9]+\\]$"},
+    "current_period_realization": {"type": "string", "enum": ["repair", "assist", "maintain", "disturb", "suppress"]},
+    "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "liunian_claim": {"$ref": "#/definitions/claim"},
+    "outcome_domains": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "period_claims": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"$ref": "#/definitions/period_claim"}},
+    "reasoning_steps": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "reasoning_summary": {"type": "string", "minLength": 1}
+  },
+  "required": ["current_period_ref", "current_period_realization", "period_claims", "liunian_claim", "limitations", "reasoning_summary", "reasoning_steps", "outcome_domains"]
+}

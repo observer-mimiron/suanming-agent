@@ -48,7 +48,7 @@ func NewADKRouteEngine(ctx context.Context, model einomodel.ToolCallingChatModel
 			if err != nil {
 				return "", err
 			}
-			if _, err := parseAndValidate(raw); err != nil {
+			if _, err := parseAndValidateToolOutput(raw); err != nil {
 				return "", errors.New(decisionRetryPrompt(err))
 			}
 			return raw, nil
@@ -79,7 +79,7 @@ func (e *adkRouteEngine) Decide(ctx context.Context, prompt, msg string) (schema
 	for attempt := 0; attempt < 2; attempt++ {
 		raw, err := e.runOnce(ctx, prompt, attemptMsg)
 		if err == nil {
-			decision, parseErr := parseAndValidate(raw)
+			decision, parseErr := parseAndValidateToolOutput(raw)
 			if parseErr != nil {
 				return schemas.SupervisorDecision{}, fmt.Errorf("adk parse decision: %w", parseErr)
 			}

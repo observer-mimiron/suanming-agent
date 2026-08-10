@@ -24,7 +24,7 @@ Langfuse 页面不是唯一验收信号；UI 没有显示正文，不等于运�
 | 双回合 follow-up 在线 smoke | 待最新报告确认 | 评测器已修复总预算和 setup trace 排除，需重新跑完整在线样本 |
 | 八字质量合同评测 | 已接入 | `bazi-quality-v1` 通过真实 `/api/chat`、SSE、Langfuse trace 与结构化响应/属性断言；仍需人工复核命理质量 |
 | Repair Harness 回归 | 已接入 | `runtime-repair-v1` 固化最近静态调候投影失败样本；`make eval-repair` 先跑本地 repair 合同测试再跑真实 `/api/chat` |
-| LLM Judge / 文本质量评测 | 未接入 | 运行时独立合同审计是二值语义门，不是离线 LLM-as-Judge；当前不能单独证明回答质量或用户满意度 |
+| LLM Judge / 文本质量评测 | 未接入 | 运行时合同校验是代码门禁，不是离线 LLM-as-Judge；当前不能单独证明回答质量或用户满意度 |
 | Experiments / Evals UI | 非主流程 | 当前 v3 部署不能作为稳定入口 |
 
 ## 常用命令
@@ -71,7 +71,7 @@ eval/
   datasets/                         # 可执行案例合同
     runtime-smoke-v1.json           # 首轮、follow-up、资产隔离 smoke
     retrieval-benchmark-v1.json     # 检索链路基准
-    bazi-quality-v1.json            # 八字候选裁定、年龄边界与独立审计质量合同
+    bazi-quality-v1.json            # 八字候选裁定、年龄边界与运行时合同质量
     bazi-stability-v1.json          # 同一八字输入重复运行稳定性合同
     runtime-repair-v1.json          # Repair Harness 最近失败样本回归
   runner/

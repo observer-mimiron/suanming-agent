@@ -1,4 +1,4 @@
-// This file belongs to the manager-owned runtime layer.
+// Package runtime This file belongs to the manager-owned runtime layer.
 // It owns BaZi charter agent wiring for this package.
 // It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
@@ -23,44 +23,32 @@ func (b *AgentBuilder) BuildEphemeralInnerAgent(ctx context.Context, cfg special
 }
 
 func baziEvidencePlannerConfig() specialists.Config {
-	cfg := newBaziCharterConfig("bazi_evidence_planner", "八字证据规划器", prompts.BaziEvidencePlannerInstruction, false, true)
+	cfg := newBaziCharterConfig("bazi_evidence_planner", "八字证据规划器", prompts.BaziEvidencePlannerInstruction, false, true, structuredSchemaBaziEvidencePlan)
 	cfg.UseFastModel = true
 	return cfg
 }
 
 func baziAnalysisPlannerConfig() specialists.Config {
-	cfg := newBaziCharterConfig("bazi_analysis_planner", "八字分析模式判定器", prompts.BaziAnalysisPlannerInstruction, false, true)
+	cfg := newBaziCharterConfig("bazi_analysis_planner", "八字分析模式判定器", prompts.BaziAnalysisPlannerInstruction, false, true, structuredSchemaBaziAnalysisPlan)
 	cfg.UseFastModel = true
 	return cfg
 }
 
 func baziStaticSynthesisConfig() specialists.Config {
-	return newBaziCharterConfig("bazi_static_synthesis", "八字静态综合器", prompts.BaziStaticSynthesisInstruction, false, true)
+	return newBaziCharterConfig("bazi_static_synthesis", "八字静态综合器", prompts.BaziStaticSynthesisInstruction, false, true, structuredSchemaBaziStaticSynthesis)
 }
 
 func baziDynamicSynthesisConfig() specialists.Config {
-	return newBaziCharterConfig("bazi_dynamic_synthesis", "八字动态综合器", prompts.BaziDynamicSynthesisInstruction, false, true)
+	return newBaziCharterConfig("bazi_dynamic_synthesis", "八字动态综合器", prompts.BaziDynamicSynthesisInstruction, false, true, structuredSchemaBaziDynamicSynthesis)
 }
 
-func baziCanonicalSynthesisConfig() specialists.Config {
-	return newBaziCharterConfig("bazi_canonical_synthesis", "八字最小裁断综合器", prompts.BaziCanonicalSynthesisInstruction, false, true)
+// baziLifetimeDayunSynthesisConfig owns the all-period reading and must remain
+// separate from the current-period dynamic contract.
+func baziLifetimeDayunSynthesisConfig() specialists.Config {
+	return newBaziCharterConfig("bazi_lifetime_dayun_synthesis", "八字全程大运综合器", prompts.BaziLifetimeDayunSynthesisInstruction, false, true, structuredSchemaBaziLifetimeDayunSynthesis)
 }
 
-// baziContractAuditConfig builds an independent fast-model reviewer that only
-// accepts or rejects synthesis contracts and never rewrites their content.
-func baziContractAuditConfig() specialists.Config {
-	return specialists.Config{
-		UseJSONMode:          true,
-		UseFastModel:         true,
-		Domain:               "bazi",
-		Name:                 "bazi_contract_audit",
-		Description:          "八字综合合同审计器",
-		Instruction:          strings.TrimSpace(prompts.BaziContractAuditInstruction),
-		InjectSessionContext: false,
-	}
-}
-
-func newBaziCharterConfig(name, description, instruction string, withKnowledgeTools, useJSON bool) specialists.Config {
+func newBaziCharterConfig(name, description, instruction string, withKnowledgeTools, useJSON bool, schemaName string) specialists.Config {
 	cfg := specialists.Config{
 		UseJSONMode:          useJSON,
 		Domain:               "bazi",
@@ -68,6 +56,7 @@ func newBaziCharterConfig(name, description, instruction string, withKnowledgeTo
 		Description:          description,
 		Instruction:          strings.TrimSpace(prompts.BaziMethodologyCharterInstruction + "\n\n" + prompts.BaziConstitutionInstruction + "\n\n" + instruction),
 		InjectSessionContext: false,
+		StructuredSchema:     schemaName,
 	}
 	if withKnowledgeTools {
 		cfg.ToolNames = []string{"knowledge_catalog", "knowledge_search"}

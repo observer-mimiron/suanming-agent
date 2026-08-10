@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "focus_topics": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "mode": {"type": "string", "enum": ["static_full", "dynamic_focus", "topic_focus"]},
+    "need_dynamic": {"type": "boolean"},
+    "need_lifetime_dayun": {"type": "boolean"},
+    "retrieval_stage": {"type": "string", "enum": ["static", "dynamic"]},
+    "stage_summary": {"type": "string", "minLength": 1},
+    "topic_mode": {"type": "string", "enum": ["analysis", "explain_term", "conservative_reason", "timing_reason"]},
+    "writer_template": {"type": "string", "enum": ["full", "topic", "year"]}
+  },
+  "required": ["mode", "retrieval_stage", "need_dynamic", "need_lifetime_dayun", "focus_topics", "writer_template", "stage_summary"]
+}

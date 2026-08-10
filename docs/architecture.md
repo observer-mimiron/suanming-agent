@@ -4,10 +4,11 @@
 
 ## 架构结论
 
-`RouteAdvisor -> Policy Gate -> Manager -> ExecutionPlan -> Prefill -> ToolRunner -> specialist runner(s) -> manager compose -> final guard -> SSE`
+`RouteAdvisor -> Policy Gate -> Manager -> ExecutionPlan -> orchestration Graph loop -> Prefill/dispatch -> aggregate -> Executor final guard -> SSE`
 
 - `RouteAdvisor` 只做路由审批，`Policy Gate` 只做确定性策略修正。
 - `Manager` 是 runtime 内唯一的对话 owner：解析当前对象，生成执行合同，决定 follow-up 的处理方式，并做有限的直接答复或最终综合；它不是开放式 ReAct 主控。
+- `orchestration` Graph 是外层单轮 bounded loop 的 owner：它持有下一动作、Prefill/dispatch 预算、primary/support outcome、降级和终止状态；不持有 Session、Executor 或 SSE sink。
 - `specialist runner(s)` 是受限领域 worker，可在 `ExecutionPlan` 边界内使用 ADK 工具调用；程序控制状态、工具、资产校验和输出边界。
 
 ## 服务拓扑
@@ -77,21 +78,23 @@ flowchart TD
     H --> R["RouteAdvisor"]
     R --> G["Policy Gate"]
     G --> M["Manager: resolve focus + BuildExecutionPlan"]
-    M --> O["orchestrationGraph"]
-    O --> P["Preflight / Prefill"]
+    M --> O["orchestrationGraph\nPregel bounded loop"]
+    O --> P["preflight / prefill"]
     P --> T["ToolRunner"]
-    T --> S["specialist runner(s) / Bazi Graph"]
-    S --> C["manager compose"]
-    C --> F["final guard"]
-    F --> E["SSE"]
+    T --> S["dispatch_batch\nparallel domain workers"]
+    S --> C["aggregate\nprimary/support + compose"]
+    C --> O
+    O --> F["Executor final guard\nInvoke 后唯一保护"]
+    F --> E["SSE\n唯一 text + done"]
 ```
 
 1. RouteAdvisor 给出候选路由，Policy Gate 施加白名单、澄清和硬规则。
 2. Manager 解析对象、资料版本、Case 与需满足的 `ArtifactRequirement`，然后生成 `ExecutionPlan` 和 `ExecutionSnapshot`。
 3. Preflight 可因澄清或资料缺失短路；Prefill 只按精确 requirement 准备命盘。
-4. ToolRunner 执行 runtime-owned 确定性工具，并记录工具版本、参数校验、超时、重试和错误分类。
-5. 纯八字单域进入 authority-first graph；其他受限场景进入 specialist runner(s)。
-6. Manager compose，final guard 校验后经 SSE 输出 `thinking / tool_call / component / text / done`。
+4. `orchestration` Graph 先执行 prefill；缺失资产按 bounded budget 回到 prefill，不能让 worker 猜测资产。
+5. `dispatch_batch` 对 pending domain 做并行 fan-out/fan-in；成功 domain 不会在 primary 重试时重跑。
+6. 纯八字单域在 dispatch 的 bazi step 内进入 `bazi_deterministic` 内部 Graph；混合域保留 primary/support 汇合。
+7. Graph 返回 raw result 后，Executor 执行 final guard，再发送唯一最终 `text`；Orchestrator 最后发送 `done`。
 
 Run Inspector 是聊天页内唯一排障入口：后端在每轮结束时发送 `run-inspection` component，由本地 `TurnTrace` 投影出白名单 span、诊断结论和 runtime 摘要。旧 `process-panel / debug-trace / execution-tree` 前端展示链路已下线；原始追踪仍以 `TurnTrace` 和 OTel/Langfuse 为深挖来源。
 
@@ -101,13 +104,17 @@ Run Inspector 是聊天页内唯一排障入口：后端在每轮结束时发送
 
 ### 八字
 
-八字单域采用 authority-first graph：分析模式 -> 证据规划 -> 受控检索 -> 静态综合 -> 动态综合 -> 程序 renderer。四柱、大运顺逆、起运时刻、交运边界等确定性事实来自 Go 工具；LLM 只能解释结构化结果。
+八字单域采用 `bazi_deterministic` Graph：`bootstrap -> decide_next -> analysis_plan/evidence/static/lifetime_dayun/dynamic/repair/recover/render`。Graph 编译、Pregel 循环、下一动作、预算和终止位于 `backend/internal/specialists/bazi/graph/`，且不依赖 `internal/runtime`；runtime 仅适配既有模型、检索、SSE 和 trace 能力。四柱、大运顺逆、起运时刻、交运边界等确定性事实来自 Go 工具；LLM 只能解释结构化结果。
 
-#### Strict Schema 迁移状态
+#### 结构化输出合同迁移状态
 
-项目已决定：所有会被 Go 消费的模型结构化结果必须迁移到 provider-native Strict JSON Schema，再经 Go 严格解码与通用事实引用校验。当前实现仍有 DeepSeek `json_object` JSON Mode，迁移尚未完成；当前 `deepseek-v4-flash` endpoint 已实测拒绝 `response_format.type=json_schema`。迁移不得绕过 Manager、`ExecutionPlan`、Prefill、final guard、renderer 或 SSE wire shape；详细范围、provider probe 和删除顺序见 [Strict JSON Schema 迁移实施方案](strict-json-schema-implementation-plan.md)。
+所有会被 Go 消费的 BaZi JSON Mode 输出均使用 DeepSeek `json_object` 传输。V2 的活跃模型 DTO 固定为 `analysis_plan`、`evidence_plan`、`static_judgment`、`dynamic_judgment`，各自维护 Draft-07 文件（`backend/internal/runtime/schemas/bazi-*.schema.json`），由 registry 原样注入 prompt，再经 `gojsonschema`、`json.Decoder.DisallowUnknownFields` 和 EOF 单值检查，最后进入 DTO 语义与 runtime fact/relation/claim catalog 校验。当前 registry 只注册这四类活跃节点合同。`json_object` 只保证 JSON 外形，不是 provider-native Strict JSON Schema；字段、引用和恢复合同均由 Go runtime 承担。Schema 错误允许一次独立 repair，transport transient 由模型调用重试单独计数，事实冲突与方法合同不交给模型改措辞。ADK output tool 保持原有 `InferTool/ReturnDirectly` 语义；Supervisor text fallback 使用独立严格 Schema。此次迁移不改 DeepSeek endpoint，也不等待 Responses/Beta strict；不得绕过 Manager、`ExecutionPlan`、Prefill、final guard、renderer 或 SSE wire shape。详细范围、清理顺序和验证命令见 [全局结构化输出实施方案](strict-json-schema-implementation-plan.md)。
 
-八字输入继续细分为 `chart_facts -> rule_materials -> static/dynamic synthesis -> minimal_guard -> renderer -> eval`：排盘、藏干层级、透干和标准冲合刑害属于可复算事实；runtime 不再注入默认 `ziping_classic_v1` rule profile，也不从 Go 代码生成 claim、调候单行 overlay 或逐运趋势。静态/动态综合器负责整盘主轴、旺衰倾向、层次和逐运判断。硬门禁只阻断可证明的事实冲突、结构字段错误、大运覆盖缺失、未声明关系事实和直接医疗/法律/伤灾断语；未知 `fact_ref` 别名、未知 `claim_ref`、普通命理措辞进入 trace soft audit 与 eval，不得仅凭词面让整段综合失败。静态/动态综合第一次失败时把机器可读 violation 或审计 findings 注入同节点重试；重试后仍存在严重合同错误则返回 `RuntimeFailure`，只在缺少展示性细节且核心裁断、事实引用、逐运覆盖和年龄授权均成立时接受为 `model_partial` 并省略缺失展示块。renderer 只转写上游 synthesis verdict 或 partial 可展示字段，不把失败的模型输出改造成 facts-only 兜底。
+八字 V2 是当前唯一确定性内图：`bootstrap -> decide_next -> analysis_plan -> decide_next -> evidence_action -> validate_evidence -> decide_next -> static_judgment -> contract_check -> decide_next -> dynamic_judgment -> contract_check -> decide_next -> render`，repair 和 recover_facts 是显式分支。`evidence_action` 最多消耗两次证据预算；`static_judgment` 是唯一静态模型裁断；`dynamic_judgment` 只允许引用 runtime 已绑定的当前大运和流年；`contract_check` 只校验并写 failure，repair 是否可调用由共享 `internal/repair` policy 决定。排盘、藏干层级、透干、受力、官星透藏、调候火状态、大运边界和关系属于可复算事实，由 `BaziFactCapsule` 提供给类型化语义策略。静态 DTO 为四个固定槽位提供受长度约束的短裁断和已声明的 `fact_ref`、`claim_ref`，不接收原局 `relation_ref`、自由边界、限制或推理文本；这些说明由 runtime 事实投影。动态 DTO 可额外引用已绑定岁运关系，且只校验模型实际裁断的当前 period。renderer 只转写已验证投影；动态 facts-only 仅呈现已绑定当前大运或未定位边界，不把全量大运目录作为动态解读，并在最终文本出口删除内部引用语法，不重新裁断。
+
+当前实现的 Graph 拓扑、状态字段、错误出口、并行汇合和仍未完成的语义代码拆包边界，见本节、[八字 Graph 当前事实快照](bazi-graph-current-snapshot.md) 和 [PROGRESS.md](../PROGRESS.md) 的 Graph 主链事实。
+
+本命、全程运路与当前阶段是三个只读下游边界。静态层仍保留 `tier_assessment` 作证据审计，但完整命盘的主结论以本命格局为准；`lifetime_dayun_judgment` 必须覆盖全部已计算大运，并只输出其对本命结构的补、助、损、破；`dynamic_judgment` 继续只裁断当前大运的 `current_period_realization`（修复、助力、维持、扰动、压制）和流年走势。后两层不得改写本命，当前层不得改写全程逐运或总评。最终“综合判定”按本命底盘、全程运路、当前阶段、流年触发依次呈现。
 
 大运合同必须保留出生分钟、顺逆和顺逆依据、起运时刻以及每步日期边界。流年判断优先比较真实交运日；缺少时间边界的历史资产才可回退虚岁区间。动态层可解释标准关系触发，但趋势和吉凶只能来自动态 synthesis；Go runtime 不按固定分值自动生成“承托/压力/结构承接”。当前运缺失时可按保留的日期边界回补，仍无法定位则明确标为未识别，不能猜测某一步为当前运。
 
@@ -126,7 +133,7 @@ Run Inspector 是聊天页内唯一排障入口：后端在每轮结束时发送
 
 `event_question` 的 `qimen_case_chart` 必须由 Manager 绑定到当前 Case；`Case.EventTime`、`TurnContext.QuestionTime` 和 payload 的 `question_time` 相同，OwnerRef.Kind 必须为 `case`。Prefill/ToolRunner 是唯一的奇门排盘入口，运行时和 Eino 适配器只暴露 `question_time`，Qimen specialist 只接收当前 Case 盘、问题文本和结构化问事事实，不接收 profile、出生历史或完整会话上下文。
 
-阶段运势的 `DynamicFacts` 是本轮 Prefill 的临时能力投影，不是持久化资产；只有目标时点匹配的确定性事实才能标记 `ready`。流月尚未实现时固定为 `unavailable/degraded`，由 Manager 明示缺口，模型不得补算。健康类免责声明由 final guard 强制追加，不由 prompt 或 renderer 负责。
+阶段运势的 `DynamicFacts` 是本轮 Prefill 的临时能力投影，不是持久化资产；只有目标时点匹配的确定性事实才能标记 `ready`。流月尚未实现时固定为 `unavailable/degraded`，由 Manager 仅在 `ExecutionPlan.Route.Slots.TimeScope` 明确存在时明示缺口，模型不得补算。没有明确时间范围的静态或结构追问，即使动态事实状态不可用，也不得把流年/流月缺口追加到最终文本。健康类免责声明由 final guard 强制追加，不由 prompt 或 renderer 负责。
 
 ### 检索
 
@@ -136,9 +143,12 @@ Run Inspector 是聊天页内唯一排障入口：后端在每轮结束时发送
 
 - `ExecutionPlan` 明确选择 `direct`、`reuse_artifact` 或 `rerun_specialist`；preflight、renderer 和领域 graph 不再次暗判。
 - 通用术语解释可由 Manager 直接答；依赖当前命盘结构的问题必须绑定资产并走领域链。
+- 八字普通结构追问的 `直接回答` 按已验证字段回退：优先使用 `TopicDirectAnswer`，缺失时依次使用 `PatternOutcome`、`MainAxis`、`TopicFocusAnswer`；只有这些字段和适用的动态结论都不存在时，才允许输出“未形成直接裁断”。缺少专用 topic 字段本身不等于没有裁断。
+- `timing_reason` 属于动态追问，直接回答优先使用当前动态趋势；它与普通结构追问的静态回退规则分开，不能互相覆盖。
+- 动态事实缺口提示属于展示边界，不是静态合同失败：只有执行计划带明确 `TimeScope` 时才追加 `unavailable/degraded` 说明；静态追问不得因为缺少流年/流月事实而改变主线结论或追加无关提示。
 - cheap gate 只复用窄范围同域普通追问，必须写入 `decision_source`、`gate_reason` 等观测信号，不能成为第二套路由器。
 - 会话恢复恢复当前 session 和最近一轮展示态；`ExecutionSnapshot` 是 `RunInspection` 根 span 运行时摘要的来源。
-- 全局 Repair Harness 的目标设计见 `docs/repair-harness-implementation-plan.md`。落地前当前主链仍以现有 `RuntimeFailure`、领域恢复和 final guard 为准；实施时不得绕过 Manager-owned runtime、`ExecutionPlan`、Prefill 或 final guard。
+- 共享 repair 分类、策略和预算位于 `backend/internal/repair/`；runtime 只保留兼容别名。八字 Graph 控制已拆入 `backend/internal/specialists/bazi/graph/`；其余语义节点仍通过 runtime 适配，不能绕过 Manager-owned `ExecutionPlan`、Prefill 或 final guard。
 
 ## 当前非目标
 
@@ -150,8 +160,9 @@ Run Inspector 是聊天页内唯一排障入口：后端在每轮结束时发送
 ## 核心入口
 
 - 路由：`backend/internal/supervisor/approved_route.go`、`cheap_gate.go`、`adk_engine.go`。
-- 主控：`backend/internal/runtime/manager.go`、`execution_plan.go`、`orchestration_graph.go`、`preflight.go`、`final_guard.go`。
+- 主控：`backend/internal/runtime/manager.go`、`execution_plan.go`、`orchestration_graph.go`、`orchestration_graph_loop.go`、`executor.go`。
 - 资产：`backend/internal/state/session.go`、`assets.go`、`backend/internal/runtime/artifact_resolver.go`。
 - 工具：`backend/internal/tools/contract.go`、`registry.go`、`runner.go`。
-- 八字：`backend/internal/runtime/bazi_charter_graph.go`、`bazi_final_renderer.go`、`backend/internal/tools/bazi/`。
+- 八字 Graph：`backend/internal/specialists/bazi/graph/graph.go`；runtime 适配与现有领域节点：`backend/internal/runtime/bazi_graph_adapter.go`、`bazi_internal_graph.go`、`bazi_charter_graph.go`、`bazi_final_renderer.go`；确定性工具：`backend/internal/tools/bazi/`。
+- repair：`backend/internal/repair/`。
 - 验收：`docs/acceptance-criteria.md`、`eval/README.md`、`eval/datasets/runtime-smoke-v1.json`。

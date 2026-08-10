@@ -73,7 +73,23 @@ func domainStepsForRoute(route policy.ApprovedRoute) []contracts.DomainStep {
 		}
 		return []contracts.DomainStep{{Domain: domain, Role: "primary"}}
 	default:
-		return nil
+		domains := selectDomains(route)
+		if len(domains) == 0 {
+			return nil
+		}
+		primary := route.PrimaryDomain
+		if primary == "" {
+			primary = "bazi"
+		}
+		steps := make([]contracts.DomainStep, 0, len(domains))
+		for _, domain := range domains {
+			role := "support"
+			if domain == primary {
+				role = "primary"
+			}
+			steps = append(steps, contracts.DomainStep{Domain: domain, Role: role})
+		}
+		return steps
 	}
 }
 

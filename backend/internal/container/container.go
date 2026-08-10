@@ -192,7 +192,8 @@ func BuildContainer() *Container {
 
 	// 运行时执行器 — 使用 ADK ChatModelAgent 动态调度工具。
 	runtimeModel := mustNewToolCallingModel(cfg, cfg.LLMModel, llmTemp)
-	runtimeJSONModel := mustNewToolCallingJSONModel(cfg, cfg.LLMModel, llmTemp)
+	// JSON Mode 节点只承担合同化输出，固定低温度以减少同一输入下的采样漂移；普通模型仍使用配置温度。
+	runtimeJSONModel := mustNewToolCallingJSONModel(cfg, cfg.LLMModel, 0.0)
 	flashRuntimeModel := mustNewToolCallingModel(cfg, flashModel, 0.0)
 	flashRuntimeJSONModel := mustNewToolCallingJSONModel(cfg, flashModel, 0.0)
 	// 摘要模型 — 复用 flash 配置，用于 specialist summarization 中间件压缩长对话历史。
@@ -232,9 +233,10 @@ func BuildContainer() *Container {
 		panic(err)
 	}
 	sr.Register(bazi.GetConfig(), &appRuntime.ADKSpecialistRunner{
-		Domain:   "bazi",
-		Config:   bazi.GetConfig(),
-		Executor: executor,
+		Domain:            "bazi",
+		Config:            bazi.GetConfig(),
+		Executor:          executor,
+		UseAuthorityGraph: true,
 	})
 	sr.Register(qimenSp.GetConfig(), &appRuntime.ADKSpecialistRunner{
 		Domain:   "qimen",

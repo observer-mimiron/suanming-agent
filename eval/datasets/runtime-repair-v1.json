@@ -22,8 +22,8 @@
         "repair.attempt": [],
         "repair.action": [],
         "repair.final_action": [],
-        "bazi.static.source": ["model", "model_partial", "facts_only_degraded"],
-        "bazi.dynamic.source": ["model", "model_partial", "facts_only_degraded", "unknown"]
+        "bazi.static.source": ["model", "facts_only_degraded"],
+        "bazi.dynamic.source": ["model", "facts_only_degraded", "unknown"]
       },
       "failure_learning": {
         "conjectured": "静态投影合同会把调候锚点不完整拦在用户可见错误前",

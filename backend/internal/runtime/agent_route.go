@@ -1,4 +1,4 @@
-// This file belongs to the manager-owned runtime layer.
+// Package runtime This file belongs to the manager-owned runtime layer.
 // It owns agent route normalization for this package.
 // It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
@@ -100,6 +100,13 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 	}
 	const sessionCtxPlaceholder = "{{SESSION_CONTEXT}}"
 	instruction := cfg.Instruction
+	if cfg.StructuredSchema != "" {
+		contract, err := structuredOutputPromptContract(cfg.StructuredSchema)
+		if err != nil {
+			return nil, err
+		}
+		instruction += "\n\n" + contract
+	}
 	if sessionCtx != "" {
 		if strings.Contains(instruction, sessionCtxPlaceholder) {
 			instruction = strings.Replace(instruction, sessionCtxPlaceholder, sessionCtx, 1)

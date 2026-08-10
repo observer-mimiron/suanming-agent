@@ -102,32 +102,48 @@ func primaryDomainForSteps(steps []executionStep) string {
 }
 
 func (e *Executor) runExecutionPlan(ctx context.Context, sink EventSink, st *state.SessionState, plan ExecutionPlan, message string) (specialists.Result, error) {
-	if e == nil || e.specialistRegistry == nil {
-		return specialists.Result{}, fmt.Errorf("execution plan requires specialist registry")
-	}
-	if st == nil {
-		return specialists.Result{}, fmt.Errorf("execution plan requires session state")
-	}
 	steps, err := executionStepsForPlan(plan)
 	if err != nil {
 		return specialists.Result{}, err
 	}
+	outcomes, err := e.dispatchExecutionSteps(ctx, sink, st, plan, message, steps)
+	if err != nil {
+		return specialists.Result{}, err
+	}
+	primaryDomain := primaryDomainForSteps(steps)
+	if primary := primaryFailureOutcome(outcomes); primary != nil {
+		return specialists.Result{}, fmt.Errorf("primary specialist %s failed: %w", primaryDomain, primary.Err)
+	}
+	return aggregateExecutionOutcomes(outcomes, primaryDomain), nil
+}
+
+// dispatchExecutionSteps executes one pending batch and returns every domain
+// outcome. It deliberately does not decide retry or termination; that belongs
+// to the outer graph state machine.
+func (e *Executor) dispatchExecutionSteps(ctx context.Context, sink EventSink, st *state.SessionState, plan ExecutionPlan, message string, steps []executionStep) ([]executionStepOutcome, error) {
+	if e == nil {
+		return nil, fmt.Errorf("execution plan requires executor")
+	}
+	if st == nil {
+		return nil, fmt.Errorf("execution plan requires session state")
+	}
+	if len(steps) == 0 {
+		return nil, fmt.Errorf("execution plan requires at least one pending domain step")
+	}
+	if e.specialistRegistry == nil && !(shouldUseBaziCharterGraph(plan) && len(plan.Domains) == 1) {
+		return nil, fmt.Errorf("execution plan requires specialist registry")
+	}
 
 	ctx = withEventSink(ctx, sink)
 	if err := validatePlanArtifacts(st, plan); err != nil {
-		return specialists.Result{}, err
+		return nil, err
 	}
 
-	primaryDomain := primaryDomainForSteps(steps)
 	outcomes := make([]executionStepOutcome, len(steps))
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	var (
-		wg         sync.WaitGroup
-		primaryErr error
-		errMu      sync.Mutex
-	)
+	var wg sync.WaitGroup
 
 	for i, step := range steps {
 		wg.Add(1)
@@ -140,48 +156,42 @@ func (e *Executor) runExecutionPlan(ctx context.Context, sink EventSink, st *sta
 			}
 			defer func() { outcomes[idx] = outcome }()
 
-			runner, ok := e.specialistRegistry.RunnerFor(step.Domain)
-			if !ok {
-				outcome.Err = fmt.Errorf("no specialist runner registered for %s", step.Domain)
-				if step.Role == executionStepRolePrimary {
+			var result specialists.Result
+			var runErr error
+			if e.shouldUseBaziAuthorityGraph(plan) && step.Domain == "bazi" {
+				result.Summary, runErr = e.runBaziAuthorityFirstGraph(runCtx, sink, st, message)
+				result.Domain = "bazi"
+			} else {
+				runner, ok := e.specialistRegistry.RunnerFor(step.Domain)
+				if !ok {
+					outcome.Err = fmt.Errorf("no specialist runner registered for %s", step.Domain)
 					outcome.Status = executionStepStatusFailed
-					errMu.Lock()
-					if primaryErr == nil {
-						primaryErr = outcome.Err
+					if step.Role == executionStepRoleSupport {
+						outcome.Status = executionStepStatusDegraded
 					}
-					errMu.Unlock()
-					cancel()
-				} else {
-					outcome.Status = executionStepStatusDegraded
+					return
 				}
-				return
-			}
 
-			route := plan.Route
-			// 每个 worker 仍接收自己的领域视角；最终主次只由 outcome.Role 表达，
-			// 避免把 specialist 请求里的 route 投影误当成合成合同。
-			route.PrimaryDomain = step.Domain
-			route.SecondaryDomains = secondaryDomainsForExecutionSteps(steps, step.Domain)
-			result, runErr := runner.Run(runCtx, specialists.Request{
-				SessionID:      st.SessionID,
-				UserMessage:    message,
-				Route:          route,
-				ManagerContext: st.ManagerContext,
-				DomainContext:  *domainContextFor(st, step.Domain),
-				Session:        specialistSessionView(st, plan, step.Domain),
-			})
+				route := plan.Route
+				// 每个 worker 仍接收自己的领域视角；最终主次只由 outcome.Role 表达，
+				// 避免把 specialist 请求里的 route 投影误当成合成合同。
+				route.PrimaryDomain = step.Domain
+				route.SecondaryDomains = secondaryDomainsForExecutionSteps(steps, step.Domain)
+				result, runErr = runner.Run(runCtx, specialists.Request{
+					SessionID:      st.SessionID,
+					UserMessage:    message,
+					Route:          route,
+					ManagerContext: st.ManagerContext,
+					DomainContext:  *domainContextFor(st, step.Domain),
+					Session:        specialistSessionView(st, plan, step.Domain),
+				})
+			}
 			if runErr != nil {
 				outcome.Err = runErr
-				if step.Role == executionStepRolePrimary {
-					outcome.Status = executionStepStatusFailed
-					errMu.Lock()
-					if primaryErr == nil {
-						primaryErr = runErr
-					}
-					errMu.Unlock()
-					cancel()
-				} else {
+				if step.Role == executionStepRoleSupport {
 					outcome.Status = executionStepStatusDegraded
+				} else {
+					outcome.Status = executionStepStatusFailed
 				}
 				return
 			}
@@ -190,10 +200,10 @@ func (e *Executor) runExecutionPlan(ctx context.Context, sink EventSink, st *sta
 	}
 
 	wg.Wait()
-	if primaryErr != nil {
-		return specialists.Result{}, fmt.Errorf("primary specialist %s failed: %w", primaryDomain, primaryErr)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	return aggregateExecutionOutcomes(outcomes, primaryDomain), nil
+	return outcomes, nil
 }
 
 // aggregateExecutionOutcomes 保留旧的文本结果投影，同时把角色和降级状态放入结构化 runtime 元数据。

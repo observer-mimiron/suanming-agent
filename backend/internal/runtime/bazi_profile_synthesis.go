@@ -1,4 +1,4 @@
-// This file belongs to the manager-owned runtime layer.
+// Package runtime This file belongs to the manager-owned runtime layer.
 // It owns BaZi profile synthesis behavior for this package.
 // It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime
@@ -162,6 +162,21 @@ func currentDayunName(input baziCharterInput, current map[string]any) string {
 		return strings.TrimSpace(stringValue(period["ganZhi"]))
 	}
 	return ""
+}
+
+// currentDayunIndexForInput returns the deterministic current-period index used
+// by dynamic claims. It returns -1 when the chart has no safely bound period.
+func currentDayunIndexForInput(input baziCharterInput) int {
+	name := currentDayunName(input, mapValue(input.Liunian, "current_dayun"))
+	if name == "" {
+		return -1
+	}
+	for index, period := range dayunPeriods(input.Dayun) {
+		if strings.TrimSpace(stringValue(period["ganZhi"])) == name {
+			return index
+		}
+	}
+	return -1
 }
 
 func staticPatternFactSummary(input baziCharterInput) string {

@@ -1,4 +1,4 @@
-// This file belongs to the manager-owned runtime layer.
+// Package runtime This file belongs to the manager-owned runtime layer.
 // It owns BaZi calendar-rule selection for this package.
 // It owns execution contracts and Manager flow; specialists do not own final answers.
 package runtime

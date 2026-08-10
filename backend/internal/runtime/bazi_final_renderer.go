@@ -1,12 +1,16 @@
-// This file belongs to the manager-owned runtime layer.
-// It owns BaZi final rendering for this package.
-// It owns execution contracts and Manager flow; specialists do not own final answers.
+// Package runtime 包含 Manager 拥有的八字最终渲染。
+//
+// 本文件只把已验证的静态和动态槽位转成用户可见 Markdown；
+// 不重判命理事实、不改写层次资格，也不承担模型修复或图调度。
 package runtime
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+var baziInternalReferencePath = regexp.MustCompile(`(?:dayun\[[0-9]+\](?:\.[A-Za-z0-9_]+)+|(?:liunian|yongshen|evidence_quality)(?:\.[A-Za-z0-9_]+)+|\b(?:support_score|pressure_score|tier_status)\b)`)
 
 // renderBaziFinalReply 改为由程序直接消费上游结构化结论并渲染最终 markdown。
 // 这样最终成文不再依赖自由文本 writer 自行排版，从根上消除标题、加粗结论、
@@ -39,6 +43,10 @@ func renderFactsOnlyDegradedTemplate(state baziCharterState) string {
 	writeConclusion(&b, "以下为工具返回事实，不是模型综合裁断。")
 	writeBullets(&b, buildStaticFactBullets(state))
 
+	writeHeading(&b, "强弱事实")
+	writeConclusion(&b, "以下仅展示工具计算的扶抑证据，不作喜忌或格局裁断。")
+	writeBullets(&b, factsOnlyStrengthBullets(state))
+
 	writeHeading(&b, "大运事实")
 	writeConclusion(&b, "大运干支、年龄与日期边界由工具计算；本节不判趋势。")
 	factsDynamic := buildFactsOnlyDynamicSynthesis(state.Input, state.StaticSynthesis, state.DynamicSynthesis.RecoveryReason)
@@ -51,6 +59,18 @@ func renderFactsOnlyDegradedTemplate(state baziCharterState) string {
 	writeHeading(&b, "说明")
 	writeConclusion(&b, "这不是完整八字解读；需要静态与动态综合稳定后，才输出主轴、用神、层次和岁运判断。")
 	return strings.TrimSpace(b.String())
+}
+
+// factsOnlyStrengthBullets 只展示确定性扶抑证据，保证降级答复不伪装为强弱裁断。
+func factsOnlyStrengthBullets(state baziCharterState) []string {
+	strength := strings.TrimSpace(state.StaticSynthesis.StrengthBalance)
+	if strength == "" {
+		strength = strengthEvidenceSummary(state.Input.Yongshen)
+	}
+	if strength == "" {
+		return []string{"**强弱证据**：工具未返回可展示的扶抑证据。"}
+	}
+	return []string{"**强弱证据**：" + strength}
 }
 
 func buildStaticFactBullets(state baziCharterState) []string {
@@ -139,57 +159,75 @@ func anyMapSlice(raw any) []map[string]any {
 	}
 }
 
+// renderFullTemplate 以九级本命层次为第一层，再并列全程运路和当前阶段。
+// 三层分别消费独立投影，避免岁运结论覆盖本命评级。
 func renderFullTemplate(state baziCharterState) string {
 	var b strings.Builder
 	writeHeading(&b, "总览结论")
-	writeConclusion(&b, buildOverviewConclusion(state))
-	writeHighlightBlock(&b,
-		"◎ 主轴",
-		buildOverviewAxisSummary(state),
-	)
+	writeConclusion(&b, buildOverviewAxisSummary(state))
 	writeHighlightBlock(&b,
 		"▲ 限制",
 		buildOverviewLimitationSummary(state),
 	)
-	writeHighlightBlock(&b,
-		"◇ 读法",
-		"格局、扶抑与调候分层看；岁运只说明对主线的承接与扰动。",
-	)
 
 	writeHeading(&b, "强弱视角")
 	writeConclusion(&b, buildStrengthConclusion(state))
-	writeBullets(&b, []string{
-		labeledBullet("依据", firstDisplayText(state.StaticSynthesis.Strength.Reasoning, state.StaticSynthesis.StrengthBalance)),
-		labeledBullet("扶抑喜忌", state.StaticSynthesis.Usage.Fuyi),
-		labeledBullet("解释", state.StaticSynthesis.Strength.Boundary),
-	})
+	strengthBullets := []string{}
+	seenStrength := map[string]struct{}{}
+	for _, item := range []struct {
+		label string
+		value string
+	}{
+		{label: "依据", value: firstDisplayText(state.StaticSynthesis.Strength.Reasoning, state.StaticSynthesis.StrengthBalance)},
+	} {
+		value := strings.TrimSpace(item.value)
+		key := displayFingerprint(value)
+		if key == "" {
+			continue
+		}
+		if _, exists := seenStrength[key]; exists {
+			continue
+		}
+		seenStrength[key] = struct{}{}
+		strengthBullets = append(strengthBullets, labeledBullet(item.label, value))
+	}
+	writeBullets(&b, strengthBullets)
 
 	writeHeading(&b, "调候视角")
 	writeConclusion(&b, buildTiaohouConclusion(state))
 	writeBullets(&b, []string{
-		labeledBullet("依据", state.StaticSynthesis.TiaohouAnchor),
-		labeledBullet("解释", state.StaticSynthesis.TiaohouConstraint),
+		labeledBullet("依据", state.StaticSynthesis.TiaohouConstraint),
 	})
 
 	writeHeading(&b, "格局视角")
-	writeConclusion(&b, buildPatternConclusion(state))
+	writeConclusion(&b, withoutAxisEcho(state, state.StaticSynthesis.PatternOutcome, "格局取用与总览主轴一致，不再重复表述。"))
 	writeBullets(&b, []string{
 		"**规则口径**：" + ruleProfileLabel(state),
-		labeledBullet("依据", state.StaticSynthesis.PatternBasis),
-		labeledBullet("取用分层", buildUseGodSummary(state)),
-		labeledBullet("限制", buildLimitationText(state)),
+		labeledBullet("依据", buildPatternEvidence(state)),
 	})
 
-	writeHeading(&b, "大运验证")
+	if state.AnalysisPlan.NeedLifetimeDayun {
+		writeHeading(&b, "全程运路")
+		writeConclusion(&b, buildLifetimeDayunConclusion(state))
+		writeLifetimeDayunGroups(&b, state)
+	}
+
+	if state.AnalysisPlan.NeedLifetimeDayun {
+		writeHeading(&b, "当前大运")
+	} else {
+		writeHeading(&b, "大运验证")
+	}
 	if isMinorBaziSubject(state) {
 		writeConclusion(&b, buildMinorDayunConclusion(state))
 		writeBullets(&b, buildMinorDayunBullets(state))
 	} else if isFactsOnlyDynamicSynthesis(state.DynamicSynthesis) {
-		writeConclusion(&b, buildFactsOnlyDayunConclusion(state))
-		writeDayunAnalysis(&b, factsOnlyDayunPeriods(state))
+		writeConclusion(&b, "当前大运仅保留可复算事实，暂不判断趋势。")
+		writeBullets(&b, factsOnlyCurrentDayunBullets(state))
 	} else {
 		writeConclusion(&b, buildDayunConclusion(state))
-		writeDayunAnalysis(&b, renderedDayunPeriods(state))
+		// 当前阶段只消费 runtime 已绑定的单一步大运；全量 DayunPath 属于全程运路，
+		// 不能借旧兼容字段再次渲染，否则会让两个章节的所有权重新混在一起。
+		writeBullets(&b, factsOnlyCurrentDayunBullets(state))
 	}
 
 	writeHeading(&b, "流年应期")
@@ -205,30 +243,159 @@ func renderFullTemplate(state baziCharterState) string {
 		})
 	}
 
-	writeHeading(&b, "综合判定")
-	writeConclusion(&b, state.StaticSynthesis.TierJudgment)
-	writeBullets(&b, []string{
-		labeledBullet("解释", state.StaticSynthesis.TierBasis),
-		labeledBullet("岁运兑现", buildTierRealizationText(state)),
-	})
+	writeHeading(&b, "评判标准")
+	if state.AnalysisPlan.NeedLifetimeDayun {
+		writeConclusion(&b, "本命命格层次仍按现有九级标准评价；再逐步观察全部大运对该结构的补、助、损、破；当前大运与流年只说明所处阶段和短期触发。")
+	} else {
+		writeConclusion(&b, tierAssessmentStandardText())
+	}
 
-	writeHeading(&b, "命格总结")
-	writeBullets(&b, []string{
-		labeledBullet("最大优点", joinOrDefault(state.StaticSynthesis.Advantages, "")),
-		labeledBullet("最大风险", joinOrDefault(state.StaticSynthesis.Risks, buildLimitationText(state))),
-		labeledBullet("用力方向", buildProfileActionDirection(state)),
-		labeledBullet("务实建议", buildProfilePracticalAdvice(state)),
-	})
+	writeHeading(&b, "综合判定")
+	if state.AnalysisPlan.NeedLifetimeDayun {
+		writeSubheading(&b, "本命命格层次")
+		writeConclusion(&b, strings.TrimPrefix(firstDisplayText(state.StaticSynthesis.TierJudgment, "本命命格层次暂未形成稳定裁断。"), "命格基础层次："))
+		writeBullets(&b, []string{labeledBullet("判定依据", state.StaticSynthesis.TierBasis), labeledBullet("本命格局", state.StaticSynthesis.PatternOutcome)})
+
+		writeSubheading(&b, "全程运路")
+		writeConclusion(&b, lifetimeTrajectorySummary(state.LifetimeSynthesis.Trajectory))
+		writeBullets(&b, []string{labeledBullet("全程结论", buildLifetimeDayunConclusion(state))})
+
+		writeSubheading(&b, "当前阶段")
+		writeConclusion(&b, buildDayunConclusion(state))
+		writeBullets(&b, factsOnlyCurrentDayunBullets(state))
+	} else {
+		writeConclusion(&b, buildCombinedAssessmentConclusion(state))
+		writeBullets(&b, []string{labeledBullet("判定依据", state.StaticSynthesis.TierBasis), labeledBullet("岁运兑现", buildTierRealizationText(state))})
+	}
+
 	return strings.TrimSpace(b.String())
 }
 
+// buildCombinedAssessmentConclusion 只并列已接受的本命九级层次、全程和当前判断，三层互不改写。
+func buildCombinedAssessmentConclusion(state baziCharterState) string {
+	if !state.AnalysisPlan.NeedLifetimeDayun {
+		baseline := firstDisplayText(state.StaticSynthesis.TierJudgment, "本命基础层次暂未形成稳定裁断。")
+		if isFactsOnlyDynamicSynthesis(state.DynamicSynthesis) {
+			return baseline + "；当前岁运仅保留可复算事实，暂不纳入走势评价。"
+		}
+		trend := withoutAxisEcho(state, firstDisplayText(state.DynamicSynthesis.CurrentTrend, "当前岁运走势暂未形成稳定裁断。"), "当前岁运按已绑定事实说明承接与扰动。")
+		return baseline + "；当前岁运走势：" + trend
+	}
+	baseline := strings.TrimPrefix(firstDisplayText(state.StaticSynthesis.TierJudgment, "本命命格层次暂未形成稳定裁断。"), "命格基础层次：")
+	lifetime := lifetimeTrajectorySummary(state.LifetimeSynthesis.Trajectory)
+	if isFactsOnlyDynamicSynthesis(state.DynamicSynthesis) {
+		return "本命命格层次：" + baseline + "；全程运路：" + lifetime + "；当前岁运仅保留可复算事实。"
+	}
+	trend := withoutAxisEcho(state, firstDisplayText(state.DynamicSynthesis.CurrentTrend, "当前岁运走势暂未形成稳定裁断。"), "当前岁运按已绑定事实说明承接与扰动。")
+	return "本命命格层次：" + baseline + "；全程运路：" + lifetime + "；当前阶段：" + trend
+}
+
+// buildLifetimeDayunConclusion projects only the dedicated all-life DTO.
+func buildLifetimeDayunConclusion(state baziCharterState) string {
+	lifetime := state.LifetimeSynthesis
+	if !state.AnalysisPlan.NeedLifetimeDayun {
+		return "本轮未请求全程大运综合。"
+	}
+	if lifetime.Status != "accepted" {
+		return "全程运路暂缓判定，仅保留各步可复算事实。"
+	}
+	labels := map[string]string{"smooth_realization": "整体承接较顺", "volatile_realization": "起伏中有兑现", "realization_with_breaks": "可成亦有破损", "mostly_constrained": "受制阶段较多"}
+	return firstDisplayText(lifetime.Summary, labels[lifetime.Trajectory], "全程运路暂未形成稳定裁断。")
+}
+
+// lifetimeTrajectorySummary is the compact full-life verdict used in the combined section.
+func lifetimeTrajectorySummary(trajectory string) string {
+	labels := map[string]string{"smooth_realization": "整体承接较顺", "volatile_realization": "起伏中有兑现", "realization_with_breaks": "可成亦有破损", "mostly_constrained": "受制阶段较多", "withheld": "暂缓判断"}
+	return firstDisplayText(labels[trajectory], "暂缓判断")
+}
+
+// renderLifetimeDayunBullets keeps every period separate instead of letting current dynamic overwrite it.
+func renderLifetimeDayunBullets(state baziCharterState) []string {
+	if state.LifetimeSynthesis.Status != "accepted" {
+		return []string{"**状态**：全程运路未通过完整合同，未以事实目录冒充综合判断。"}
+	}
+	items := make([]string, 0, len(state.LifetimeSynthesis.PeriodClaims))
+	for _, claim := range state.LifetimeSynthesis.PeriodClaims {
+		items = append(items, "**"+lifetimePeriodLabel(state, claim.PeriodRef)+"｜"+lifetimePeriodEffectLabel(claim.PeriodEffect)+"**："+conciseDisplayText(claim.Verdict, 100))
+	}
+	return items
+}
+
+// writeLifetimeDayunGroups keeps full coverage while grouping periods by their deterministic age boundary.
+func writeLifetimeDayunGroups(b *strings.Builder, state baziCharterState) {
+	if state.LifetimeSynthesis.Status != "accepted" {
+		writeBullets(b, renderLifetimeDayunBullets(state))
+		return
+	}
+	groups := []struct {
+		label  string
+		claims []baziLifetimeDayunClaim
+	}{
+		{label: "早期运程（29岁前）"},
+		{label: "中期运程（30-59岁）"},
+		{label: "后期运程（60岁后）"},
+	}
+	for _, claim := range state.LifetimeSynthesis.PeriodClaims {
+		group := lifetimePeriodGroup(state, claim.PeriodRef)
+		groups[group].claims = append(groups[group].claims, claim)
+	}
+	for _, group := range groups {
+		if len(group.claims) == 0 {
+			continue
+		}
+		writeSubheading(b, group.label)
+		for _, claim := range group.claims {
+			b.WriteString("\n#### ")
+			b.WriteString(lifetimePeriodLabel(state, claim.PeriodRef))
+			b.WriteString("\n")
+			b.WriteString("**结构定位：")
+			b.WriteString(lifetimePeriodEffectLabel(claim.PeriodEffect))
+			b.WriteString("**\n")
+			b.WriteString(conciseDisplayText(claim.Verdict, 100))
+			b.WriteString("\n")
+		}
+	}
+}
+
+// lifetimePeriodGroup maps a deterministic age boundary to one presentation group.
+func lifetimePeriodGroup(state baziCharterState, ref string) int {
+	periods := dayunPeriods(state.Input.Dayun)
+	index, ok := dynamicPeriodIndex(ref, periods)
+	if !ok {
+		return 1
+	}
+	startAge := intValue(periods[index]["startAge"])
+	endAge := intValue(periods[index]["endAge"])
+	if endAge > 0 && endAge <= 29 {
+		return 0
+	}
+	if startAge >= 60 {
+		return 2
+	}
+	return 1
+}
+
+func lifetimePeriodLabel(state baziCharterState, ref string) string {
+	periods := dayunPeriods(state.Input.Dayun)
+	if index, ok := dynamicPeriodIndex(ref, periods); ok {
+		if label := dayunPeriodDisplayLabel(periods[index]); label != "" {
+			return label
+		}
+	}
+	return "大运"
+}
+
+func lifetimePeriodEffectLabel(effect string) string {
+	labels := map[string]string{"complete_pattern": "补全结构", "support_use": "扶助用神", "carry_balance": "平衡承接", "damage_use": "损伤用神", "break_pattern": "破坏结构", "transform_pattern": "结构转化", "undetermined": "暂缓判断"}
+	return firstDisplayText(labels[effect], "结构观察")
+}
+
+// buildUseGodSummary combines only strength and seasonal lenses. Pattern text
+// belongs to the overview and must not create a second main-axis rendering.
 func buildUseGodSummary(state baziCharterState) string {
 	parts := []string{}
 	if verdict := strings.TrimSpace(state.StaticSynthesis.Usage.Fuyi); verdict != "" {
 		parts = append(parts, conciseDisplayText(verdict, 96))
-	}
-	if usage := strings.TrimSpace(state.StaticSynthesis.Usage.Pattern); usage != "" {
-		parts = append(parts, conciseDisplayText(usage, 96))
 	}
 	if usage := strings.TrimSpace(state.StaticSynthesis.Usage.Tiaohou); usage != "" {
 		parts = append(parts, conciseDisplayText(usage, 96))
@@ -249,35 +416,38 @@ func ruleProfileLabel(state baziCharterState) string {
 	if label := strings.TrimSpace(state.Input.RuleProfile.ID); label != "" {
 		return label
 	}
-	return "未选择专门规则口径"
+	return "本轮未启用专门规则裁断；检索材料只作依据，不直接生成规则结论"
 }
 
 func buildOverviewConclusion(state baziCharterState) string {
-	axis := conciseDisplayText(firstDisplayText(state.StaticSynthesis.MainAxis, state.StaticSynthesis.PatternOutcome), 96)
-	tier := conciseTierJudgmentText(state.StaticSynthesis.TierJudgment, 64)
-	if axis != "" && tier != "" && !strings.Contains(axis, tier) {
-		return strings.TrimRight(axis, "。；") + "；" + strings.TrimLeft(tier, "；")
+	if strings.TrimSpace(state.StaticSynthesis.MainAxis) != "" {
+		return "先看本命主轴与限制，再按评判标准给出基础层次；岁运部分只说明当前承接。"
 	}
-	return firstDisplayText(axis, conciseDisplayText(state.StaticSynthesis.ReasoningSummary, 160))
+	return conciseDisplayText(state.StaticSynthesis.ReasoningSummary, 160)
 }
 
-// conciseTierJudgmentText keeps the tier verdict visible in the overview. A
-// legacy no-tier phrase is converted to the current bounded-grading contract.
+// tierAssessmentStandardText explains the fixed nine-level lens before showing
+// the selected level, so the rank is not presented as an unexplained label.
+func tierAssessmentStandardText() string {
+	return "本命基础层次只评价命局结构，不等同于财富、地位或人格价值；本轮综合看主轴、有情、有力、清浊、病药、救应、调候与何知章印证，当前大运只说明承接，不改写本命层次。"
+}
+
+// conciseTierJudgmentText keeps the tier verdict visible without inventing a rank.
 func conciseTierJudgmentText(text string, maxRunes int) string {
 	text = strings.TrimSpace(text)
-	if strings.Contains(text, "证据不足") && strings.Contains(text, "暂不定级") {
-		return "命格层次中等（保守定位）。"
-	}
 	return conciseDisplayText(text, maxRunes)
 }
 
 func buildProfileActionDirection(state baziCharterState) string {
 	parts := []string{}
-	if usage := strings.TrimSpace(state.StaticSynthesis.Usage.Pattern); usage != "" {
-		parts = append(parts, "围绕格局取用："+conciseDisplayText(usage, 96))
+	if usage := strings.TrimSpace(state.StaticSynthesis.Usage.Fuyi); usage != "" {
+		parts = append(parts, "扶抑方向："+conciseDisplayText(usage, 96))
 	}
 	if usage := strings.TrimSpace(state.StaticSynthesis.Usage.Tiaohou); usage != "" {
-		parts = append(parts, "兼顾调候约束："+conciseDisplayText(usage, 96))
+		parts = append(parts, "调候方向："+conciseDisplayText(usage, 96))
+	}
+	if len(parts) == 0 {
+		return "按总览主轴的已验证条件推进，并持续核对限制。"
 	}
 	return strings.Join(filterNonEmpty(parts), "；")
 }
@@ -287,6 +457,59 @@ func buildProfilePracticalAdvice(state baziCharterState) string {
 		return "只按结构观察成长节奏，不把命理信号转成成人现实领域判断。"
 	}
 	return ""
+}
+
+// buildSummaryAdvantages drops an exact main-axis echo so the summary adds a
+// distinct advantage instead of restating the overview's only axis sentence.
+func buildSummaryAdvantages(state baziCharterState) string {
+	items := make([]string, 0, len(state.StaticSynthesis.Advantages))
+	for _, item := range state.StaticSynthesis.Advantages {
+		if !isAxisEcho(state.StaticSynthesis.MainAxis, item) {
+			items = append(items, item)
+		}
+	}
+	if len(items) == 0 {
+		return "主轴的可用处仍以已验证的结构承接为准。"
+	}
+	return joinOrDefault(items, "")
+}
+
+// buildSummaryRisks keeps the summary on independent restrictions instead of
+// replaying the overview axis through a model-supplied risk sentence.
+func buildSummaryRisks(state baziCharterState) string {
+	items := make([]string, 0, len(state.StaticSynthesis.Risks))
+	for _, item := range state.StaticSynthesis.Risks {
+		if !isAxisEcho(state.StaticSynthesis.MainAxis, item) {
+			items = append(items, item)
+		}
+	}
+	return joinOrDefault(items, buildLimitationText(state))
+}
+
+// isAxisEcho detects only the same full sentence or a direct containment; it
+// deliberately does not judge whether two different Chinese explanations agree.
+func isAxisEcho(axis, candidate string) bool {
+	axis = displayFingerprint(axis)
+	candidate = displayFingerprint(candidate)
+	if axis == "" || candidate == "" {
+		return false
+	}
+	return axis == candidate || strings.Contains(axis, candidate) || strings.Contains(candidate, axis)
+}
+
+// withoutAxisEcho replaces an exact repeated axis sentence with the local
+// section's narrower purpose. It never chooses a new axis or interpretation.
+func withoutAxisEcho(state baziCharterState, text, fallback string) string {
+	if isAxisEcho(state.StaticSynthesis.MainAxis, text) {
+		return fallback
+	}
+	return text
+}
+
+// displayFingerprint normalizes presentation punctuation for exact-echo control.
+func displayFingerprint(text string) string {
+	replacer := strings.NewReplacer(" ", "", "\t", "", "\n", "", "，", "", "。", "", "；", "", "：", "", ",", "", ".", "", ";", "", ":", "")
+	return replacer.Replace(strings.TrimSpace(text))
 }
 
 func buildOverviewAxisSummary(state baziCharterState) string {
@@ -420,6 +643,9 @@ func buildStrengthConclusion(state baziCharterState) string {
 }
 
 func buildTiaohouConclusion(state baziCharterState) string {
+	if !buildBaziFactCapsule(state).FireEffectivenessKnown {
+		return "调候有效性尚待确认；当前只按月令寒暖燥湿需求与火的出现位置观察。"
+	}
 	if text := strings.TrimSpace(state.StaticSynthesis.TiaohouAnchor); text != "" {
 		return conciseDisplayText(text, 120)
 	}
@@ -429,16 +655,31 @@ func buildTiaohouConclusion(state baziCharterState) string {
 	return ""
 }
 
-func buildPatternConclusion(state baziCharterState) string {
-	if text := strings.TrimSpace(state.StaticSynthesis.MainAxis); text != "" {
-		return conciseDisplayText(text, 150)
+// buildPatternEvidence projects deterministic pattern prerequisites instead
+// of replaying the model's free-text pattern verdict in a second section.
+func buildPatternEvidence(state baziCharterState) string {
+	facts := buildBaziFactCapsule(state)
+	parts := []string{}
+	if facts.MonthCommand != "" {
+		parts = append(parts, "月令为"+facts.MonthCommand+"，取格须与透干、通根、承接和反证同看")
 	}
-	return ""
+	if facts.OfficialHidden && !facts.OfficialVisible {
+		parts = append(parts, "官星藏支未透")
+	}
+	if len(parts) == 0 {
+		return "已按月令、透干、通根、承接和反证核对。"
+	}
+	return strings.Join(uniqueText(parts), "；") + "。"
 }
 
 func buildDayunConclusion(state baziCharterState) string {
+	role := renderCurrentPeriodRealization(state.DynamicSynthesis.CurrentPeriodRealization)
 	if text := strings.TrimSpace(state.DynamicSynthesis.CurrentTrend); text != "" {
-		return conciseDisplayText(text, 120)
+		text = withoutAxisEcho(state, conciseDisplayText(text, 100), "当前大运只按已绑定事实说明对本命结构的承接。")
+		if role != "" {
+			return "当前大运承接：" + role + "；" + text
+		}
+		return text
 	}
 	if periods := renderedDayunPeriods(state); len(periods) > 0 {
 		return periodHeadline(periods[0])
@@ -447,12 +688,7 @@ func buildDayunConclusion(state baziCharterState) string {
 }
 
 func renderedDayunPeriods(state baziCharterState) []string {
-	dynamic := state.DynamicSynthesis
-	lines := dynamic.DayunPath
-	if dynamic.Source != "recovered" && len(dynamic.DayunJudgments) > 0 {
-		lines = renderDayunJudgmentLines(dynamic.DayunJudgments)
-	}
-	return attachDayunPeriodLabels(lines, dayunPeriods(state.Input.Dayun))
+	return attachDayunPeriodLabels(state.DynamicSynthesis.DayunPath, dayunPeriods(state.Input.Dayun))
 }
 
 func attachDayunPeriodLabels(lines []string, periods []map[string]any) []string {
@@ -551,7 +787,7 @@ func renderDayunJudgmentLines(judgments []baziDayunJudgment) []string {
 
 func buildLiunianConclusion(state baziCharterState) string {
 	if text := strings.TrimSpace(state.DynamicSynthesis.LiunianFocus); text != "" {
-		return conciseDisplayText(text, 120)
+		return withoutAxisEcho(state, conciseDisplayText(text, 120), "流年只按当前岁运关系说明结构触发。")
 	}
 	if level := strings.TrimSpace(renderWindowLevel(state.DynamicSynthesis.WindowLevel)); level != "" {
 		return "这一年更像" + level + "。"
@@ -567,6 +803,15 @@ func buildTopicDirectConclusion(plan baziAnalysisPlan, state baziCharterState, q
 	case "timing_reason":
 		return firstDisplayText(state.DynamicSynthesis.CurrentTrend, "本轮未形成动态裁断。")
 	}
+	// 普通结构追问没有单独 topic claim 时，直接回答必须仍来自已通过
+	// 静态合同的命局结论；不能把“缺少专用字段”展示成“没有裁断”。
+	if text := firstDisplayText(
+		state.StaticSynthesis.PatternOutcome,
+		state.StaticSynthesis.MainAxis,
+		state.StaticSynthesis.TopicFocusAnswer,
+	); text != "" {
+		return text
+	}
 	if text := strings.TrimSpace(state.DynamicSynthesis.CurrentTrend); text != "" {
 		return text
 	}
@@ -576,9 +821,6 @@ func buildTopicDirectConclusion(plan baziAnalysisPlan, state baziCharterState, q
 func buildTopicDirectParagraph(state baziCharterState) string {
 	parts := make([]string, 0, 3)
 	if text := strings.TrimSpace(state.StaticSynthesis.TopicFocusAnswer); text != "" {
-		parts = append(parts, text)
-	}
-	if text := strings.TrimSpace(state.StaticSynthesis.PatternOutcome); text != "" {
 		parts = append(parts, text)
 	}
 	if text := strings.TrimSpace(state.DynamicSynthesis.LiunianFocus); text != "" {
@@ -644,7 +886,12 @@ func buildTierRealizationText(state baziCharterState) string {
 	if isFactsOnlyDynamicSynthesis(state.DynamicSynthesis) {
 		return "动态裁断受授权边界限制，本轮不作岁运趋势裁断。"
 	}
-	return firstDisplayText(state.DynamicSynthesis.CurrentTrend, "本轮未形成岁运兑现裁断。")
+	role := renderCurrentPeriodRealization(state.DynamicSynthesis.CurrentPeriodRealization)
+	trend := withoutAxisEcho(state, firstDisplayText(state.DynamicSynthesis.CurrentTrend, "本轮未形成岁运兑现裁断。"), "当前大运只按已绑定事实说明对本命结构的承接。")
+	if role == "" {
+		return trend
+	}
+	return "当前大运承接：" + role + "；" + trend
 }
 
 // buildFactsOnlyDayunConclusion explains a dynamic fallback as a scope boundary,
@@ -754,11 +1001,16 @@ func dayunPreviewText(dynamic baziDynamicSynthesis, periods []string, limit int)
 	return strings.Join(filterNonEmpty(items), "；")
 }
 
-// factsOnlyDayunPeriods renders deterministic period facts for a mixed result.
-// It is used when static interpretation succeeded but dynamic synthesis did not.
-func factsOnlyDayunPeriods(state baziCharterState) []string {
+// factsOnlyCurrentDayunBullets keeps a dynamic fallback scoped to the period
+// it can safely identify. The complete life-cycle directory remains available
+// to tools, but is not a substitute for a missing dynamic interpretation.
+func factsOnlyCurrentDayunBullets(state baziCharterState) []string {
 	dynamic := buildFactsOnlyDynamicSynthesis(state.Input, state.StaticSynthesis, "")
-	return attachDayunPeriodLabels(dynamic.DayunPath, dayunPeriods(state.Input.Dayun))
+	periods := attachDayunPeriodLabels(dynamic.DayunPath, dayunPeriods(state.Input.Dayun))
+	if current := currentDayunFactText(dynamic, periods); current != "" {
+		return []string{"**当前大运事实**：" + current}
+	}
+	return []string{"**当前大运事实**：工具未能定位当前大运。"}
 }
 
 func buildTopicConstraintText(state baziCharterState) string {
@@ -789,7 +1041,9 @@ func buildDynamicConstraintText(state baziCharterState) string {
 func buildLimitationText(state baziCharterState) string {
 	parts := make([]string, 0, 4)
 	if text := strings.TrimSpace(state.StaticSynthesis.CounterEvidence); text != "" {
-		parts = append(parts, conciseDisplayText(text, 120))
+		if !isAxisEcho(state.StaticSynthesis.MainAxis, text) {
+			parts = append(parts, conciseDisplayText(text, 120))
+		}
 	}
 	if text := strings.TrimSpace(state.StaticSynthesis.TierBasis); text != "" {
 		parts = append(parts, conciseDisplayText(text, 120))
@@ -814,6 +1068,19 @@ func renderWindowLevel(level string) string {
 		return strings.TrimSpace(level)
 	}
 }
+
+// renderCurrentPeriodRealization turns the dynamic enum into the separate
+// current-dayun role shown beside, never inside, the natal base tier.
+func renderCurrentPeriodRealization(value string) string {
+	return map[string]string{
+		"repair":   "修复",
+		"assist":   "助成",
+		"maintain": "维持",
+		"disturb":  "扰动",
+		"suppress": "压制",
+	}[strings.TrimSpace(value)]
+}
+
 func ensureSteps(src []string, fallback []string) []string {
 	if len(filterNonEmpty(src)) > 0 {
 		return filterNonEmpty(src)
@@ -937,21 +1204,47 @@ func writeHeading(b *strings.Builder, heading string) {
 	b.WriteString("\n")
 }
 
+// writeSubheading creates a stable second-level section without changing the page-level outline.
+func writeSubheading(b *strings.Builder, heading string) {
+	if b.Len() > 0 {
+		b.WriteString("\n")
+	}
+	b.WriteString("### ")
+	b.WriteString(heading)
+	b.WriteString("\n")
+}
+
+// writeConclusion writes a sanitized conclusion, which is the final text sink
+// for model-owned slot values.
 func writeConclusion(b *strings.Builder, text string) {
+	text = cleanUserVisibleText(text)
+	if text == "" {
+		text = "本轮未形成可展示结论。"
+	}
 	b.WriteString("**结论：")
 	b.WriteString(strings.TrimSpace(text))
 	b.WriteString("**\n")
 }
 
+// writeParagraphs writes only renderer-sanitized user-visible paragraphs.
 func writeParagraphs(b *strings.Builder, paragraphs []string) {
 	for _, paragraph := range filterNonEmpty(paragraphs) {
+		paragraph = cleanUserVisibleText(paragraph)
+		if paragraph == "" {
+			continue
+		}
 		b.WriteString(paragraph)
 		b.WriteString("\n")
 	}
 }
 
+// writeBullets writes renderer-sanitized user-visible list items.
 func writeBullets(b *strings.Builder, bullets []string) {
 	for _, bullet := range filterNonEmpty(bullets) {
+		bullet = cleanUserVisibleText(bullet)
+		if bullet == "" {
+			continue
+		}
 		b.WriteString("- ")
 		b.WriteString(strings.TrimSpace(bullet))
 		b.WriteString("\n")
@@ -973,19 +1266,33 @@ func writeDayunAnalysis(b *strings.Builder, periods []string) {
 	}
 }
 
+// writeSteps writes renderer-sanitized reasoning steps.
 func writeSteps(b *strings.Builder, steps []string) {
 	for i, step := range filterNonEmpty(steps) {
+		step = cleanUserVisibleText(step)
+		if step == "" {
+			continue
+		}
 		b.WriteString(fmt.Sprintf("%d. %s\n", i+1, strings.TrimSpace(step)))
 	}
 }
 
+// writeHighlightBlock writes a sanitized short summary beneath the overview.
 func writeHighlightBlock(b *strings.Builder, title, summary string, details ...string) {
+	summary = cleanUserVisibleText(summary)
+	if summary == "" {
+		summary = "本轮未形成可展示结论。"
+	}
 	b.WriteString("> ")
 	b.WriteString(strings.TrimSpace(title))
 	b.WriteString("：")
 	b.WriteString(strings.TrimSpace(summary))
 	b.WriteString("\n")
 	for _, detail := range filterNonEmpty(details) {
+		detail = cleanUserVisibleText(detail)
+		if detail == "" {
+			continue
+		}
 		b.WriteString("> ")
 		b.WriteString(strings.TrimSpace(detail))
 		b.WriteString("\n")
@@ -1016,9 +1323,9 @@ func cleanUserVisibleText(text string) string {
 // sanitizeInternalBoundaryText removes engineering-oriented wording from
 // user-visible renderer text without loosening any validation boundary.
 func sanitizeInternalBoundaryText(text string) string {
+	text = baziInternalReferencePath.ReplaceAllString(text, "已计算的结构事实")
 	replacer := strings.NewReplacer(
-		"证据不足，暂不定级", "命格层次中等（保守定位）",
-		"暂不定级", "按保守标准定级",
+		"暂不定级", "暂缓定级",
 		"调候规则未实现", "调候规则材料不足",
 		"规则表未实现", "规则材料不足",
 		"待规则表实现", "待规则材料补足",

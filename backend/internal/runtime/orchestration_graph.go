@@ -1,18 +1,16 @@
 // Package runtime contains the manager-owned execution flow.
 //
 // This file wires the outer Eino orchestration graph:
-// preflight -> short_circuit | prefill -> agent -> final_guard.
+// preflight -> decide_next -> prefill/dispatch_batch/terminal.
 package runtime
 
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/cloudwego/eino/compose"
-	"github.com/cloudwego/eino/schema"
 
-	"github.com/observer-mimiron/suanming-agent/internal/specialists"
+	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
 
@@ -28,6 +26,9 @@ type orchestrationCtx struct {
 func loadOrchestrationCtx(ctx context.Context) (*orchestrationCtx, error) {
 	init := getOrchestrationInit(ctx)
 	rt := getOrchestrationRuntime(ctx)
+	if init == nil || rt == nil {
+		return nil, fmt.Errorf("orchestration request context is incomplete")
+	}
 	var gs *orchestrationGraphState
 	err := compose.ProcessState[*orchestrationGraphState](ctx, func(_ context.Context, s *orchestrationGraphState) error {
 		gs = s
@@ -35,6 +36,9 @@ func loadOrchestrationCtx(ctx context.Context) (*orchestrationCtx, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("load orchestration graph state: %w", err)
+	}
+	if gs == nil {
+		return nil, fmt.Errorf("orchestration graph state is nil")
 	}
 	return &orchestrationCtx{GS: gs, Init: init, RT: rt}, nil
 }
@@ -66,44 +70,6 @@ func preflightNode(ctx context.Context, in string) (string, error) {
 	return in, nil
 }
 
-// preflightBranch selects the graph edge after preflight.
-// The returned labels must match the branch map in buildOrchestrationGraph.
-func preflightBranch(ctx context.Context, _ string) (string, error) {
-	oc, err := loadOrchestrationCtx(ctx)
-	if err != nil {
-		return "", err
-	}
-	if oc.GS.PreflightResult.ShortCircuit {
-		return "short_circuit", nil
-	}
-	return "prefill", nil
-}
-
-// emitShortCircuitNode sends preflight's user-visible answer and stops execution.
-// This path covers clarification, missing-profile prompts, and direct follow-up reuse.
-func emitShortCircuitNode(ctx context.Context, in string) (string, error) {
-	oc, err := loadOrchestrationCtx(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	span := tracing.SpanFromContext(ctx, "short_circuit", tracing.KindChain)
-	span.SetAttribute("turn_type", oc.GS.PreflightResult.TurnType)
-	span.SetAttribute("short_circuit", oc.GS.PreflightResult.ShortCircuit)
-	defer span.End()
-
-	oc.RT.Executor.updateGuidanceState(oc.Init.St, oc.Init.Route, oc.Init.UserMsg, oc.GS.PreflightResult)
-	_ = emitEventWithTrace(ctx, oc.RT.Sink, Event{
-		Type: "text",
-		Data: map[string]any{"content": oc.GS.PreflightResult.Text},
-	}, map[string]any{"turn_type": oc.GS.PreflightResult.TurnType})
-
-	getOrchestrationResult(ctx).TurnType = oc.GS.PreflightResult.TurnType
-	getOrchestrationResult(ctx).PrimaryDomain = oc.GS.Route.PrimaryDomain
-	getOrchestrationResult(ctx).ReplyDomain = oc.GS.Route.PrimaryDomain
-	return oc.GS.PreflightResult.Text, nil
-}
-
 // prefillNode prepares deterministic assets required by the Manager's plan.
 // Guided fallback can replace the route after preflight, so this node performs
 // the single allowed plan rebuild and stores the effective plan in graph state.
@@ -120,148 +86,30 @@ func prefillNode(ctx context.Context, in string) (string, error) {
 		plan = oc.RT.Executor.manager.BuildExecutionPlanForTurn(oc.Init.St, route, oc.Init.UserMsg, oc.Init.Plan.TurnContext)
 		oc.GS.Plan = plan
 		oc.GS.Route = route
+		// 强制路由会重建计划；待执行步骤必须同时替换，否则 dispatch 会按旧领域
+		// 调度，令当前计划的资产合同与 worker 领域发生错配。
+		oc.GS.PendingDomainSteps = append([]contracts.DomainStep(nil), plan.DomainSteps...)
 		oc.RT.Executor.syncExecutionRoute(ctx, oc.Init.St, route, plan)
 	}
+	oc.GS.PrefillAttempts++
+	oc.GS.Failure = graphFailure{}
 	oc.RT.Executor.prefill(ctx, oc.RT.Sink, oc.Init.St, plan, oc.Init.Vals)
+	if err := validatePlanArtifacts(oc.Init.St, plan); err != nil {
+		if recordErr := recordGraphFailure(ctx, &oc.GS.Failure, route.PrimaryDomain, failureStagePrefill, err); recordErr != nil {
+			return "", recordErr
+		}
+		oc.GS.PrefillCompleted = false
+		return in, nil
+	}
+	oc.GS.PrefillCompleted = true
 	oc.GS.DynamicFacts = dynamicFactsForPlan(oc.Init.St, plan)
 	tracing.SetTraceAttributes(ctx, map[string]any{"dynamic_facts": oc.GS.DynamicFacts})
 	return in, nil
 }
 
-// guardNode applies final output contracts and emits the buffered final text.
-// It is deliberately last so missing artifacts or internal leakage are blocked
-// after all specialist/manager composition has finished.
-func guardNode(ctx context.Context, finalText string) (string, error) {
-	oc, err := loadOrchestrationCtx(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	span := tracing.SpanFromContext(ctx, "final_guard", tracing.KindChain)
-	defer span.End()
-
-	turnType, guardedText := guardFinalAnswerWithPlan(ctx, oc.GS.Plan, oc.Init.St, finalText)
-	span.SetAttribute("turn_type", turnType)
-	if guardedText != "" {
-		_ = emitEventWithTrace(ctx, oc.RT.Sink, Event{
-			Type: "text",
-			Data: map[string]any{"content": guardedText},
-		}, map[string]any{"buffer_final": true, "turn_type": turnType})
-	}
-
-	result := getOrchestrationResult(ctx)
-	result.TurnType = turnType
-	result.PrimaryDomain = oc.GS.Route.PrimaryDomain
-	result.ReplyDomain = oc.GS.Route.PrimaryDomain
-	// Execute 仍会读取 result.Specialist 以保存 follow-up 资产；同步 guard
-	// 后文本，避免 SSE 展示了免责声明或拦截消息而返回值却回退到 guard 前内容。
-	result.Specialist.Summary = guardedText
-	return guardedText, nil
-}
-
-// agentNode dispatches the manager-approved execution plan to the correct worker.
-// Pure BaZi uses the authority-first internal graph; other domains use bounded
-// specialist runners and then Manager compose, never free-form runtime tool choice.
-func agentNode(ctx context.Context, in string) (*schema.StreamReader[string], error) {
-	oc, err := loadOrchestrationCtx(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	nodeSpan := tracing.SpanFromContext(ctx, "agent", tracing.KindChain)
-	nodeSpan.SetAttribute("primary_domain", oc.GS.Route.PrimaryDomain)
-
-	route := oc.GS.Route
-	plan := oc.GS.Plan
-	if oc.GS.PreflightResult.ForcedRoute != nil {
-		nodeSpan.SetAttribute("forced_route", true)
-	}
-	if plan.FollowupMode != "" {
-		nodeSpan.SetAttribute("followup_mode", plan.FollowupMode)
-	}
-
-	oc.GS.Route = route
-
-	if oc.GS.PreflightResult.ForcedRoute != nil && oc.GS.PreflightResult.Text != "" {
-		_ = emitEventWithTrace(ctx, oc.RT.Sink, Event{
-			Type: "text",
-			Data: map[string]any{"content": oc.GS.PreflightResult.Text},
-		}, map[string]any{"turn_type": oc.GS.PreflightResult.TurnType})
-	}
-
-	oc.RT.Executor.updateGuidanceState(oc.Init.St, route, oc.Init.UserMsg, oc.GS.PreflightResult)
-
-	route = plan.Route
-	oc.GS.Route = route
-
-	if shouldUseBaziCharterGraph(plan) {
-		finalText, err := oc.RT.Executor.runBaziAuthorityFirstGraph(ctx, oc.RT.Sink, oc.Init.St, oc.Init.UserMsg)
-		if err != nil {
-			return nil, fmt.Errorf("run pure bazi charter graph: %w", err)
-		}
-		finalText = appendDynamicFactsNotice(finalText, oc.GS.DynamicFacts)
-		sr, sw := schema.Pipe[string](1)
-		go func() {
-			defer sw.Close()
-			defer nodeSpan.End()
-			nodeSpan.SetAttribute("inner_graph", "bazi_authority_first")
-			nodeSpan.SetAttribute("dispatch_owner", "manager")
-			nodeSpan.SetAttribute("dispatch_domains", strings.Join(plan.Domains, ","))
-			nodeSpan.SetAttribute("final_text_len", len([]rune(finalText)))
-			getOrchestrationResult(ctx).ReplyDomain = route.PrimaryDomain
-			getOrchestrationResult(ctx).Specialist = specialists.Result{
-				Domain:             route.PrimaryDomain,
-				Summary:            finalText,
-				DomainContextPatch: attachDynamicFacts(nil, oc.GS.DynamicFacts),
-			}
-			sw.Send(finalText, nil)
-		}()
-		return sr, nil
-	}
-
-	resultCh := make(chan struct {
-		result specialists.Result
-		err    error
-	}, 1)
-
-	go func() {
-		defer close(resultCh)
-		defer nodeSpan.End()
-		nodeSpan.SetAttribute("dispatch_domains", strings.Join(plan.Domains, ","))
-
-		nodeSpan.SetAttribute("dispatch_owner", "manager")
-		result, runErr := oc.RT.Executor.runExecutionPlan(ctx, oc.RT.Sink, oc.Init.St, plan, oc.Init.UserMsg)
-		if runErr == nil {
-			result.DomainContextPatch = attachDynamicFacts(result.DomainContextPatch, oc.GS.DynamicFacts)
-			result.Summary = oc.RT.Executor.manager.ComposeFinalReply(oc.Init.UserMsg, result)
-			nodeSpan.SetAttribute("final_text_len", len([]rune(result.Summary)))
-			getOrchestrationResult(ctx).ReplyDomain = result.Domain
-			getOrchestrationResult(ctx).Specialist = result
-		}
-		resultCh <- struct {
-			result specialists.Result
-			err    error
-		}{result: result, err: runErr}
-	}()
-
-	sr, sw := schema.Pipe[string](1)
-	go func() {
-		defer sw.Close()
-		outcome := <-resultCh
-		if outcome.err != nil {
-			nodeSpan.RecordError(outcome.err)
-			nodeSpan.SetStatus("error")
-			sw.Send("", outcome.err)
-			return
-		}
-		sw.Send(outcome.result.Summary, nil)
-	}()
-	return sr, nil
-}
-
-// buildOrchestrationGraph compiles the outer runtime graph once per Executor.
-// The graph owns control flow only; concrete state mutation stays in Manager,
-// Executor, prefill, and final guard helpers called by the nodes.
+// buildOrchestrationGraph compiles the bounded outer runtime graph once per
+// Executor. The graph owns retry, fan-out/fan-in and termination; final guard
+// runs after Invoke so it can remain the single user-visible text boundary.
 func buildOrchestrationGraph() (compose.Runnable[string, string], error) {
 	g := compose.NewGraph[string, string](compose.WithGenLocalState(genOrchestrationState))
 
@@ -271,48 +119,81 @@ func buildOrchestrationGraph() (compose.Runnable[string, string], error) {
 		return nil, fmt.Errorf("add preflight node: %w", err)
 	}
 	if err := g.AddLambdaNode("short_circuit",
-		compose.InvokableLambda(emitShortCircuitNode),
+		compose.InvokableLambda(shortCircuitNode),
 		compose.WithNodeName("orchestration.short_circuit")); err != nil {
 		return nil, fmt.Errorf("add short_circuit node: %w", err)
+	}
+	if err := g.AddLambdaNode("decide_next",
+		compose.InvokableLambda(decideNextNode),
+		compose.WithNodeName("orchestration.decide_next")); err != nil {
+		return nil, fmt.Errorf("add decide_next node: %w", err)
 	}
 	if err := g.AddLambdaNode("prefill",
 		compose.InvokableLambda(prefillNode),
 		compose.WithNodeName("orchestration.prefill")); err != nil {
 		return nil, fmt.Errorf("add prefill node: %w", err)
 	}
-	if err := g.AddLambdaNode("agent",
-		compose.StreamableLambda(agentNode),
-		compose.WithNodeName("orchestration.agent")); err != nil {
-		return nil, fmt.Errorf("add agent node: %w", err)
+	if err := g.AddLambdaNode("dispatch_batch",
+		compose.InvokableLambda(dispatchBatchNode),
+		compose.WithNodeName("orchestration.dispatch_batch")); err != nil {
+		return nil, fmt.Errorf("add dispatch_batch node: %w", err)
 	}
-	if err := g.AddLambdaNode("final_guard",
-		compose.InvokableLambda(guardNode),
-		compose.WithNodeName("orchestration.guard")); err != nil {
-		return nil, fmt.Errorf("add guard node: %w", err)
+	if err := g.AddLambdaNode("aggregate",
+		compose.InvokableLambda(aggregateNode),
+		compose.WithNodeName("orchestration.aggregate")); err != nil {
+		return nil, fmt.Errorf("add aggregate node: %w", err)
+	}
+	if err := g.AddLambdaNode("terminal",
+		compose.InvokableLambda(terminalNode),
+		compose.WithNodeName("orchestration.terminal")); err != nil {
+		return nil, fmt.Errorf("add terminal node: %w", err)
+	}
+	if err := g.AddLambdaNode("terminal_error",
+		compose.InvokableLambda(terminalErrorNode),
+		compose.WithNodeName("orchestration.terminal_error")); err != nil {
+		return nil, fmt.Errorf("add terminal_error node: %w", err)
 	}
 
-	if err := g.AddBranch("preflight", compose.NewGraphBranch(
-		preflightBranch,
-		map[string]bool{"short_circuit": true, "prefill": true},
+	if err := g.AddBranch("decide_next", compose.NewGraphBranch(
+		orchestrationBranch,
+		map[string]bool{
+			"short_circuit":  true,
+			"prefill":        true,
+			"dispatch_batch": true,
+			"terminal":       true,
+			"terminal_error": true,
+		},
 	)); err != nil {
-		return nil, fmt.Errorf("add preflight branch: %w", err)
+		return nil, fmt.Errorf("add decide_next branch: %w", err)
 	}
 
 	if err := g.AddEdge(compose.START, "preflight"); err != nil {
 		return nil, fmt.Errorf("edge START->preflight: %w", err)
 	}
-	if err := g.AddEdge("short_circuit", compose.END); err != nil {
-		return nil, fmt.Errorf("edge short_circuit->END: %w", err)
+	if err := g.AddEdge("preflight", "decide_next"); err != nil {
+		return nil, fmt.Errorf("edge preflight->decide_next: %w", err)
 	}
-	if err := g.AddEdge("prefill", "agent"); err != nil {
-		return nil, fmt.Errorf("edge prefill->agent: %w", err)
+	if err := g.AddEdge("short_circuit", "terminal"); err != nil {
+		return nil, fmt.Errorf("edge short_circuit->terminal: %w", err)
 	}
-	if err := g.AddEdge("agent", "final_guard"); err != nil {
-		return nil, fmt.Errorf("edge agent->guard: %w", err)
+	if err := g.AddEdge("prefill", "decide_next"); err != nil {
+		return nil, fmt.Errorf("edge prefill->decide_next: %w", err)
 	}
-	if err := g.AddEdge("final_guard", compose.END); err != nil {
-		return nil, fmt.Errorf("edge guard->END: %w", err)
+	if err := g.AddEdge("dispatch_batch", "aggregate"); err != nil {
+		return nil, fmt.Errorf("edge dispatch_batch->aggregate: %w", err)
+	}
+	if err := g.AddEdge("aggregate", "decide_next"); err != nil {
+		return nil, fmt.Errorf("edge aggregate->decide_next: %w", err)
+	}
+	if err := g.AddEdge("terminal", compose.END); err != nil {
+		return nil, fmt.Errorf("edge terminal->END: %w", err)
+	}
+	if err := g.AddEdge("terminal_error", compose.END); err != nil {
+		return nil, fmt.Errorf("edge terminal_error->END: %w", err)
 	}
 
-	return g.Compile(context.Background(), compose.WithGraphName("orchestration"))
+	return g.Compile(context.Background(),
+		compose.WithNodeTriggerMode(compose.AnyPredecessor),
+		compose.WithMaxRunSteps(orchestrationMaxRunSteps),
+		compose.WithGraphName("orchestration"))
 }

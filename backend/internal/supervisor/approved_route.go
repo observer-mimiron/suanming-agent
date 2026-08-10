@@ -1,6 +1,7 @@
-// This file belongs to the route approval layer.
-// It owns approved route contract behavior for this package.
-// It approves routes; execution contracts are built later by Manager.
+// Package supervisor 的本文件属于路由准入层。
+//
+// 本文件负责把路由模型结果收敛为可执行的 ApprovedRoute，并补全用户明确写出的出生资料；
+// 不负责 Manager 的会话语义重解释，也不负责命盘计算或渲染。
 package supervisor
 
 import (
@@ -17,7 +18,11 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
 
-var explicitBirthClockPattern = regexp.MustCompile(`(?:^|[^0-9])([01]?\d|2[0-3])\s*(?:点|时|:|：)\s*([0-5]?\d)\s*分?`)
+var (
+	explicitBirthClockPattern = regexp.MustCompile(`(?:^|[^0-9])([01]?\d|2[0-3])\s*(?:点|时|:|：)\s*([0-5]?\d)\s*分?`)
+	explicitBirthDatePattern  = regexp.MustCompile(`(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?`)
+	explicitBirthplacePattern = regexp.MustCompile(`[男女]\s*([一-龥]{2,8})\s*$`)
+)
 
 // Approve 是 supervisor 的外部入口：决策 → 策略应用 → 规范化，返回可直接执行的路由。
 //
@@ -77,22 +82,20 @@ func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *sta
 	}
 
 	profileReady := st.IsProfileComplete() || st.HasBaziResult()
-	if !profileReady && intent.ContainsBirthInfo(msg) &&
-		route.TaskIntent != "collect_profile" &&
-		route.TaskIntent != "amend_profile" &&
-		route.TaskIntent != "direct_bazi" {
+	if !profileReady && intent.ContainsBirthInfo(msg) {
 		c.backfillRouteProfile(ctx, msg, st, &route)
-		route.TaskIntent = "collect_profile"
-		route.NeedsClarification = false
-		route.ClarificationQuestion = ""
+		if routeProfileComplete(st, route.Slots.Profile) {
+			route.TaskIntent = "collect_profile"
+			route.NeedsClarification = false
+			route.ClarificationQuestion = ""
+		}
 	}
 
 	return route
 }
 
-// normalizeExplicitBirthClock lets the raw user message repair an LLM slot
-// omission. Minutes are part of a birth instant and cannot be silently dropped
-// near a calendar boundary such as late Zi hour.
+// normalizeExplicitBirthClock 用用户原文补齐模型遗漏的出生时分。
+// 分钟会影响接近换日边界的命盘，不能因模型漏填而丢失。
 func normalizeExplicitBirthClock(msg string, route *policy.ApprovedRoute) {
 	if route == nil {
 		return
@@ -109,8 +112,7 @@ func normalizeExplicitBirthClock(msg string, route *policy.ApprovedRoute) {
 	if route.Slots.Profile == nil {
 		route.Slots.Profile = map[string]any{}
 	}
-	// The user-supplied clock value is a chart fact, so it wins over a route
-	// model that only retained the hour field.
+	// 用户原文是出生事实，优先于只保留小时的路由模型输出。
 	route.Slots.Profile["hour"] = float64(hour)
 	route.Slots.Profile["minute"] = float64(minute)
 }
@@ -394,16 +396,16 @@ func applyMethodPolicyHints(method string, route *policy.ApprovedRoute) {
 	}
 }
 
-// backfillRouteProfile 当 LLM 漏提取出生信息但消息中明显包含时，用简化提取链补齐。
+// backfillRouteProfile 当 LLM 漏提取出生信息但消息中明显包含时，用原文和简化提取链补齐。
 //
-// 触发条件：normalizeApprovedRoute 检测到消息包含出生时间但模型返回的 route 中没有 profile 数据。
-// 使用 fallbackExtract 的简化提示词做一次轻量提取，仅回填缺失字段，不覆盖已有值。
-// 这是一个"补丁"操作——正常流程中 LLM 应在首次决策时完成提取。
+// 原文中格式明确的日期、时分、性别和紧邻末尾地点先确定性提取，避免降级模型再次遗漏；
+// 仍不完整时才调用 fallbackExtract，仅回填缺失字段，不覆盖已有值。
 func (c *Client) backfillRouteProfile(ctx context.Context, msg string, st *state.SessionState, route *policy.ApprovedRoute) {
 	if route.Slots.Profile == nil {
 		route.Slots.Profile = make(map[string]any)
 	}
-	if len(route.Slots.Profile) > 0 {
+	mergeExplicitBirthProfile(msg, route.Slots.Profile)
+	if routeProfileComplete(st, route.Slots.Profile) {
 		return
 	}
 
@@ -420,6 +422,44 @@ func (c *Client) backfillRouteProfile(ctx context.Context, msg string, st *state
 	if route.Slots.QuestionText == "" || route.Slots.QuestionText == msg {
 		route.Slots.QuestionText = question
 	}
+}
+
+// mergeExplicitBirthProfile 只从固定格式的用户原文提取出生字段，不猜测缺失资料。
+func mergeExplicitBirthProfile(msg string, profile map[string]any) {
+	if profile == nil {
+		return
+	}
+	if matches := explicitBirthDatePattern.FindStringSubmatch(msg); len(matches) == 4 {
+		for index, field := range []string{"year", "month", "day"} {
+			if _, exists := profile[field]; exists {
+				continue
+			}
+			if value, err := strconv.Atoi(matches[index+1]); err == nil {
+				profile[field] = float64(value)
+			}
+		}
+	}
+	for _, gender := range []string{"男", "女"} {
+		if _, exists := profile["gender"]; !exists && strings.Contains(msg, gender) {
+			profile["gender"] = gender
+		}
+	}
+	if _, exists := profile["birthplace"]; !exists {
+		if matches := explicitBirthplacePattern.FindStringSubmatch(strings.TrimSpace(msg)); len(matches) == 2 {
+			profile["birthplace"] = matches[1]
+		}
+	}
+}
+
+// routeProfileComplete 按 SessionState 的同一资料完整度合同检查路由 slots。
+func routeProfileComplete(st *state.SessionState, profile map[string]any) bool {
+	if st == nil {
+		st = state.NewSession("")
+	} else {
+		st = st.Clone()
+	}
+	st.MergeProfile(profile)
+	return st.IsProfileComplete()
 }
 
 func hasDomain(domains []string, target string) bool {

@@ -119,21 +119,38 @@ func TestRepairTraceAttrsProjectsOnlySafeFields(t *testing.T) {
 }
 
 func TestRepairFailureFromBaziContract(t *testing.T) {
-	err := baziContractAuditError("static_projection", baziContractAuditFinding{
-		Code:   "static_projection_mismatch",
-		Field:  "static.tiaohou_anchor",
-		Reason: "调候锚点不完整",
-	})
+	err := baziViolationError(baziViolationUndeclaredFactClaim, "static.main_axis", "", "main axis references an undeclared fact", []string{"chart.chonghe"}, []string{"chart.month_pillar"})
 
 	failure, ok := repairFailureFromBaziContract("static_projection", err)
 	if !ok {
 		t.Fatal("repairFailureFromBaziContract returned false")
 	}
-	if failure.Domain != "bazi" || failure.Class != RepairProjectionMismatch || failure.Field != "static.tiaohou_anchor" {
+	if failure.Domain != "bazi" || failure.Class != RepairSchemaError || failure.Field != "static.main_axis" {
 		t.Fatalf("unexpected repair failure: %+v", failure)
 	}
 	if !failure.Repairable || !failure.Retryable {
 		t.Fatalf("failure should be repairable and retryable: %+v", failure)
+	}
+	if failure.Fallback != "" {
+		t.Fatalf("undeclared reference fallback = %q, want empty before contract projection", failure.Fallback)
+	}
+}
+
+func TestStaticProjectionMismatchWithInvalidRefsFallsBackAfterRepair(t *testing.T) {
+	err := baziViolationError(baziViolationScopeEscalation, "static.main_axis", "", "projected main axis contains an invalid reference", []string{"chart.chonghe"}, []string{"chart.month_pillar"})
+	violation, ok := baziViolationFromError(err)
+	if !ok {
+		t.Fatal("expected validation violation")
+	}
+	failure := baziContractFailureFromViolation("static_projection", violation)
+	if failure.RecoveryPolicy != baziRecoveryPolicyStaticFactsOnly {
+		t.Fatalf("recovery policy = %q, want %q", failure.RecoveryPolicy, baziRecoveryPolicyStaticFactsOnly)
+	}
+}
+
+func TestDynamicProjectionMismatchFallsBackToFactsOnly(t *testing.T) {
+	if got := baziRecoveryPolicyForFailure("dynamic_projection", baziContractFailureProjectionMismatch); got != baziRecoveryPolicyDynamicFactsOnly {
+		t.Fatalf("dynamic projection policy = %q, want %q", got, baziRecoveryPolicyDynamicFactsOnly)
 	}
 }
 

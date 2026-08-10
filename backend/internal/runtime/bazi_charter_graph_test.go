@@ -115,56 +115,21 @@ func TestBaziCharterState_SeparatesStaticAndDynamicStages(t *testing.T) {
 }
 
 func TestBaziCharterPrompts_ContainRoleBoundaries(t *testing.T) {
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "不得另起第二主轴") {
-		t.Fatalf("static synthesis prompt must forbid second axis")
+	for _, required := range []string{"主轴只能有一条", "`claims` 的位置固定", "`tier_assessment`", "support / pressure", "官星藏支未透", "`core_chart`", "不得带 `claim_refs` 字段"} {
+		if !strings.Contains(prompts.BaziStaticSynthesisInstruction, required) {
+			t.Fatalf("static synthesis prompt missing role boundary %q", required)
+		}
 	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "必须单独交代“取格依据”") {
-		t.Fatalf("static synthesis prompt must require pattern basis")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "## 任务类型") {
-		t.Fatalf("static synthesis prompt must define task type")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "## 输入事实优先级") {
-		t.Fatalf("static synthesis prompt must define input priority")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "## 成功标准") {
-		t.Fatalf("static synthesis prompt must define success criteria")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "## DO / DON'T") {
-		t.Fatalf("static synthesis prompt must define do/don't constraints")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "扶抑与调候两个维度") {
-		t.Fatalf("static synthesis prompt must separate fuyi and tiaohou dimensions")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`counter_evidence`") {
-		t.Fatalf("static synthesis prompt must require counter evidence")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`axis_consistency`") {
-		t.Fatalf("static synthesis prompt must require axis consistency")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`tiaohou_anchor`") {
-		t.Fatalf("static synthesis prompt must require tiaohou anchor")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`reasoning_summary`") {
-		t.Fatalf("static synthesis prompt must require reasoning summary")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`reasoning_steps`") {
-		t.Fatalf("static synthesis prompt must require reasoning steps")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`topic_direct_answer`") {
-		t.Fatalf("static synthesis prompt must require topic direct answer for topic follow-up")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`topic_focus_answer`") {
-		t.Fatalf("static synthesis prompt must require topic focus answer for topic follow-up")
+	if strings.Contains(prompts.BaziStaticSynthesisInstruction, "`chart_facts`") {
+		t.Fatal("static synthesis prompt must name the injected core_chart payload")
 	}
 	if !strings.Contains(prompts.BaziConstitutionInstruction, "writer 无权改写上游综合结论") {
 		t.Fatalf("constitution prompt must forbid writer from changing conclusions")
 	}
-	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "不得回头推翻静态主轴") {
-		t.Fatalf("dynamic synthesis prompt must separate static and dynamic layers")
-	}
-	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "evidence_quality.missing_topics") || !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "社会地位") {
-		t.Fatalf("dynamic synthesis prompt must bind evidence gaps to authorized outcome domains")
+	for _, required := range []string{"不得重判主轴", "`current_period_ref`", "`current_period_realization`", "不改变本命基础层次"} {
+		if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, required) {
+			t.Fatalf("dynamic synthesis prompt missing role boundary %q", required)
+		}
 	}
 }
 
@@ -172,23 +137,14 @@ func TestBaziCharterPrompts_ContainMethodologyOrder(t *testing.T) {
 	if !strings.Contains(prompts.BaziConstitutionInstruction, "以子平格局法为主轴") {
 		t.Fatalf("constitution prompt must define the main methodology axis")
 	}
-	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "先看当前大运是在承托、放大、压制还是扭转静态主轴") {
+	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "当前大运 -> 流年触发 -> 对静态主轴的影响 -> 限制") {
 		t.Fatalf("dynamic synthesis prompt must define the dynamic evaluation order")
 	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "先把 `chart_facts`") {
+	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "四柱、月令、藏干层级") {
 		t.Fatalf("static synthesis prompt must define the synthesis order")
 	}
-	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "`reasoning_summary`") {
-		t.Fatalf("dynamic synthesis prompt must require reasoning summary")
-	}
-	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "`window_level`") {
-		t.Fatalf("dynamic synthesis prompt must require window level")
-	}
-	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "不得使用并不存在的术语") {
-		t.Fatalf("dynamic synthesis prompt must forbid invalid terminology")
-	}
-	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "`reasoning_steps`") {
-		t.Fatalf("dynamic synthesis prompt must require reasoning steps")
+	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "不得自行补暗合、相破、穿、墓或藏干关系") {
+		t.Fatalf("dynamic synthesis prompt must forbid undeclared relations")
 	}
 	if !strings.Contains(prompts.BaziAnalysisPlannerInstruction, "`topic_mode`") {
 		t.Fatalf("analysis planner prompt must require topic mode")
@@ -196,35 +152,43 @@ func TestBaziCharterPrompts_ContainMethodologyOrder(t *testing.T) {
 }
 
 func TestBaziCharterPrompts_ContainAxisVerdictContract(t *testing.T) {
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`axis_level`") {
-		t.Fatalf("static synthesis prompt must require axis level")
+	for _, required := range []string{"四个 claim", "`fact_refs`", "`relation_refs`", "`claim_refs`", "九级层次"} {
+		if !strings.Contains(prompts.BaziStaticSynthesisInstruction, required) {
+			t.Fatalf("static synthesis prompt missing strict model output requirement %q", required)
+		}
 	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`effect_on_tiaohou`") {
-		t.Fatalf("static synthesis prompt must require tiaohou effect")
+	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "月令本气未透不能单独否定") {
+		t.Fatalf("static synthesis prompt must forbid visibility-only downgrades")
 	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`effect_on_core_disease`") {
-		t.Fatalf("static synthesis prompt must require core disease effect")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`effect_on_jishen_direction`") {
-		t.Fatalf("static synthesis prompt must require ji-shen direction effect")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`axis_ceiling`") {
-		t.Fatalf("static synthesis prompt must require axis ceiling")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "`conflict_reasons`") {
-		t.Fatalf("static synthesis prompt must require conflict reasons")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "结构存在 ≠ 主轴成立 ≠ 可以拔高") {
-		t.Fatalf("static synthesis prompt must explain axis promotion ladder")
-	}
-	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "若候选路线继续放大忌神、病点或调候冲突") {
-		t.Fatalf("static synthesis prompt must define conflict-based downgrade rule")
+	if !strings.Contains(prompts.BaziStaticSynthesisInstruction, "不得因“印星根气不足”") {
+		t.Fatalf("static synthesis prompt must forbid a single-signal tier downgrade")
 	}
 	if !strings.Contains(prompts.BaziMethodologyCharterInstruction, "结构存在 ≠ 主轴成立 ≠ 可以拔高") {
 		t.Fatalf("methodology charter must define axis promotion ladder")
 	}
 	if !strings.Contains(prompts.BaziMethodologyCharterInstruction, "若候选主轴继续放大忌神、核心病点或调候冲突") {
 		t.Fatalf("methodology charter must define reusable downgrade rule")
+	}
+}
+
+func TestBaziStructuredConfigsBindRegisteredSchemas(t *testing.T) {
+	cases := []struct {
+		name   string
+		cfg    specialists.Config
+		schema string
+	}{
+		{"analysis_plan", baziAnalysisPlannerConfig(), structuredSchemaBaziAnalysisPlan},
+		{"evidence_plan", baziEvidencePlannerConfig(), structuredSchemaBaziEvidencePlan},
+		{"static_synthesis", baziStaticSynthesisConfig(), structuredSchemaBaziStaticSynthesis},
+		{"dynamic_synthesis", baziDynamicSynthesisConfig(), structuredSchemaBaziDynamicSynthesis},
+	}
+	for _, tc := range cases {
+		if !tc.cfg.UseJSONMode || tc.cfg.StructuredSchema != tc.schema {
+			t.Fatalf("%s config = %+v; want JSON Mode schema %q", tc.name, tc.cfg, tc.schema)
+		}
+		if _, err := structuredOutputPromptContract(tc.cfg.StructuredSchema); err != nil {
+			t.Fatalf("%s schema is not registered: %v", tc.name, err)
+		}
 	}
 }
 
@@ -281,7 +245,7 @@ func TestValidateDynamicStage_RequiresReasoningSummary(t *testing.T) {
 	}
 }
 
-func TestShouldUseBaziCharterGraph_PureBaziOnly(t *testing.T) {
+func TestShouldUseBaziCharterGraph_BaziPrimary(t *testing.T) {
 	if !shouldUseBaziCharterGraph(ExecutionPlan{
 		Route:        policy.ApprovedRoute{PrimaryDomain: "bazi"},
 		Domains:      []string{"bazi"},
@@ -289,12 +253,12 @@ func TestShouldUseBaziCharterGraph_PureBaziOnly(t *testing.T) {
 	}) {
 		t.Fatalf("expected pure bazi route to use inner charter graph")
 	}
-	if shouldUseBaziCharterGraph(ExecutionPlan{
+	if !shouldUseBaziCharterGraph(ExecutionPlan{
 		Route:        policy.ApprovedRoute{PrimaryDomain: "bazi"},
 		Domains:      []string{"bazi", "ziwei"},
 		FollowupMode: followupModeRerunSpecialist,
 	}) {
-		t.Fatalf("mixed-domain route must stay on supervisor path")
+		t.Fatalf("mixed-domain route must keep the bazi primary on the inner charter graph")
 	}
 	if shouldUseBaziCharterGraph(ExecutionPlan{
 		Route:        policy.ApprovedRoute{PrimaryDomain: "bazi"},
@@ -309,6 +273,29 @@ func TestShouldUseBaziCharterGraph_PureBaziOnly(t *testing.T) {
 		FollowupMode: followupModeReuseArtifact,
 	}) {
 		t.Fatalf("reused-artifact follow-up must not re-enter inner charter graph")
+	}
+}
+
+func TestRunFinalWriter_TopicFallbackUsesStaticConclusion(t *testing.T) {
+	e := &Executor{}
+	static := validStaticSynthesisForConsistencyTests()
+	static.TopicDirectAnswer = ""
+	static.TopicFocusAnswer = ""
+	static.PatternOutcome = "食神格为纲，结构成立但受限。"
+	state := baziCharterState{
+		AnalysisPlan:    baziAnalysisPlan{WriterTemplate: "topic", TopicMode: "analysis"},
+		StaticSynthesis: static,
+	}
+
+	output, err := e.runFinalWriter(context.Background(), nil, state, "事业、感情")
+	if err != nil {
+		t.Fatalf("runFinalWriter returned error: %v", err)
+	}
+	if !strings.Contains(output, "**结论：食神格为纲，结构成立但受限。**") {
+		t.Fatalf("topic output should use the validated static conclusion, got:\n%s", output)
+	}
+	if strings.Contains(output, "本轮未形成这次追问的直接裁断") {
+		t.Fatalf("topic output must not report a missing direct answer when static judgment exists, got:\n%s", output)
 	}
 }
 
@@ -350,6 +337,7 @@ func TestDefaultBaziEvidencePlan_StaticStageIncludesCaseValidationQuery(t *testi
 	hasTheoryGeju := false
 	hasTheoryTiaohou := false
 	hasTheoryBingyao := false
+	hasTierTopics := map[string]bool{}
 	hasCaseValidation := false
 
 	for _, packet := range plan.QueryPackets {
@@ -363,6 +351,9 @@ func TestDefaultBaziEvidencePlan_StaticStageIncludesCaseValidationQuery(t *testi
 			hasTheoryTiaohou = true
 		case packet.Topic == "bingyao" && strings.Contains(packet.Query, "病药"):
 			hasTheoryBingyao = true
+		}
+		if packet.SourceTier == "A" {
+			hasTierTopics[packet.Topic] = true
 		}
 
 		if strings.Contains(packet.Query, "命例") || strings.Contains(packet.Query, "举例") {
@@ -390,6 +381,11 @@ func TestDefaultBaziEvidencePlan_StaticStageIncludesCaseValidationQuery(t *testi
 	}
 	if !hasCaseValidation {
 		t.Fatalf("expected case validation query in static evidence plan")
+	}
+	for _, topic := range []string{"qingzhuo", "bingyao", "jiuying", "poge"} {
+		if !hasTierTopics[topic] {
+			t.Fatalf("expected A-tier %s query in static evidence plan", topic)
+		}
 	}
 }
 
@@ -518,7 +514,7 @@ func TestValidateStaticOutcomeScope_RejectsAdultDomainTextForInfant(t *testing.T
 		},
 		StaticSynthesis: func() baziStaticSynthesis {
 			out := validStaticSynthesisForConsistencyTests()
-			out.Risks = []string{"事业竞争压力较大，需注意健康。"}
+			out.Risks = []string{"事业突破倾向明显，健康风险需留意。"}
 			return out
 		}(),
 	}
@@ -543,23 +539,14 @@ func TestValidateStaticOutcomeScope_AllowsMinorGrowthText(t *testing.T) {
 	}
 }
 
-// TestBuildDynamicSynthesisFeedback_RepeatsAgeAndEvidenceBoundaries keeps the
-// retry prompt aligned with the independent contract audit instead of relying on
-// final rendering to hide unauthorized adult-domain projections.
-func TestBuildDynamicSynthesisFeedback_RepeatsAgeAndEvidenceBoundaries(t *testing.T) {
-	state := baziCharterState{
-		Input: baziCharterInput{
-			BaziResult: map[string]any{"birthday": "2025-11-11 00:15"},
-			Liunian:    map[string]any{"liunian_year": 2026},
-		},
-		EvidenceQuality: baziEvidenceQuality{Enough: false, MissingTopics: []string{"bingyao"}},
+// TestFirstUnauthorizedMinorOutcomeSignal_AllowsDomainMentionWithoutEvent
+// 验证领域名称可以用于边界说明，只有具体成人应事才触发年龄合同。
+func TestFirstUnauthorizedMinorOutcomeSignal_AllowsDomainMentionWithoutEvent(t *testing.T) {
+	if domain, term := firstUnauthorizedMinorOutcomeSignal("不展开事业等成人现实落点，只观察成长节奏。"); domain != "" || term != "" {
+		t.Fatalf("domain label must not be treated as an event, got domain=%q term=%q", domain, term)
 	}
-
-	feedback := buildDynamicSynthesisFeedback(state, baziDynamicSynthesis{OutcomeDomains: []string{"structure"}}, nil)
-	for _, want := range []string{"allowed_outcome_domains", "社会地位", "权威", "missing_topics=bingyao", "structure 结构观察"} {
-		if !strings.Contains(feedback, want) {
-			t.Fatalf("dynamic feedback missing %q in %s", want, feedback)
-		}
+	if domain, term := firstUnauthorizedMinorOutcomeSignal("未来事业突破倾向明显。"); domain != "career" || term != "事业突破" {
+		t.Fatalf("concrete career event = domain=%q term=%q, want career/事业突破", domain, term)
 	}
 }
 
@@ -586,18 +573,14 @@ func TestValidateStaticTiaohouEvidenceWordingRejectsMissingClaimWhenCovered(t *t
 	}
 }
 
-func TestValidateStaticTiaohouEvidenceWordingRequiresConcreteAnchorWhenCovered(t *testing.T) {
+func TestValidateStaticTiaohouEvidenceWordingUsesClaimContractInsteadOfPhraseTable(t *testing.T) {
 	state := baziCharterState{
 		EvidenceQuality: baziEvidenceQuality{CoveredTopics: []string{"tiaohou"}},
 		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
 	}
 	state.StaticSynthesis.TiaohouAnchor = "调候为环境约束，不直接决定格局成败。"
-	if err := validateStaticTiaohouEvidenceWording(state); err == nil {
-		t.Fatal("covered tiaohou evidence must require a concrete anchor verdict")
-	}
-	state.StaticSynthesis.TiaohouAnchor = "甲木生亥月，寒湿重，调候火有但弱，年支巳火被亥冲而受损。"
 	if err := validateStaticTiaohouEvidenceWording(state); err != nil {
-		t.Fatalf("concrete tiaohou anchor should pass: %v", err)
+		t.Fatalf("schema-validated tiaohou claim wording must not need a phrase-table match: %v", err)
 	}
 }
 
@@ -804,12 +787,10 @@ func TestRunFinalWriter_RendersFullTemplateWithoutModel(t *testing.T) {
 		"## 格局视角",
 		"## 大运验证",
 		"## 综合判定",
-		"◎ 主轴",
 		"▲ 限制",
-		"◇ 读法",
 		"**规则口径**",
 		"**依据**",
-		"**解释**",
+		"**判定依据**",
 		"**岁运兑现**",
 	} {
 		if !strings.Contains(output, want) {
@@ -992,17 +973,16 @@ func TestNormalizeBaziAnalysisPlan_DefaultsTopicModeForTopicWriter(t *testing.T)
 }
 
 func TestBaziDynamicSynthesisPrompt_RequiresTrendConsistency(t *testing.T) {
-	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "`current_trend` 与 `dayun_path` 必须同一线") {
-		t.Fatalf("dynamic synthesis prompt must require current_trend and dayun_path consistency")
-	}
-	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "若某步运是吉中有阻，总纲就不得写成从此后明显一路顺") {
-		t.Fatalf("dynamic synthesis prompt must forbid over-positive trend summary when detailed dayun is mixed")
+	for _, required := range []string{"必须逐字回填", "必须且只能有一条", "先说当前大运对主轴的承接或扰动"} {
+		if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, required) {
+			t.Fatalf("dynamic synthesis prompt missing current-period contract %q", required)
+		}
 	}
 }
 
 func TestBaziDynamicSynthesisPrompt_ForbidsCasualInvalidRelations(t *testing.T) {
-	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "`合身`、`制劫`、`合杀`、`合官`") {
-		t.Fatalf("dynamic synthesis prompt must forbid casual invalid relational jargon")
+	if !strings.Contains(prompts.BaziDynamicSynthesisInstruction, "不得自行补暗合、相破、穿、墓或藏干关系") {
+		t.Fatalf("dynamic synthesis prompt must forbid undeclared relation terms")
 	}
 }
 
@@ -1013,9 +993,9 @@ func TestBaziDynamicSynthesisPrompt_UsesReadableTrendLabels(t *testing.T) {
 			t.Fatalf("dynamic synthesis prompt must not teach mechanical trend label %q", forbidden)
 		}
 	}
-	for _, required := range []string{"有助力但不纯顺", "阻力偏重，宜保守观察", "有转机，也有牵制"} {
+	for _, required := range []string{"`repair`", "`assist`", "`maintain`", "`disturb`", "`suppress`"} {
 		if !strings.Contains(prompt, required) {
-			t.Fatalf("dynamic synthesis prompt missing readable trend label %q", required)
+			t.Fatalf("dynamic synthesis prompt missing current-period realization %q", required)
 		}
 	}
 }
@@ -1027,7 +1007,7 @@ func TestBaziStaticSynthesisPrompt_CompletesTiaohouWithoutImplementationLeak(t *
 			t.Fatalf("static synthesis prompt must not expose implementation state %q", forbidden)
 		}
 	}
-	for _, required := range []string{"本轮只确认季节环境，具体调候先后需补足对应规则材料", "季节环境 + 寒暖燥湿约束 + 证据边界", "input.subject_context"} {
+	for _, required := range []string{"火存在、午为帝旺或一处火根都不等于火已足以调候", "有效性未知时保留边界", "未成年对象"} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("static synthesis prompt missing tiaohou/age boundary %q", required)
 		}
@@ -1267,107 +1247,6 @@ func TestValidateCharterConsistency_AllowsCurrentDayunDirectionSplitAsSoftAudit(
 	}
 }
 
-func TestRunStaticSynthesisWithFeedback_RetriesAfterRestrictedRouteEscalation(t *testing.T) {
-	executor := &Executor{}
-	chartState := baziCharterState{}
-	first := baziStaticSynthesis{
-		MainAxis:                "杀印相生这条路有其结构，但还不能直接拔高为贵格主轴",
-		ClaimStrength:           "倾向成立",
-		SupportLevel:            "有气",
-		LimitationLevel:         "明显",
-		WordingCap:              "中性",
-		ConsistencyFlags:        []string{"方向成立但力度受限"},
-		AxisLevel:               "方向成立",
-		EffectOnTiaohou:         "冲突",
-		EffectOnCoreDisease:     "放大",
-		EffectOnJiShenDirection: "放大",
-		AxisCeiling:             "受限路线",
-		ConflictReasons:         []string{"该路线继续放大寒湿与忌神方向，不能拔高为纯主轴贵格"},
-		PatternBasis:            "先看七杀与印星确有承接，再看这条路线仍受寒湿病点掣肘。",
-		PatternOutcome:          "这条路线可以直接化杀为权，足以拔高为纯主轴贵格。",
-		CounterEvidence:         "虽然看似有其路数，但寒湿病点未解，仍不宜直接拔高。",
-		AxisConsistency:         "当前只能把它当作受限路线参考，不能按纯贵格主轴落判。",
-		TiaohouConstraint:       "寒木待火，调候仍是第一硬约束。",
-		TiaohouAnchor:           "甲木生亥月，先按寒木待火的月令场景审调候。",
-		StrengthBalance:         "印水偏旺，忌神方向未退，继续放大则病点更重。",
-		PatternAndQingZhuo:      "结构可见，但清浊未净。",
-		QiShiOrCongHua:          "不从化，仍按正格中的受限路线处理。",
-		TierJudgment:            "中等",
-		TierBasis:               "若把它拔高为贵格主轴，就会越过受限路线的天花板。",
-		ReasoningSummary:        "这条结构有其路数，但调候与病点冲突未解，因此不能拔高。",
-		ReasoningSteps: []string{
-			"先看杀印之间确有承接，所以只能说这条路线方向成立。",
-			"再看寒湿病点与忌神方向仍被放大，所以它最多只能停在受限路线。",
-		},
-	}
-
-	second := baziStaticSynthesis{
-		MainAxis:                "杀印相生这条路可以保留为受限路线参考",
-		ClaimStrength:           "倾向成立",
-		SupportLevel:            "有气",
-		LimitationLevel:         "明显",
-		WordingCap:              "中性",
-		ConsistencyFlags:        []string{"方向成立但力度受限"},
-		AxisLevel:               "方向成立",
-		EffectOnTiaohou:         "冲突",
-		EffectOnCoreDisease:     "放大",
-		EffectOnJiShenDirection: "放大",
-		AxisCeiling:             "受限路线",
-		ConflictReasons:         []string{"该路线继续放大寒湿与忌神方向，不能拔高为纯主轴贵格"},
-		PatternBasis:            "先看七杀与印星确有承接，再看这条路线仍受寒湿病点掣肘。",
-		PatternOutcome:          "这条路线方向成立，但力度受限，只能作受限路线参考。",
-		CounterEvidence:         "虽然有其路数，但仍会放大病点，不宜拔高为纯主轴贵格。",
-		AxisConsistency:         "当前只能保留它的结构参考价值，而不能改写成贵格主轴。",
-		TiaohouConstraint:       "寒木待火，调候仍是第一硬约束。",
-		TiaohouAnchor:           "甲木生亥月，先按寒木待火的月令场景审调候。",
-		StrengthBalance:         "印水偏旺，忌神方向未退，继续放大则病点更重。",
-		PatternAndQingZhuo:      "结构可见，但清浊未净。",
-		QiShiOrCongHua:          "不从化，仍按正格中的受限路线处理。",
-		TierJudgment:            "中等",
-		TierBasis:               "主轴有路，但核心冲突未解，层次受限，难以拔高。",
-		ReasoningSummary:        "这条结构只能保留为受限路线，不能越级写成贵格主轴。",
-		ReasoningSteps: []string{
-			"先看杀印之间确有承接，所以只能说这条路线方向成立。",
-			"再看寒湿病点与忌神方向仍被放大，因此必须把结论收在受限路线。",
-		},
-	}
-
-	calls := 0
-	gotFeedback := ""
-	runStatic := func(payload map[string]any) (baziStaticSynthesis, error) {
-		calls++
-		if calls == 2 {
-			if feedback, _ := payload["static_feedback"].(string); strings.TrimSpace(feedback) == "" {
-				t.Fatalf("expected second static synthesis attempt to include static_feedback")
-			} else {
-				gotFeedback = feedback
-			}
-			return second, nil
-		}
-		if _, exists := payload["static_feedback"]; exists {
-			t.Fatalf("first static synthesis attempt should not include static_feedback")
-		}
-		return first, nil
-	}
-
-	out, err := executor.runStaticSynthesisWithFeedback(chartState, runStatic)
-	if err != nil {
-		t.Fatalf("expected retry to recover restricted-route escalation, got %v", err)
-	}
-	if calls != 2 {
-		t.Fatalf("static synthesis calls = %d, want 2", calls)
-	}
-	if strings.TrimSpace(gotFeedback) == "" {
-		t.Fatalf("expected retry feedback to be non-empty")
-	}
-	if !strings.Contains(gotFeedback, "受限路线") {
-		t.Fatalf("expected retry feedback to mention restricted route ceiling, got %q", gotFeedback)
-	}
-	if !strings.Contains(out.PatternOutcome, "受限") {
-		t.Fatalf("expected recovered static synthesis to retain a local limitation, got %q", out.PatternOutcome)
-	}
-}
-
 func TestValidateCharterConsistency_AllowsOverstatedWindowYearAsSoftAudit(t *testing.T) {
 	state := baziCharterState{
 		StaticSynthesis: validStaticSynthesisForConsistencyTests(),
@@ -1540,6 +1419,15 @@ func TestRenderBaziFinalReply_DeduplicatesExactLimitationFallback(t *testing.T) 
 	state.StaticSynthesis.TierBasis = "关系触发会增加过程反复，具体应事不作展开。"
 	if got := buildLimitationText(state); strings.Count(got, "关系触发会增加过程反复，具体应事不作展开。") != 1 {
 		t.Fatalf("expected exact duplicate limitation to be rendered once, got %q", got)
+	}
+}
+
+func TestRenderBaziFinalReply_DoesNotRepeatMainAxisAsPatternConclusion(t *testing.T) {
+	state := baziCharterState{StaticSynthesis: validStaticSynthesisForConsistencyTests()}
+	state.StaticSynthesis.MainAxis = "伤官佩印为主轴"
+	state.StaticSynthesis.PatternOutcome = "格局取用仍需结合清浊与破格风险。"
+	if got := buildPatternEvidence(state); strings.Contains(got, "伤官佩印") {
+		t.Fatalf("pattern evidence must not repeat overview main axis: %q", got)
 	}
 }
 

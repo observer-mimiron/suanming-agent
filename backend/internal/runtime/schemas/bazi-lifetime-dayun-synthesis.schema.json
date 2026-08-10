@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "claim": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "period_ref": {"type": "string", "minLength": 1},
+        "period_effect": {"type": "string", "enum": ["complete_pattern", "support_use", "carry_balance", "damage_use", "break_pattern", "transform_pattern", "undetermined"]},
+        "verdict": {"type": "string", "minLength": 1, "maxLength": 100},
+        "fact_refs": {"type": "array", "items": {"type": "string"}},
+        "relation_refs": {"type": "array", "items": {"type": "string"}},
+        "claim_refs": {"type": "array", "items": {"type": "string"}},
+        "evidence_topics": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "string", "enum": ["保守判断", "倾向成立", "明确成立"]}
+      },
+      "required": ["period_ref", "period_effect", "verdict", "fact_refs", "relation_refs", "claim_refs", "evidence_topics", "confidence"]
+    }
+  },
+  "properties": {
+    "status": {"type": "string", "enum": ["accepted", "withheld"]},
+    "trajectory": {"type": "string", "enum": ["smooth_realization", "volatile_realization", "realization_with_breaks", "mostly_constrained", "withheld"]},
+    "period_claims": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/claim"}},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 180}
+  },
+  "required": ["status", "trajectory", "period_claims", "summary"]
+}

@@ -30,7 +30,7 @@ func TestProfileStaticSynthesis_FactsOnlyDoesNotProjectClaims(t *testing.T) {
 	if !strings.Contains(static.MainAxis, "不输出主轴裁断") || !strings.Contains(static.TierJudgment, "不输出层次裁断") {
 		t.Fatalf("facts-only static synthesis must withhold judgment, got %+v", static)
 	}
-	if !strings.Contains(static.StrengthBalance, "扶身证据 7") || !strings.Contains(static.PatternBasis, "月令取格候选") {
+	if !strings.Contains(static.StrengthBalance, "扶身合计 7") || !strings.Contains(static.StrengthBalance, "食伤泄身、财耗与官杀克合计 8") || !strings.Contains(static.PatternBasis, "月令取格候选") {
 		t.Fatalf("facts-only static synthesis must retain tool facts, got %+v", static)
 	}
 	if containsAnyText([]string{static.MainAxis, static.PatternOutcome, static.TierBasis, static.ReasoningSummary}, []string{

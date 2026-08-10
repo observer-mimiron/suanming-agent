@@ -114,10 +114,14 @@ func TestClientDecide_RouteEngineFallsBackToTextDecide(t *testing.T) {
 			return `{
 				"conversation_intent":"consult",
 				"primary_domain":"bazi",
+				"secondary_domains":[],
 				"task_intent":"interpret_chart",
+				"needs_clarification":false,
+				"clarification_question":"",
+				"parallelizable":false,
 				"confidence":0.88,
-				"slots":{"profile":{},"question_text":"看看事业"},
-				"policy_hints":{"needs_knowledge":true}
+				"slots":{"profile":{},"question_text":"看看事业","time_scope":"","target_subject":"","language":"zh"},
+				"policy_hints":{"needs_knowledge":true,"needs_qimen":false,"can_reuse_session_profile":false,"can_reuse_cached_result":false}
 			}`, llm.TokenUsage{}, nil
 		},
 	}
@@ -133,6 +137,19 @@ func TestClientDecide_RouteEngineFallsBackToTextDecide(t *testing.T) {
 	}
 	if got.TaskIntent != "interpret_chart" {
 		t.Fatalf("TaskIntent = %q, want interpret_chart", got.TaskIntent)
+	}
+}
+
+func TestTextDecideInjectsDraft07FallbackSchema(t *testing.T) {
+	flash := &llm.NoopClient{GenerateFn: func(ctx context.Context, systemPrompt string, messages []llm.Message) (string, llm.TokenUsage, error) {
+		if !strings.Contains(systemPrompt, "http://json-schema.org/draft-07/schema#") {
+			t.Fatal("text fallback prompt omitted Draft-07 schema")
+		}
+		return `{"conversation_intent":"consult","primary_domain":"bazi","secondary_domains":[],"task_intent":"interpret_chart","needs_clarification":false,"clarification_question":"","parallelizable":false,"confidence":0.88,"slots":{"profile":{},"question_text":"测试","time_scope":"","target_subject":"","language":"zh"},"policy_hints":{"needs_knowledge":true,"needs_qimen":false,"can_reuse_session_profile":false,"can_reuse_cached_result":false}}`, llm.TokenUsage{}, nil
+	}}
+	client := NewClient(flash)
+	if _, err := client.textDecide(context.Background(), "router rules", []llm.Message{{Role: "user", Content: "测试"}}, state.NewSession("test"), "测试"); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -495,7 +512,10 @@ func TestParseDecision_ValidJSON(t *testing.T) {
 		}
 	}`
 
-	got := parseDecision(raw)
+	got, err := parseDecision(raw)
+	if err != nil {
+		t.Fatalf("parseDecision() error = %v", err)
+	}
 	if got.ConversationIntent != "consult" {
 		t.Fatalf("ConversationIntent: got %q, want %q", got.ConversationIntent, "consult")
 	}
@@ -522,60 +542,31 @@ func TestParseDecision_ValidJSON(t *testing.T) {
 	}
 }
 
-func TestParseDecision_NormalizesDefaults(t *testing.T) {
+func TestParseDecision_RejectsMissingRequiredFields(t *testing.T) {
 	raw := `{"primary_domain":"bazi"}`
-	got := parseDecision(raw)
-
-	if got.ConversationIntent != "consult" {
-		t.Fatalf("ConversationIntent: got %q, want %q", got.ConversationIntent, "consult")
-	}
-	if got.PrimaryDomain != "bazi" {
-		t.Fatalf("PrimaryDomain: got %q, want %q", got.PrimaryDomain, "bazi")
-	}
-	if got.TaskIntent == "" {
-		t.Fatal("TaskIntent should not be empty after normalization")
-	}
-	if got.SecondaryDomains == nil {
-		t.Fatal("SecondaryDomains should not be nil after normalization")
-	}
-	if got.Slots.Profile == nil {
-		t.Fatal("Slots.Profile should not be nil after normalization")
+	if _, err := parseDecision(raw); err == nil {
+		t.Fatal("parseDecision() error = nil, want missing-field rejection")
 	}
 }
 
 func TestParseDecision_MalformedJSON(t *testing.T) {
 	raw := `not valid json at all {{{`
-	got := parseDecision(raw)
-
-	// Malformed JSON must fall back to safe defaults, not panic.
-	if got.ConversationIntent != "consult" {
-		t.Fatalf("malformed JSON: ConversationIntent got %q, want %q", got.ConversationIntent, "consult")
-	}
-	if got.PrimaryDomain != "bazi" {
-		t.Fatalf("malformed JSON: PrimaryDomain got %q, want %q", got.PrimaryDomain, "bazi")
+	if _, err := parseDecision(raw); err == nil {
+		t.Fatal("parseDecision() error = nil, want malformed JSON rejection")
 	}
 }
 
 func TestParseDecision_EmptyOutput(t *testing.T) {
 	raw := ""
-	got := parseDecision(raw)
-
-	// Empty output must not panic and must return safe defaults.
-	if got.ConversationIntent != "consult" {
-		t.Fatalf("empty output: ConversationIntent got %q, want %q", got.ConversationIntent, "consult")
-	}
-	if got.PrimaryDomain != "bazi" {
-		t.Fatalf("empty output: PrimaryDomain got %q, want %q", got.PrimaryDomain, "bazi")
+	if _, err := parseDecision(raw); err == nil {
+		t.Fatal("parseDecision() error = nil, want empty-output rejection")
 	}
 }
 
 func TestParseDecision_InvalidConfidence(t *testing.T) {
 	raw := `{"conversation_intent":"consult","primary_domain":"bazi","confidence":-0.5}`
-	got := parseDecision(raw)
-
-	// Negative confidence must be clamped to 0 after normalization.
-	if got.Confidence < 0 {
-		t.Fatalf("Confidence: got %f, want >= 0", got.Confidence)
+	if _, err := parseDecision(raw); err == nil {
+		t.Fatal("parseDecision() error = nil, want missing-field rejection")
 	}
 }
 
@@ -583,12 +574,20 @@ func TestParseAndValidate_CollectProfileWithoutProfileData(t *testing.T) {
 	raw := `{
 		"conversation_intent": "consult",
 		"primary_domain": "bazi",
+		"secondary_domains": [],
 		"task_intent": "collect_profile",
+		"needs_clarification": false,
+		"clarification_question": "",
+		"parallelizable": false,
 		"confidence": 0.9,
 		"slots": {
 			"profile": {},
-			"question_text": ""
-		}
+			"question_text": "",
+			"time_scope": "",
+			"target_subject": "",
+			"language": "zh"
+		},
+		"policy_hints": {"needs_knowledge": false, "needs_qimen": false, "can_reuse_session_profile": false, "can_reuse_cached_result": false}
 	}`
 
 	_, err := parseAndValidate(raw)
@@ -601,12 +600,20 @@ func TestParseAndValidate_CollectProfileWithProfileData(t *testing.T) {
 	raw := `{
 		"conversation_intent": "consult",
 		"primary_domain": "bazi",
+		"secondary_domains": [],
 		"task_intent": "collect_profile",
+		"needs_clarification": false,
+		"clarification_question": "",
+		"parallelizable": false,
 		"confidence": 0.9,
 		"slots": {
 			"profile": {"year": 1990, "month": 5, "day": 20, "hour": 8, "gender": "男", "birthplace": "北京"},
-			"question_text": ""
-		}
+			"question_text": "",
+			"time_scope": "",
+			"target_subject": "",
+			"language": "zh"
+		},
+		"policy_hints": {"needs_knowledge": false, "needs_qimen": false, "can_reuse_session_profile": false, "can_reuse_cached_result": false}
 	}`
 
 	d, err := parseAndValidate(raw)
@@ -640,12 +647,20 @@ func TestParseAndValidate_ValidNonCollectProfilePasses(t *testing.T) {
 	raw := `{
 		"conversation_intent": "consult",
 		"primary_domain": "bazi",
+		"secondary_domains": [],
 		"task_intent": "interpret_chart",
+		"needs_clarification": false,
+		"clarification_question": "",
+		"parallelizable": false,
 		"confidence": 0.95,
 		"slots": {
 			"profile": {},
-			"question_text": "我的财运如何"
-		}
+			"question_text": "我的财运如何",
+			"time_scope": "",
+			"target_subject": "",
+			"language": "zh"
+		},
+		"policy_hints": {"needs_knowledge": false, "needs_qimen": false, "can_reuse_session_profile": false, "can_reuse_cached_result": false}
 	}`
 
 	d, err := parseAndValidate(raw)
@@ -674,12 +689,8 @@ func TestParseDecision_QimenSecondaryDomain(t *testing.T) {
 		"confidence": 0.85
 	}`
 
-	got := parseDecision(raw)
-	if got.PrimaryDomain != "bazi" {
-		t.Fatalf("PrimaryDomain: got %q, want %q", got.PrimaryDomain, "bazi")
-	}
-	if len(got.SecondaryDomains) == 0 || got.SecondaryDomains[0] != "qimen" {
-		t.Fatalf("SecondaryDomains: got %v, want [qimen]", got.SecondaryDomains)
+	if _, err := parseDecision(raw); err == nil {
+		t.Fatal("parseDecision() error = nil, want incomplete fallback schema rejection")
 	}
 }
 
@@ -767,5 +778,34 @@ func TestNormalizeApprovedRoute_StopsOwningSessionAwareTaskRewrite(t *testing.T)
 				t.Fatalf("TaskIntent = %q, want %q", got.TaskIntent, tc.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeApprovedRoute_CompletesExplicitBirthProfileAfterDegradedAmendRoute(t *testing.T) {
+	client := &Client{}
+	st := state.NewSession("s-birth")
+	route := policy.ApprovedRoute{
+		PrimaryDomain:      "bazi",
+		TaskIntent:         "amend_profile",
+		NeedsClarification: true,
+		Slots: schemas.DecisionSlots{Profile: map[string]any{
+			"hour":   23.0,
+			"minute": 53.0,
+		}},
+	}
+
+	got := client.normalizeApprovedRoute(context.Background(), "2025年11月10日23点53分 男 上海", st, route)
+	if got.TaskIntent != "collect_profile" {
+		t.Fatalf("TaskIntent = %q, want collect_profile", got.TaskIntent)
+	}
+	if got.NeedsClarification {
+		t.Fatal("complete explicit birth profile should not request clarification")
+	}
+	for field, want := range map[string]any{
+		"year": 2025.0, "month": 11.0, "day": 10.0, "hour": 23.0, "minute": 53.0, "gender": "男", "birthplace": "上海",
+	} {
+		if got.Slots.Profile[field] != want {
+			t.Fatalf("profile[%q] = %v, want %v", field, got.Slots.Profile[field], want)
+		}
 	}
 }

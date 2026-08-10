@@ -33,7 +33,7 @@ func TestBaziEvidencePlannerPrompt_IsEmbedded(t *testing.T) {
 // hidden combinations from being promoted solely because they have a name.
 func TestBaziStaticSynthesisPrompt_RequiresVisibleHiddenRouteComparison(t *testing.T) {
 	prompt := prompts.BaziStaticSynthesisInstruction
-	for _, required := range []string{"透干可见性", "藏干层级", "承接闭环", "纯藏支组合若要压过透干路线", "本气未透”只能改变显用方式", "某十神为忌`属于扶抑或病药层"} {
+	for _, required := range []string{"透干、藏干层级、通根、时令、承接和反证", "月令本气未透不能单独否定", "不得因“印星根气不足”"} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("static synthesis prompt missing route-comparison contract %q", required)
 		}
@@ -49,7 +49,7 @@ func TestBaziStaticSynthesisPrompt_RequiresVisibleHiddenRouteComparison(t *testi
 // adult-domain leakage through future dayun entries for a minor subject.
 func TestBaziDynamicSynthesisPrompt_AgeBoundaryCoversAllDynamicFields(t *testing.T) {
 	prompt := prompts.BaziDynamicSynthesisInstruction
-	for _, required := range []string{"全部字段", "完整 `dayun_path` / `dayun_judgments`", "未来成年大运"} {
+	for _, required := range []string{"若为未成年人", "成长环境、照护节奏和可观察发展", "完整大运目录、干支、年龄和日期由 runtime 渲染"} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("dynamic synthesis prompt missing all-field age boundary %q", required)
 		}
@@ -164,12 +164,27 @@ func TestNormalizeBaziEvidencePlan_SpecializesTiaohouQuery(t *testing.T) {
 	}}
 
 	out := normalizeBaziEvidencePlan(plan, input, baziAnalysisPlan{RetrievalStage: "static"})
-	if len(out.QueryPackets) != 1 {
-		t.Fatalf("query packets = %+v", out.QueryPackets)
+	var query string
+	for _, packet := range out.QueryPackets {
+		if packet.Topic == "tiaohou" && packet.SourceTier == "A" {
+			query = packet.Query
+			break
+		}
 	}
-	query := out.QueryPackets[0].Query
 	if !strings.Contains(query, "丁火") || !strings.Contains(query, "酉月") || !strings.Contains(query, "八月丁火") {
 		t.Fatalf("specialized tiaohou query missing chart terms: %q", query)
+	}
+}
+
+// TestNormalizeBaziEvidencePlan_AddsTierQualificationTopics protects the
+// upstream contract required by TierEvidenceComplete. A planner omission must
+// become a retrievable gap, not an unconditional runtime withholding.
+func TestNormalizeBaziEvidencePlan_AddsTierQualificationTopics(t *testing.T) {
+	out := normalizeBaziEvidencePlan(baziEvidencePlan{Stage: "static"}, baziCharterInput{}, baziAnalysisPlan{RetrievalStage: "static"})
+	for _, topic := range []string{"qingzhuo", "bingyao", "jiuying", "poge"} {
+		if !hasATierEvidenceTopic(out, topic) {
+			t.Fatalf("static evidence plan missing required tier topic %q: %+v", topic, out.QueryPackets)
+		}
 	}
 }
 

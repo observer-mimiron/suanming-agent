@@ -45,6 +45,8 @@ var newEinoToolCallingChatModel = func(ctx context.Context, cfg FactoryConfig) (
 	return deepseekmodel.NewChatModel(ctx, buildChatModelConfig(cfg))
 }
 
+var newDeepSeekChatModel = deepseekmodel.NewChatModel
+
 // NewToolCallingModel 创建 Eino ToolCallingChatModel，用于 supervisor ADK route engine 等需要 tool calling 的场景。
 func NewToolCallingModel(ctx context.Context, cfg FactoryConfig) (einomodel.ToolCallingChatModel, error) {
 	return newEinoToolCallingChatModel(ctx, cfg)
@@ -64,7 +66,7 @@ func NewChatClient(ctx context.Context, cfg FactoryConfig) (Chat, error) {
 func NewToolCallingModelWithJSON(ctx context.Context, cfg FactoryConfig) (einomodel.ToolCallingChatModel, error) {
 	base := buildChatModelConfig(cfg)
 	base.ResponseFormatType = deepseekmodel.ResponseFormatTypeJSONObject
-	return deepseekmodel.NewChatModel(ctx, base)
+	return newDeepSeekChatModel(ctx, base)
 }
 
 func normalizeEinoBaseURL(baseURL string) string {

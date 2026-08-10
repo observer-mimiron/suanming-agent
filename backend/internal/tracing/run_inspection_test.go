@@ -109,7 +109,7 @@ func TestBuildRunInspection_GeneratesDeterministicDiagnostics(t *testing.T) {
 			"bazi.contract.finding_code":         "outcome_domain_mismatch",
 			"bazi.contract.recovery_policy":      "dynamic_facts_only",
 			"bazi.internal_graph.recovery_state": "dynamic_recovered",
-			"bazi.static.source":                 "model_partial",
+			"bazi.static.source":                 "model",
 			"bazi.dynamic.source":                "facts_only_degraded",
 		},
 		Spans: []TraceSpan{

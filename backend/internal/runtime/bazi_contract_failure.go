@@ -1,15 +1,21 @@
 // Package runtime 分类八字综合合同失败，供 repair、恢复和 trace 投影使用。
 //
-// 独立审计拥有语义 finding，本文件只映射成确定性 runtime 动作；
+// 合同 finding 只提供语义元数据，本文件只映射成确定性 runtime 动作；
 // 不重写命理解读，也不引入命盘专项分支。
 package runtime
 
-import "strings"
+import (
+	"errors"
+	"strings"
+
+	"github.com/observer-mimiron/suanming-agent/internal/structured"
+)
 
 const (
 	baziContractFailureEvidenceOverclaim  = "evidence_overclaim"
 	baziContractFailureDomainUnauthorized = "domain_unauthorized"
 	baziContractFailureProjectionMismatch = "projection_mismatch"
+	baziContractFailureSchemaError        = "schema_error"
 	baziContractFailureFactConflict       = "fact_conflict"
 	baziContractFailureMethodContract     = "method_contract"
 	baziContractFailureUnknown            = "unknown"
@@ -30,10 +36,12 @@ type baziContractFailure struct {
 	DetectedDomain string
 	Excerpt        string
 	Reason         string
+	MissingRefs    []string
+	AllowedRefs    []string
 	RecoveryPolicy string
 }
 
-// baziContractFailureFromAuditFinding 把审计 finding 映射到闭合失败分类。
+// baziContractFailureFromAuditFinding 把合同 finding 映射到闭合失败分类。
 // recovery policy 只由 runtime 决定，不信任模型自报建议。
 func baziContractFailureFromAuditFinding(stage string, finding baziContractAuditFinding) baziContractFailure {
 	code := strings.TrimSpace(finding.Code)
@@ -62,7 +70,7 @@ func baziContractFailureFromAuditFinding(stage string, finding baziContractAudit
 }
 
 // baziContractFailureFromViolation 分类确定性 validator 错误。
-// 若错误来自审计 finding，则保留 finding metadata 供 repair 和 trace 使用。
+// 若错误携带 finding metadata，则保留它供 repair 和 trace 使用。
 func baziContractFailureFromViolation(stage string, violation baziValidationViolation) baziContractFailure {
 	failure := baziContractFailure{
 		Class:          baziContractFailureUnknown,
@@ -71,6 +79,8 @@ func baziContractFailureFromViolation(stage string, violation baziValidationViol
 		DetectedDomain: strings.TrimSpace(violation.DetectedDomain),
 		Excerpt:        strings.TrimSpace(violation.Excerpt),
 		Reason:         strings.TrimSpace(violation.Message),
+		MissingRefs:    append([]string(nil), violation.MissingRefs...),
+		AllowedRefs:    append([]string(nil), violation.AllowedRefs...),
 	}
 	if failure.FindingCode != "" {
 		fromFinding := baziContractFailureFromAuditFinding(stage, baziContractAuditFinding{
@@ -88,6 +98,10 @@ func baziContractFailureFromViolation(stage string, violation baziValidationViol
 		failure.Class = baziContractFailureEvidenceOverclaim
 	case baziViolationUnsupportedConcreteOutcome:
 		failure.Class = baziContractFailureDomainUnauthorized
+	case baziViolationUndeclaredFactClaim:
+		// 未声明引用是输出合同错误：模型可根据同轮 catalog 重写一次；
+		// 它不代表确定性事实本身冲突，不能与 fact_value_mismatch 共用硬失败路径。
+		failure.Class = baziContractFailureSchemaError
 	case baziViolationFactConflict, baziViolationFactRefMissing:
 		failure.Class = baziContractFailureFactConflict
 	case baziViolationMethodContract, baziViolationClaimNotAuthorized:
@@ -112,6 +126,27 @@ func baziContractFailureFromError(stage string, err error) (baziContractFailure,
 // repairFailureFromBaziContract maps BaZi-only validation failures into the
 // global Repair Harness contract without changing current control flow.
 func repairFailureFromBaziContract(stage string, err error) (RepairFailure, bool) {
+	var schemaErr *structured.Error
+	if errors.As(err, &schemaErr) {
+		failure := RepairFailure{
+			Domain: "bazi", Stage: strings.TrimSpace(stage), Class: RepairSchemaError,
+			Field: schemaErr.Schema, Code: "schema_error", Message: schemaErr.Detail,
+			Fallback: baziStructuredFailureFallback(stage), Cause: err,
+		}
+		decision := DefaultRepairPolicy().Decide(failure, RepairState{})
+		failure.Retryable, failure.Repairable = decision.Retryable, decision.Repairable
+		return failure, true
+	}
+	if isBaziInnerAgentParseError(err) {
+		failure := RepairFailure{
+			Domain: "bazi", Stage: strings.TrimSpace(stage), Class: RepairParseError,
+			Field: "output", Code: "parse_error", Message: err.Error(),
+			Fallback: baziStructuredFailureFallback(stage), Cause: err,
+		}
+		decision := DefaultRepairPolicy().Decide(failure, RepairState{})
+		failure.Retryable, failure.Repairable = decision.Retryable, decision.Repairable
+		return failure, true
+	}
 	failure, ok := baziContractFailureFromError(stage, err)
 	if !ok {
 		return RepairFailure{}, false
@@ -127,14 +162,28 @@ func repairFailureFromBaziContract(stage string, err error) (RepairFailure, bool
 		Fallback: repairFallbackFromBaziRecoveryPolicy(failure.RecoveryPolicy),
 		Cause:    err,
 	}
+	if violation, violationOK := baziViolationFromError(err); violationOK {
+		repairFailure.MissingRefs = append([]string(nil), violation.MissingRefs...)
+		repairFailure.AllowedRefs = append([]string(nil), violation.AllowedRefs...)
+	}
 	decision := DefaultRepairPolicy().Decide(repairFailure, RepairState{})
 	repairFailure.Retryable = decision.Retryable
 	repairFailure.Repairable = decision.Repairable
 	return repairFailure, true
 }
 
+// baziStructuredFailureFallback 允许动态结构化输出在一次 repair 失败后保留静态结果。
+// static/canonical 仍沿用各自恢复策略，避免把所有节点错误都静默吞掉。
+func baziStructuredFailureFallback(stage string) string {
+	if strings.HasPrefix(strings.TrimSpace(stage), "dynamic") {
+		return "facts_only"
+	}
+	return ""
+}
+
 // baziRecoveryPolicyForFailure 是合同失败恢复策略的基础映射。
-// retry-only 类默认不能静默 facts-only；字段级例外由后续 helper 显式收窄。
+// 结构投影失败先统一尝试一次 repair；动态层修复耗尽后可以保留已验收的
+// 静态结果并降级为事实展示，事实和方法冲突仍无降级出口。
 func baziRecoveryPolicyForFailure(stage, class string) string {
 	stage = strings.TrimSpace(stage)
 	switch class {
@@ -149,6 +198,11 @@ func baziRecoveryPolicyForFailure(stage, class string) string {
 		}
 		return baziRecoveryPolicyHardError
 	case baziContractFailureProjectionMismatch:
+		if strings.HasPrefix(stage, "dynamic") {
+			return baziRecoveryPolicyDynamicFactsOnly
+		}
+		return baziRecoveryPolicyRetryOnly
+	case baziContractFailureSchemaError:
 		return baziRecoveryPolicyRetryOnly
 	case baziContractFailureFactConflict, baziContractFailureMethodContract:
 		return baziRecoveryPolicyHardError
@@ -157,8 +211,10 @@ func baziRecoveryPolicyForFailure(stage, class string) string {
 	}
 }
 
-// withBaziStaticFallback 收窄允许 static facts-only 的静态投影失败字段。
-// 普通 fact_conflict 和 method_contract 仍不放宽，避免模型或降级吞掉确定性错误。
+// withBaziStaticFallback allows only model-owned static claim slots to fall back
+// after repair exhaustion. Facts-only projection errors, fact conflicts and
+// method-contract violations remain hard errors because recovery cannot hide an
+// invalid deterministic result.
 func withBaziStaticFallback(stage string, failure baziContractFailure) baziContractFailure {
 	if failure.Class == baziContractFailureFactConflict &&
 		strings.HasPrefix(strings.TrimSpace(stage), "static") &&
@@ -172,7 +228,12 @@ func withBaziStaticFallback(stage string, failure baziContractFailure) baziContr
 	if !strings.HasPrefix(strings.TrimSpace(stage), "static") {
 		return failure
 	}
-	if strings.TrimSpace(failure.Field) != "static.tiaohou_anchor" {
+	field := strings.TrimSpace(failure.Field)
+	if field == "static.main_axis" && len(failure.MissingRefs) > 0 {
+		failure.RecoveryPolicy = baziRecoveryPolicyStaticFactsOnly
+		return failure
+	}
+	if field != "static.tiaohou_anchor" {
 		return failure
 	}
 	failure.RecoveryPolicy = baziRecoveryPolicyStaticFactsOnly
@@ -225,6 +286,8 @@ func repairClassFromBaziContract(class string) RepairClass {
 		return RepairDomainUnauthorized
 	case baziContractFailureProjectionMismatch:
 		return RepairProjectionMismatch
+	case baziContractFailureSchemaError:
+		return RepairSchemaError
 	case baziContractFailureFactConflict:
 		return RepairFactConflict
 	case baziContractFailureMethodContract:

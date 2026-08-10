@@ -79,6 +79,7 @@
 - **When** Prefill 完成动态准备
 - **Then** runtime 产出包含 `scope`、`target_at`、`status` 和结构化 `facts` 的动态事实对象
 - **And** 流月未实现时 `status` 只能是 `unavailable` 或 `degraded`，最终回答明确说明缺口，不由模型补算流月
+- **And** 只有 `ExecutionPlan.Route.Slots.TimeScope` 明确存在时，Manager 才能把 `unavailable/degraded` 缺口追加到最终回答；没有明确时间范围的静态或结构追问不得追加流年/流月缺口说明
 
 ### AC-2.7 排盘结果自动推送卡片
 - **Given** `bazi_calc` 返回排盘结果
@@ -104,6 +105,25 @@
 - **And** `balance_status=待选定流派裁断` 时，大运仍输出十神、顺逆、交运边界和关系事实，但 `quality` / `quality_base` 必须为“待裁定”
 - **And** 动态综合不得使用未在关系事实中声明的暗合、相破，也不得从命理关系推导官非或具体疾病
 - **And** 冲、刑、害、合、会只能作为关系触发面；不得按固定权重自动汇总成“偏吉 / 偏压 / 承压明显”大运结论
+
+### AC-2.12 BaZi 确定性裁断 V2
+- **Given** 用户请求完整八字解读
+- **When** runtime 执行八字内部图
+- **Then** trace 记录 `bazi.loop_step`、`bazi.next_action`、`bazi.termination_reason`；实际路径由 `decide_next` 按 state 选择 `analysis_plan`、`evidence_action`、`static_judgment`、`dynamic_judgment`、`repair`、`recover_facts` 或 `render`，编译上限为 24 步
+- **And** `contract_check` 只校验并写入 failure；`fact_conflict`、`method_contract` 不调用模型 repair，允许 repair 的阶段最多一次
+- **And** outer `orchestration` trace 记录 `orchestration.loop_step`、`orchestration.next_action`、`orchestration.termination_reason`，编译上限为 16 步；`final_guard` 在 Graph `Invoke` 后执行，最终 `text` 只发送一次
+- **And** 2026 流年只引用 runtime 绑定的甲午运，不得引用 `dayun[0]`；完整大运目录只展示确定性事实
+- **And** 本命层次固定为九级：核心命盘和主轴已成立但独立主证未闭合时，必须输出 `provisional` 的第 3-6 级；清浊、病药、救应、破格风险和何知章五项证据齐全时才可输出 `rated` 的第 1-9 级；只有核心事实或主轴无法建立时才允许 `withheld` 的 0 级
+- **And** 当前大运只能输出 `repair|assist|maintain|disturb|suppress` 承接状态，不得改写本命基础等级
+- **And** 官星未透时，静态原局风险必须为 `withheld`；岁运风险仅能在当前大运和流年关系已绑定时表达为条件风险
+- **And** 用户可见依据不得包含 `dayun[0].gan_zhi` 等内部路径，主轴只在总览结论中出现一次
+
+### AC-2.13 八字追问直接回答边界
+- **Given** 会话中已有通过静态合同校验的八字结论，用户提出不带明确时间范围的普通结构追问
+- **When** 静态结果没有专用 `TopicDirectAnswer`
+- **Then** 最终 `直接回答` 依次回退到已验证的 `PatternOutcome`、`MainAxis` 或 `TopicFocusAnswer`，不得因为专用字段为空而输出“本轮未形成这次追问的直接裁断”
+- **And** `timing_reason` 动态追问仍优先使用当前动态趋势，不复用普通结构追问的静态回退语义
+- **And** 本轮没有明确 `TimeScope` 时，即使 `DynamicFacts.status` 为 `unavailable/degraded`，最终文本也不得追加流年/流月资料缺口
 
 ## AC-3：知识检索
 
@@ -183,6 +203,43 @@
 - **When** 前端渲染 AssistantTurn
 - **Then** “思考过程”和“知识来源”卡片默认折叠
 
+## AC-7：结构化输出合同
+
+### AC-7.1 Draft-07 Schema 单一来源
+- **Given** 四个 BaZi JSON Mode 节点或 Supervisor text fallback 需要结构化输出
+- **When** 构建 prompt 或校验模型原始 content
+- **Then** 两者都读取仓库内同一份嵌入式 Draft-07 JSON Schema 原文；V2 的 analysis、evidence、static、dynamic 节点各有独立 `bazi-*.schema.json` 文件，Schema 由 gojsonschema 校验，不能由 DTO 反射或 prompt 字段表生成旁路
+- **And** registry 不注册已删除的 canonical/audit Schema，活跃节点只能使用 analysis、evidence、static、dynamic 四份 Schema
+- **And** 当前传输仍是 DeepSeek Chat Completions response_format: {"type":"json_object"}，不是 provider-native Strict JSON Schema
+
+### AC-7.2 原始 JSON 严格拒绝
+- **Given** 模型返回空内容、Markdown fence、缺少 required、错误 type、非法 enum、unknown field 或 trailing JSON
+- **When** 结构化输出进入 Go client
+- **Then** 统一以 schema_error 拒绝，不进入 DTO、renderer 或成功路径
+- **And** json.Decoder.DisallowUnknownFields() 后第二次 Decode 必须得到 io.EOF
+
+### AC-7.3 引用 catalog 与 repair 边界
+- **Given** 模型输出未声明 fact_ref、relation_ref 或 claim_ref
+- **When** generic runtime catalog 校验
+- **Then** 返回 undeclared_fact_claim；canonical synthesis 最多按 schema repair 重跑一次，并携带当轮允许 ID
+- **And** fact_value_mismatch、方法合同冲突不通过改措辞重试；“丙戌火局”不依赖专项 validator
+
+### AC-7.4 Transport 与业务 repair 分离
+- **Given** transport transient 或 schema/reference contract failure
+- **When** runtime 记录重试与 repair
+- **Then** transport attempt 与 schema repair attempt 独立计数、独立 trace；失败后按 recovery policy 降级或硬失败
+
+### AC-7.5 Supervisor 与 SSE 边界不变
+- **Given** Supervisor ADK output tool 和 text fallback 分别返回结构化 tool output 或文本 JSON
+- **When** 进行路由决策和 SSE 推送
+- **Then** InferTool / ReturnDirectly 语义保持；text fallback 不宽松接受 fence/unknown/trailing JSON；SSE 事件名仍为 thinking/tool_call/component/text/done
+
+### AC-7.6 节点输出职责不重叠
+- **Given** BaZi static、dynamic JSON Mode 节点
+- **When** 生成或校验各自 DTO
+- **Then** static 固定输出主轴、强弱、调候、格局四个 claim 与结构化九级层次；dynamic 只输出 runtime 已绑定当前大运及流年，不输出完整大运吉凶标签
+- **And** static/dynamic 的引用失败只重跑其所属节点，动态不得重跑静态或 canonical；调候 verdict 不以自然语言短语表作第二份合同
+
 ## AC-6：上下文工程
 
 ### AC-6.1 滚动摘要
@@ -218,6 +275,7 @@
 - route-decision emission
 - degraded follow-up / explanation / retrieval / qimen prompts do not crash
 - successful stream completion
+- 八字普通结构追问覆盖静态直接回答回退和无时间范围时不追加动态资料缺口：`TestRunFinalWriter_TopicFallbackUsesStaticConclusion`、`TestManager_DynamicFactsNoticeRequiresExplicitTimeScope`
 - 多对象、资料修订、解读来源与奇门 Case 隔离：`TestExecutionPlan_SubjectAssetConversationRegression`
 
 ## 验证命令

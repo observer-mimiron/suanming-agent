@@ -183,7 +183,7 @@
 
 **是什么**：Agent 运行完成后对输出做 contract 校验。若 PrimaryDomain=qimen 但没有 QimenResult，或 PrimaryDomain=ziwei 但没有 ZiWeiResult → 阻止输出最终结论。
 
-**定义位置**：[internal/runtime/final_guard.go](../internal/runtime/final_guard.go)
+**定义位置**：[internal/runtime/executor.go](../internal/runtime/executor.go) 的 `guardFinalAnswerWithPlan` 调用点
 
 **关联**：在 `agentEventBridge` 后调用，是最终回答的最后一道门。
 

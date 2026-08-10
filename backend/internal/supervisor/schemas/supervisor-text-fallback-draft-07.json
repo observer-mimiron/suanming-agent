@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "conversation_intent": { "type": "string", "enum": ["consult", "clarify", "smalltalk", "meta_help", "switch_topic"] },
+    "primary_domain": { "type": "string", "enum": ["bazi", "qimen", "ziwei"] },
+    "secondary_domains": { "type": "array", "items": { "type": "string" } },
+    "task_intent": { "type": "string", "enum": ["collect_profile", "amend_profile", "fortune_followup", "direct_bazi", "cross_domain_consult", "interpret_chart", "timing_followup"] },
+    "needs_clarification": { "type": "boolean" },
+    "clarification_question": { "type": "string" },
+    "parallelizable": { "type": "boolean" },
+    "confidence": { "type": "number" },
+    "slots": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "profile": { "type": "object" }, "question_text": { "type": "string" },
+        "time_scope": { "type": "string" }, "target_subject": { "type": "string" }, "language": { "type": "string" }
+      },
+      "required": ["profile", "question_text", "time_scope", "target_subject", "language"]
+    },
+    "policy_hints": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "needs_knowledge": { "type": "boolean" }, "needs_qimen": { "type": "boolean" },
+        "qimen_mode": { "type": "string", "enum": ["none", "supplement", "primary"] },
+        "profile_requirement": { "type": "string", "enum": ["none", "full"] },
+        "can_reuse_session_profile": { "type": "boolean" }, "can_reuse_cached_result": { "type": "boolean" }
+      },
+      "required": ["needs_knowledge", "needs_qimen", "can_reuse_session_profile", "can_reuse_cached_result"]
+    }
+  },
+  "required": ["conversation_intent", "primary_domain", "secondary_domains", "task_intent", "needs_clarification", "clarification_question", "parallelizable", "confidence", "slots", "policy_hints"]
+}

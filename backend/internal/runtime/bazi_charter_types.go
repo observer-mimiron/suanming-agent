@@ -1,7 +1,7 @@
-// Package runtime defines the manager-owned BaZi graph contracts.
+// Package runtime 包含 Manager 拥有的八字执行图合同。
 //
-// These types carry deterministic facts, evidence provenance and bounded model
-// judgments; rendering code must not invent new domain conclusions.
+// 本文件定义确定性事实、证据引用与受限模型裁断 DTO；
+// renderer 只能消费投影结果，不得自行新增命理结论。
 package runtime
 
 type baziCharterInput struct {
@@ -93,6 +93,9 @@ const (
 type baziFactRef string
 type baziClaimRef string
 
+// baziRelationRef 是模型可引用的关系事实 ID；关系文字和值只留在 runtime catalog。
+type baziRelationRef string
+
 // baziAssertion is the smallest runtime-verifiable reading unit. The legacy
 // synthesis text remains for rendering, while assertions record which chart
 // facts and rule-profile claims authorize each visible conclusion.
@@ -102,11 +105,101 @@ type baziAssertion struct {
 	Subject        string            `json:"subject"`
 	Verdict        string            `json:"verdict"`
 	FactRefs       []baziFactRef     `json:"fact_refs,omitempty"`
+	RelationRefs   []baziRelationRef `json:"relation_refs,omitempty"`
 	ClaimRefs      []baziClaimRef    `json:"claim_refs,omitempty"`
 	EvidenceTopics []string          `json:"evidence_topics,omitempty"`
 	EvidenceStatus string            `json:"evidence_status,omitempty"`
 	Confidence     string            `json:"confidence,omitempty"`
 	Boundary       string            `json:"boundary,omitempty"`
+}
+
+// baziStructuredClaim 是模型输出的最小 claim DTO；固定槽位的 kind、id、subject 由 runtime 补全。
+// 模型仍必须给出 verdict、边界、引用和解释所需证据主题，不能借位置省略语义判断。
+type baziStructuredClaim struct {
+	Verdict        string            `json:"verdict"`
+	FactRefs       []baziFactRef     `json:"fact_refs"`
+	RelationRefs   []baziRelationRef `json:"relation_refs"`
+	ClaimRefs      []baziClaimRef    `json:"claim_refs"`
+	EvidenceTopics []string          `json:"evidence_topics"`
+	Confidence     string            `json:"confidence"`
+	Boundary       string            `json:"boundary"`
+}
+
+// baziStructuredStaticClaim 是静态节点的受限裁断槽位。模型只给出一句短结论
+// 和可验证引用；置信度与边界仍由 runtime 从状态和事实胶囊单向投影。
+type baziStructuredStaticClaim struct {
+	Verdict        string         `json:"verdict"`
+	Status         string         `json:"status"`
+	FactRefs       []baziFactRef  `json:"fact_refs"`
+	ClaimRefs      []baziClaimRef `json:"claim_refs"`
+	EvidenceTopics []string       `json:"evidence_topics"`
+}
+
+// baziTierDimension 是层次裁断的一个受限维度。模型只能选择状态并引用
+// 已声明的事实或规则依据；原局关系和中文层次说明由 runtime 投影。
+type baziTierDimension struct {
+	State          string         `json:"state"`
+	FactRefs       []baziFactRef  `json:"fact_refs"`
+	ClaimRefs      []baziClaimRef `json:"claim_refs"`
+	EvidenceTopics []string       `json:"evidence_topics"`
+}
+
+// baziTierDimensions 固定九个传统层次观察面，避免模型增删维度或用自由
+// 文本把单一信号伪装成完整层次判断。
+type baziTierDimensions struct {
+	MainAxis   baziTierDimension `json:"main_axis"`
+	YouQing    baziTierDimension `json:"youqing"`
+	YouLi      baziTierDimension `json:"youli"`
+	QingZhuo   baziTierDimension `json:"qingzhuo"`
+	Disease    baziTierDimension `json:"disease"`
+	Remedy     baziTierDimension `json:"remedy"`
+	Rescue     baziTierDimension `json:"rescue"`
+	Tiaohou    baziTierDimension `json:"tiaohou"`
+	HeZhiZhang baziTierDimension `json:"hezhizhang"`
+}
+
+// baziTierAssessment 是静态命局的九级基础层次槽位。它不表示财富、地位
+// 或人格价值；当前大运的承接另由动态节点独立表达。
+type baziTierAssessment struct {
+	Status     string             `json:"status"`
+	Level      int                `json:"level"`
+	Confidence string             `json:"confidence"`
+	Dimensions baziTierDimensions `json:"dimensions"`
+}
+
+// baziStructuredStaticSynthesis 是静态节点的原始模型 DTO。
+// 它只承载结论、资格状态与可验证依据，边界和说明均由 runtime 单向投影。
+type baziStructuredStaticSynthesis struct {
+	Claims          []baziStructuredStaticClaim `json:"claims"`
+	AxisStatus      string                      `json:"axis_status"`
+	TierAssessment  baziTierAssessment          `json:"tier_assessment"`
+	NatalRiskStatus string                      `json:"natal_risk_status"`
+}
+
+// baziStructuredPeriodClaim 是模型选择的重点大运 claim。
+// period_ref 只用于选择本轮 catalog 中的 period，干支、年龄和日期仍由 runtime 补齐。
+type baziStructuredPeriodClaim struct {
+	PeriodRef      string            `json:"period_ref"`
+	Verdict        string            `json:"verdict"`
+	FactRefs       []baziFactRef     `json:"fact_refs"`
+	RelationRefs   []baziRelationRef `json:"relation_refs"`
+	ClaimRefs      []baziClaimRef    `json:"claim_refs"`
+	EvidenceTopics []string          `json:"evidence_topics"`
+	Confidence     string            `json:"confidence"`
+	Boundary       string            `json:"boundary"`
+}
+
+// baziStructuredDynamicSynthesis 是动态节点的原始模型 DTO。
+// period claims 只解释模型选中的重点大运，完整 period 展示归 runtime 所有。
+type baziStructuredDynamicSynthesis struct {
+	CurrentPeriodRef         string                      `json:"current_period_ref"`
+	CurrentPeriodRealization string                      `json:"current_period_realization"`
+	PeriodClaims             []baziStructuredPeriodClaim `json:"period_claims"`
+	LiunianClaim             baziStructuredClaim         `json:"liunian_claim"`
+	Limitations              []string                    `json:"limitations"`
+	ReasoningSummary         string                      `json:"reasoning_summary"`
+	ReasoningSteps           []string                    `json:"reasoning_steps"`
+	OutcomeDomains           []string                    `json:"outcome_domains"`
 }
 
 // baziPatternCandidate records one competing static route and the evidence
@@ -134,8 +227,7 @@ type baziPatternAdjudication struct {
 	Candidates               []baziPatternCandidate `json:"candidates"`
 }
 
-// baziContractAuditFinding identifies one semantic contract mismatch without
-// rewriting the candidate synthesis that caused it.
+// baziContractAuditFinding 保存合同 finding 的稳定元数据，供失败分类和 trace 投影使用。
 type baziContractAuditFinding struct {
 	Code           string `json:"code"`
 	Field          string `json:"field"`
@@ -144,8 +236,7 @@ type baziContractAuditFinding struct {
 	Reason         string `json:"reason"`
 }
 
-// baziContractAudit is an independent binary review of one model synthesis.
-// Failed audits trigger feedback or facts-only degradation, never text repair.
+// baziContractAudit 保存一次八字合同校验的结果摘要，不承载模型调用或恢复决策。
 type baziContractAudit struct {
 	Compliant bool                       `json:"compliant"`
 	Findings  []baziContractAuditFinding `json:"findings"`
@@ -155,6 +246,7 @@ type baziViolationCode string
 
 const (
 	baziViolationFactRefMissing             baziViolationCode = "fact_ref_missing"
+	baziViolationUndeclaredFactClaim        baziViolationCode = "undeclared_fact_claim"
 	baziViolationFactConflict               baziViolationCode = "fact_conflict"
 	baziViolationClaimNotAuthorized         baziViolationCode = "claim_not_authorized"
 	baziViolationScopeEscalation            baziViolationCode = "scope_escalation"
@@ -181,63 +273,93 @@ type baziValidationViolation struct {
 }
 
 type baziAnalysisPlan struct {
-	Mode           string   `json:"mode"`
-	RetrievalStage string   `json:"retrieval_stage"`
-	NeedDynamic    bool     `json:"need_dynamic"`
-	FocusTopics    []string `json:"focus_topics"`
-	WriterTemplate string   `json:"writer_template"`
-	TopicMode      string   `json:"topic_mode,omitempty"`
-	StageSummary   string   `json:"stage_summary"`
+	Mode              string   `json:"mode"`
+	RetrievalStage    string   `json:"retrieval_stage"`
+	NeedDynamic       bool     `json:"need_dynamic"`
+	NeedLifetimeDayun bool     `json:"need_lifetime_dayun"`
+	FocusTopics       []string `json:"focus_topics"`
+	WriterTemplate    string   `json:"writer_template"`
+	TopicMode         string   `json:"topic_mode,omitempty"`
+	StageSummary      string   `json:"stage_summary"`
+}
+
+// baziLifetimeDayunClaim is one full-life luck-period judgment. It is separate
+// from the current-period DTO so a current trend can never overwrite it.
+type baziLifetimeDayunClaim struct {
+	PeriodRef      string            `json:"period_ref"`
+	PeriodEffect   string            `json:"period_effect"`
+	Verdict        string            `json:"verdict"`
+	FactRefs       []baziFactRef     `json:"fact_refs"`
+	RelationRefs   []baziRelationRef `json:"relation_refs"`
+	ClaimRefs      []baziClaimRef    `json:"claim_refs"`
+	EvidenceTopics []string          `json:"evidence_topics"`
+	Confidence     string            `json:"confidence"`
+}
+
+// baziLifetimeDayunSynthesis owns the life-path verdict. It must cover every
+// deterministic period; it never contains natal or current-period conclusions.
+type baziLifetimeDayunSynthesis struct {
+	Status       string                   `json:"status"`
+	Trajectory   string                   `json:"trajectory"`
+	PeriodClaims []baziLifetimeDayunClaim `json:"period_claims"`
+	Summary      string                   `json:"summary"`
 }
 
 // baziCanonicalUnit is the smallest model-owned BaZi judgment. Evidence state,
 // legacy fields and display text are derived by runtime code from this unit.
 type baziCanonicalUnit struct {
-	Kind           string   `json:"kind"`
-	Verdict        string   `json:"verdict"`
-	Boundary       string   `json:"boundary,omitempty"`
-	FactRefs       []string `json:"fact_refs,omitempty"`
-	ClaimRefs      []string `json:"claim_refs,omitempty"`
-	EvidenceTopics []string `json:"evidence_topics,omitempty"`
-	Confidence     string   `json:"confidence,omitempty"`
+	Kind           string            `json:"kind"`
+	Verdict        string            `json:"verdict"`
+	Boundary       string            `json:"boundary,omitempty"`
+	FactRefs       []string          `json:"fact_refs,omitempty"`
+	RelationRefs   []baziRelationRef `json:"relation_refs,omitempty"`
+	ClaimRefs      []string          `json:"claim_refs,omitempty"`
+	EvidenceTopics []string          `json:"evidence_topics,omitempty"`
+	Confidence     string            `json:"confidence,omitempty"`
 }
 
 // baziCanonicalDayunUnit keeps model-owned luck-period interpretation separate
 // from deterministic period facts such as gan-zhi, ages and calendar bounds.
 type baziCanonicalDayunUnit struct {
-	Index          *int     `json:"index,omitempty"`
-	GanZhi         string   `json:"gan_zhi,omitempty"`
-	Verdict        string   `json:"verdict"`
-	Boundary       string   `json:"boundary,omitempty"`
-	FactRefs       []string `json:"fact_refs,omitempty"`
-	ClaimRefs      []string `json:"claim_refs,omitempty"`
-	EvidenceTopics []string `json:"evidence_topics,omitempty"`
-	Confidence     string   `json:"confidence,omitempty"`
+	Index          *int              `json:"index,omitempty"`
+	GanZhi         string            `json:"gan_zhi,omitempty"`
+	Verdict        string            `json:"verdict"`
+	Boundary       string            `json:"boundary,omitempty"`
+	FactRefs       []string          `json:"fact_refs,omitempty"`
+	RelationRefs   []baziRelationRef `json:"relation_refs,omitempty"`
+	ClaimRefs      []string          `json:"claim_refs,omitempty"`
+	EvidenceTopics []string          `json:"evidence_topics,omitempty"`
+	Confidence     string            `json:"confidence,omitempty"`
 }
 
 // baziCanonicalSynthesis is the single bounded expert synthesis result for the
 // BaZi graph. It deliberately does not carry legacy renderer fields or
 // self-declared evidence status; those are runtime-owned projections.
 type baziCanonicalSynthesis struct {
-	Source         string   `json:"source,omitempty"`
-	RecoveryReason string   `json:"recovery_reason,omitempty"`
-	FieldAudit     []string `json:"-"`
+	Source                  string   `json:"source,omitempty"`
+	RecoveryReason          string   `json:"recovery_reason,omitempty"`
+	FieldAudit              []string `json:"-"`
+	StaticReasoningSummary  string   `json:"-"`
+	DynamicReasoningSummary string   `json:"-"`
+	DynamicOutcomeDomains   []string `json:"-"`
 
-	MainAxis       baziCanonicalUnit        `json:"main_axis"`
-	Strength       baziCanonicalUnit        `json:"strength"`
-	Tiaohou        baziCanonicalUnit        `json:"tiaohou"`
-	Pattern        baziCanonicalUnit        `json:"pattern"`
-	Tier           baziCanonicalUnit        `json:"tier"`
-	DayunOverview  baziCanonicalUnit        `json:"dayun_overview"`
-	DayunPeriods   []baziCanonicalDayunUnit `json:"dayun_periods,omitempty"`
-	Liunian        baziCanonicalUnit        `json:"liunian"`
-	Limitations    []string                 `json:"limitations,omitempty"`
-	Advantages     []string                 `json:"advantages,omitempty"`
-	Risks          []string                 `json:"risks,omitempty"`
-	ReasoningSteps []string                 `json:"reasoning_steps,omitempty"`
-	AdviceBoundary string                   `json:"advice_boundary,omitempty"`
-	Citations      []baziCitation           `json:"citations,omitempty"`
-	ContractAudit  baziContractAudit        `json:"-"`
+	MainAxis                 baziCanonicalUnit        `json:"main_axis"`
+	Strength                 baziCanonicalUnit        `json:"strength"`
+	Tiaohou                  baziCanonicalUnit        `json:"tiaohou"`
+	Pattern                  baziCanonicalUnit        `json:"pattern"`
+	Tier                     baziCanonicalUnit        `json:"tier"`
+	TierAssessment           baziTierAssessment       `json:"-"`
+	DayunOverview            baziCanonicalUnit        `json:"dayun_overview"`
+	DayunPeriods             []baziCanonicalDayunUnit `json:"dayun_periods,omitempty"`
+	Liunian                  baziCanonicalUnit        `json:"liunian"`
+	CurrentPeriodRealization string                   `json:"-"`
+	Limitations              []string                 `json:"limitations,omitempty"`
+	Advantages               []string                 `json:"advantages,omitempty"`
+	Risks                    []string                 `json:"risks,omitempty"`
+	ReasoningSteps           []string                 `json:"reasoning_steps,omitempty"`
+	AdviceBoundary           string                   `json:"advice_boundary,omitempty"`
+	Citations                []baziCitation           `json:"citations,omitempty"`
+	ContractAudit            baziContractAudit        `json:"-"`
 }
 
 // baziStrengthJudgment keeps the model's whole-chart strength conclusion
@@ -300,6 +422,7 @@ type baziStaticSynthesis struct {
 	QiShiOrCongHua          string                  `json:"qishi_or_conghua"`
 	TierJudgment            string                  `json:"tier_judgment"`
 	TierBasis               string                  `json:"tier_basis"`
+	TierAssessment          baziTierAssessment      `json:"tier_assessment"`
 	ReasoningSummary        string                  `json:"reasoning_summary"`
 	ReasoningSteps          []string                `json:"reasoning_steps"`
 	TopicDirectAnswer       string                  `json:"topic_direct_answer,omitempty"`
@@ -315,15 +438,16 @@ type baziDynamicSynthesis struct {
 	Source         string `json:"source,omitempty"`
 	RecoveryReason string `json:"recovery_reason,omitempty"`
 	// FieldAudit records runtime-only local wording repairs.
-	FieldAudit       []string            `json:"-"`
-	CurrentTrend     string              `json:"current_trend"`
-	ClaimStrength    string              `json:"claim_strength"`
-	SupportLevel     string              `json:"support_level"`
-	LimitationLevel  string              `json:"limitation_level"`
-	WordingCap       string              `json:"wording_cap"`
-	ConsistencyFlags []string            `json:"consistency_flags"`
-	DayunPath        []string            `json:"dayun_path"`
-	DayunJudgments   []baziDayunJudgment `json:"dayun_judgments,omitempty"`
+	FieldAudit               []string            `json:"-"`
+	CurrentTrend             string              `json:"current_trend"`
+	CurrentPeriodRealization string              `json:"current_period_realization"`
+	ClaimStrength            string              `json:"claim_strength"`
+	SupportLevel             string              `json:"support_level"`
+	LimitationLevel          string              `json:"limitation_level"`
+	WordingCap               string              `json:"wording_cap"`
+	ConsistencyFlags         []string            `json:"consistency_flags"`
+	DayunPath                []string            `json:"dayun_path"`
+	DayunJudgments           []baziDayunJudgment `json:"dayun_judgments,omitempty"`
 	// CurrentDayunIndex identifies the current period in the chronologically
 	// ordered DayunPath. It prevents validators from treating the first period
 	// as the current period when the path includes the full life sequence.
@@ -341,12 +465,13 @@ type baziDynamicSynthesis struct {
 }
 
 type baziCharterState struct {
-	AnalysisPlan     baziAnalysisPlan     `json:"analysis_plan"`
-	Input            baziCharterInput     `json:"input"`
-	EvidencePlan     baziEvidencePlan     `json:"evidence_plan"`
-	EvidenceBundle   baziEvidenceBundle   `json:"evidence_bundle"`
-	EvidenceQuality  baziEvidenceQuality  `json:"evidence_quality"`
-	StaticSynthesis  baziStaticSynthesis  `json:"static_synthesis"`
-	DynamicSynthesis baziDynamicSynthesis `json:"dynamic_synthesis"`
-	FieldAudit       []string             `json:"-"`
+	AnalysisPlan      baziAnalysisPlan           `json:"analysis_plan"`
+	Input             baziCharterInput           `json:"input"`
+	EvidencePlan      baziEvidencePlan           `json:"evidence_plan"`
+	EvidenceBundle    baziEvidenceBundle         `json:"evidence_bundle"`
+	EvidenceQuality   baziEvidenceQuality        `json:"evidence_quality"`
+	StaticSynthesis   baziStaticSynthesis        `json:"static_synthesis"`
+	LifetimeSynthesis baziLifetimeDayunSynthesis `json:"lifetime_synthesis"`
+	DynamicSynthesis  baziDynamicSynthesis       `json:"dynamic_synthesis"`
+	FieldAudit        []string                   `json:"-"`
 }

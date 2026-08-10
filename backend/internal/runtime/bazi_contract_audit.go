@@ -1,57 +1,15 @@
-// Package runtime contains the manager-owned BaZi synthesis contract audit.
+// Package runtime 包含八字合同 finding 的 runtime 投影辅助。
 //
-// This file runs an independent semantic reviewer after deterministic checks.
-// It may reject and retry a synthesis, but it never edits user-visible text.
+// 本文件负责把合同 finding 转为统一校验错误并生成 trace 摘要；
+// 不调用模型，不决定恢复策略，也不改写用户可见文本。
 package runtime
 
 import (
-	"context"
 	"fmt"
 	"strings"
-
-	"github.com/observer-mimiron/suanming-agent/internal/state"
 )
 
-// runBaziContractAudit asks an isolated fast-model agent to compare one
-// synthesis with facts, evidence coverage and age-domain authorization.
-func (e *Executor) runBaziContractAudit(ctx context.Context, st *state.SessionState, stage string, chartState baziCharterState, candidate any) (baziContractAudit, error) {
-	payload := buildBaziContractAuditPayload(stage, chartState, candidate)
-	return runBaziInnerAgentJSON[baziContractAudit](ctx, e.builder, baziContractAuditConfig(), st, buildBaziCharterPrompt("合同审计", chartState.Input.UserQuestion, payload))
-}
-
-// buildBaziContractAuditPayload exposes only the facts and authorization needed
-// to evaluate the requested stage, keeping the reviewer independent.
-func buildBaziContractAuditPayload(stage string, chartState baziCharterState, candidate any) map[string]any {
-	payload := map[string]any{
-		"stage":            strings.TrimSpace(stage),
-		"candidate":        candidate,
-		"evidence_quality": chartState.EvidenceQuality,
-	}
-	input := map[string]any{
-		"core_chart":      buildCoreChartView(chartState.Input),
-		"subject_context": buildBaziSubjectContext(chartState.Input),
-	}
-	if stage == "dynamic" {
-		input["dynamic_facts"] = buildDynamicFactsView(chartState.Input)
-		input["subject_context"] = buildBaziSubjectContext(chartState.Input)
-	}
-	payload["input"] = input
-	return payload
-}
-
-// validateBaziContractAudit converts a failed binary review into a structured
-// violation so the existing feedback and facts-only recovery paths can act.
-func validateBaziContractAudit(stage string, audit baziContractAudit) error {
-	if audit.Compliant && len(audit.Findings) == 0 {
-		return nil
-	}
-	if len(audit.Findings) > 0 {
-		return baziContractAuditError(stage, audit.Findings[0])
-	}
-	return baziViolationError(baziViolationSemanticContract, strings.TrimSpace(stage), "", "independent synthesis contract audit failed", nil, nil)
-}
-
-// baziContractAuditError preserves the audit finding code and field so retry,
+// baziContractAuditError preserves the finding code and field so retry,
 // recovery and trace reporting do not infer failure classes from prose.
 func baziContractAuditError(stage string, finding baziContractAuditFinding) error {
 	field := firstNonEmptyTrim(finding.Field, strings.TrimSpace(stage))

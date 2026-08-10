@@ -4,6 +4,7 @@
 package runtime
 
 import (
+	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/guidance"
 	"github.com/observer-mimiron/suanming-agent/internal/intent"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
@@ -75,21 +76,28 @@ func preflightWithPlan(st *state.SessionState, plan ExecutionPlan, message strin
 			}
 		}
 
-		// guided_fallback 被接受 → 强制路由到 qimen primary profileless 链
+		// guided_fallback 被接受 → 强制路由到 qimen primary profileless 链。
+		// 新路由必须保留本轮问题槽位，否则重建的奇门计划无法满足问事盘合同。
 		if next == nil && currentGuidance != nil && currentGuidance.DirectiveKind == "guided_fallback" {
+			forcedRoute := policy.ApprovedRoute{
+				PrimaryDomain:    "qimen",
+				TaskIntent:       "fortune_followup",
+				ConsultationKind: contracts.ConsultationKindEventQuestion,
+				PolicyHints: schemas.PolicyHints{
+					QimenMode:          "primary",
+					ProfileRequirement: "none",
+				},
+				Slots: route.Slots,
+			}
+			if forcedRoute.Slots.QuestionText == "" {
+				forcedRoute.Slots.QuestionText = message
+			}
 			return preflightResult{
 				ShortCircuit: false,
 				TurnType:     "fortune_followup",
 				Text:         "好的，我来用奇门遁甲帮您综合看一下当前局势。",
 				GuidanceNext: nil,
-				ForcedRoute: &policy.ApprovedRoute{
-					PrimaryDomain: "qimen",
-					TaskIntent:    "fortune_followup",
-					PolicyHints: schemas.PolicyHints{
-						QimenMode:          "primary",
-						ProfileRequirement: "none",
-					},
-				},
+				ForcedRoute:  &forcedRoute,
 			}
 		}
 

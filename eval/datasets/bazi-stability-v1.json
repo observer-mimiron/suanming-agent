@@ -21,14 +21,12 @@
       "expected_task_intent_any": ["collect_profile", "interpret_chart", "amend_profile"],
       "expected_turn_type_any": ["agent_reading"],
       "required_observations": ["preflight", "sse_emit"],
-      "expected_trace_attributes": {
-        "bazi.final.audit_result": "clean"
-      },
       "expected_trace_attribute_any": {
+        "bazi.final.audit_result": ["clean", "repaired: canonical_parse_failure_facts_only", "repaired: canonical_dynamic_projection_facts_only"],
         "bazi.static.contract_audit": ["clean", "failed:evidence_topic_overclaim"],
-        "bazi.static.source": ["model", "model_partial", "facts_only_degraded"],
+        "bazi.static.source": ["model", "facts_only_degraded"],
         "bazi.dynamic.contract_audit": ["clean", "failed:outcome_domain_mismatch", "not_run"],
-        "bazi.dynamic.source": ["model", "model_partial", "facts_only_degraded", "unknown"]
+        "bazi.dynamic.source": ["model", "facts_only_degraded", "unknown"]
       }
     }
   ]

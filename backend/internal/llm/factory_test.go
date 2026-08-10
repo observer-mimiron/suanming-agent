@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	deepseekmodel "github.com/cloudwego/eino-ext/components/model/deepseek"
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 )
@@ -80,5 +81,23 @@ func TestNewChatClient_ForwardsDisableThinkingToEinoFactory(t *testing.T) {
 
 	if !captured.DisableThinking {
 		t.Fatal("expected DisableThinking to be forwarded to Eino factory")
+	}
+}
+
+func TestNewToolCallingModelWithJSON_UsesJSONObjectResponseFormat(t *testing.T) {
+	old := newDeepSeekChatModel
+	defer func() { newDeepSeekChatModel = old }()
+
+	var captured *deepseekmodel.ChatModelConfig
+	newDeepSeekChatModel = func(ctx context.Context, cfg *deepseekmodel.ChatModelConfig) (*deepseekmodel.ChatModel, error) {
+		captured = cfg
+		return old(ctx, cfg)
+	}
+
+	if _, err := NewToolCallingModelWithJSON(context.Background(), FactoryConfig{Model: "deepseek-v4-flash"}); err != nil {
+		t.Fatalf("NewToolCallingModelWithJSON error = %v", err)
+	}
+	if captured == nil || captured.ResponseFormatType != deepseekmodel.ResponseFormatTypeJSONObject {
+		t.Fatalf("response format = %#v, want json_object", captured)
 	}
 }

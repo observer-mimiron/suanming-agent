@@ -47,7 +47,7 @@ func TestRenderer_DoesNotDeriveAxisFromKeywords(t *testing.T) {
 	if strings.Contains(out, "以伤官配印为主轴") {
 		t.Fatalf("renderer must not promote a keyword to an axis: %s", out)
 	}
-	if !strings.Contains(out, "未选择专门规则口径") {
+	if !strings.Contains(out, "本轮未启用专门规则裁断") {
 		t.Fatalf("renderer must expose that no specialized rule profile is selected: %s", out)
 	}
 	if strings.Contains(out, "runtime") || strings.Contains(out, "运行时规则 profile") {
@@ -170,18 +170,48 @@ func TestRenderer_DynamicDegradationKeepsValidStaticReading(t *testing.T) {
 	state.DynamicSynthesis = buildFactsOnlyDynamicSynthesis(state.Input, static, "dynamic synthesis uses undeclared branch relation")
 
 	out := renderBaziFinalReply(baziAnalysisPlan{WriterTemplate: "full"}, state, "")
-	for _, required := range []string{static.MainAxis, static.TierJudgment, "## 大运验证", "甲午运", "受授权边界限制，本轮只展示可复算大运事实"} {
+	for _, required := range []string{static.MainAxis, static.TierJudgment, "## 大运验证", "当前大运事实", "当前大运仅保留可复算事实"} {
 		if !strings.Contains(out, required) {
 			t.Fatalf("mixed output missing %q:\n%s", required, out)
 		}
 	}
-	for _, forbidden := range []string{"dynamic synthesis uses undeclared branch relation", "fact_ref_missing", "## 命盘事实", "动态综合未通过", "runtime"} {
+	for _, forbidden := range []string{"dynamic synthesis uses undeclared branch relation", "fact_ref_missing", "## 命盘事实", "动态综合未通过", "runtime", "甲午运（30-39岁"} {
 		if strings.Contains(out, forbidden) {
 			t.Fatalf("mixed output leaked internal state %q:\n%s", forbidden, out)
 		}
 	}
 	if err := validateFinalWriterOutput(baziAnalysisPlan{WriterTemplate: "full"}, state, out); err != nil {
 		t.Fatalf("mixed output must satisfy final contract: %v", err)
+	}
+}
+
+func TestRenderer_DynamicDegradationShowsOnlyBoundCurrentPeriod(t *testing.T) {
+	static := validStaticSynthesisForConsistencyTests()
+	static.Source = "model"
+	state := baziCharterState{
+		Input: baziCharterInput{
+			Dayun: map[string]any{"dayun_analyzed": []map[string]any{
+				{"ganZhi": "丙申", "startAge": 10, "endAge": 19},
+				{"ganZhi": "甲午", "startAge": 20, "endAge": 29, "dayun_chonghe": []map[string]any{{"description": "大运午午自刑时柱午"}}},
+				{"ganZhi": "癸巳", "startAge": 30, "endAge": 39},
+			}},
+			Liunian: map[string]any{
+				"current_dayun": map[string]any{"ganZhi": "甲午"},
+			},
+		},
+		StaticSynthesis: static,
+	}
+	state.DynamicSynthesis = buildFactsOnlyDynamicSynthesis(state.Input, static, "dynamic projection mismatch")
+
+	out := renderBaziFinalReply(baziAnalysisPlan{WriterTemplate: "full"}, state, "")
+	dayunSection := sectionContent(out, "## 大运验证", "## 流年应期")
+	if !strings.Contains(dayunSection, "甲午运") {
+		t.Fatalf("facts-only dynamic output must retain the bound current period:\n%s", dayunSection)
+	}
+	for _, unexpected := range []string{"丙申运", "癸巳运", "###"} {
+		if strings.Contains(dayunSection, unexpected) {
+			t.Fatalf("facts-only dynamic output must not dump the full period directory %q:\n%s", unexpected, dayunSection)
+		}
 	}
 }
 
@@ -225,7 +255,7 @@ func TestRenderer_MinorDynamicDegradationShowsConciseGrowthFacts(t *testing.T) {
 	}
 }
 
-func TestRenderer_BoundedTierAppearsInOverviewAndJudgment(t *testing.T) {
+func TestRenderer_BoundedTierAppearsAfterStandardOnlyOnce(t *testing.T) {
 	static := validStaticSynthesisForConsistencyTests()
 	static.Source = "model"
 	static.MainAxis = "偏印格候选成立，但成败与清浊待规则裁断，暂以偏印为结构主轴。"
@@ -240,7 +270,7 @@ func TestRenderer_BoundedTierAppearsInOverviewAndJudgment(t *testing.T) {
 		StaticSynthesis: static,
 		DynamicSynthesis: baziDynamicSynthesis{
 			CurrentTrend: "大运吉凶待规则裁断，当前仅报告十神与地支关系。",
-			DayunPath:    []string{"### 甲午运：仅作结构观察\n**解读**：本步大运未被模型列为重点窗口。"},
+			DayunPath:    []string{"### 甲午运\n- **运干十神**：七杀"},
 		},
 	}
 
@@ -248,16 +278,21 @@ func TestRenderer_BoundedTierAppearsInOverviewAndJudgment(t *testing.T) {
 	if strings.Contains(out, "暂不定级") || strings.Contains(out, "证据不足") {
 		t.Fatalf("bounded tier output must not expose no-tier wording:\n%s", out)
 	}
-	if count := strings.Count(out, "命格层次中等（保守定位）"); count != 2 {
-		t.Fatalf("bounded tier verdict should appear in overview and 综合判定, got %d:\n%s", count, out)
+	if count := strings.Count(out, "命格层次中等（保守定位）"); count != 1 {
+		t.Fatalf("bounded tier verdict should appear only in 综合判定, got %d:\n%s", count, out)
+	}
+	standardIndex := strings.Index(out, "## 评判标准")
+	judgmentIndex := strings.Index(out, "命格层次中等（保守定位）")
+	if standardIndex < 0 || judgmentIndex < 0 || standardIndex > judgmentIndex {
+		t.Fatalf("tier standard must precede selected level:\n%s", out)
 	}
 	for _, forbidden := range []string{"调候规则未实现", "待规则裁断", "仅作结构观察"} {
 		if strings.Contains(out, forbidden) {
 			t.Fatalf("display should normalize repeated boundary phrase %q:\n%s", forbidden, out)
 		}
 	}
-	if !strings.Contains(sectionContent(out, "## 总览结论", "## 强弱视角"), "命格层次中等（保守定位）") {
-		t.Fatalf("overview must show the bounded tier verdict:\n%s", out)
+	if strings.Contains(sectionContent(out, "## 总览结论", "## 强弱视角"), "命格层次中等（保守定位）") {
+		t.Fatalf("overview must remain readable without the rank label:\n%s", out)
 	}
 	if !strings.Contains(sectionContent(out, "## 综合判定", "## 命格总结"), "命格层次中等（保守定位）") {
 		t.Fatalf("display must keep the canonical bounded tier at 综合判定:\n%s", out)

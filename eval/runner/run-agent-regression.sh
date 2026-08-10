@@ -19,9 +19,6 @@ else
   server_url="$AGENT_REGRESSION_SERVER"
 fi
 langfuse_url="${LANGFUSE_URL:-http://localhost:3001}"
-export GOCACHE="${GOCACHE:-/tmp/suanming-go-build-cache}"
-mkdir -p "$GOCACHE"
-
 if [[ -f backend/.env ]]; then
   while IFS='=' read -r key value; do
     [[ -z "${key:-}" || "${key:0:1}" == "#" || -z "${value:-}" ]] && continue

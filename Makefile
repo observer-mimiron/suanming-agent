@@ -11,8 +11,6 @@ SHELL := /bin/bash
 SERVER_BIN := /tmp/suanming-server
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 RUN_DIR    := /tmp/suanming-agent
-GOCACHE    ?= /tmp/suanming-go-build-cache
-export GOCACHE
 BACKEND_ENV := $(CURDIR)/backend/.env
 BACKEND_PID := $(RUN_DIR)/backend.pid
 BACKEND_LOG := $(RUN_DIR)/backend.log
@@ -108,7 +106,7 @@ eval-suite:
 	@bash eval/runner/run-langfuse-eval-suite.sh --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001}
 
 eval-bazi-quality:
-	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-quality-v1.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-quality-v1.json
+	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-quality-v1.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-quality-v1.json --include-response
 
 eval-bazi-stability:
 	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-stability-v1.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-stability-v1.json --repeats 10

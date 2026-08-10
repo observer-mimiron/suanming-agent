@@ -23,6 +23,9 @@ type ADKSpecialistRunner struct {
 	Domain   string
 	Config   specialists.Config
 	Executor *Executor
+	// UseAuthorityGraph 让八字主域复用已有的结构化 authority-first 图；
+	// 混合域也必须走这条合同链，不能退回自由文本 worker。
+	UseAuthorityGraph bool
 }
 
 // specialistSessionView returns the smallest session view a domain worker needs.
@@ -57,6 +60,13 @@ func (r *ADKSpecialistRunner) Run(ctx context.Context, req specialists.Request) 
 	}
 	if req.Session == nil {
 		return specialists.Result{}, fmt.Errorf("adk specialist runner requires session state")
+	}
+	if r.UseAuthorityGraph {
+		finalText, err := r.Executor.runBaziAuthorityFirstGraph(ctx, eventSinkFromContext(ctx), req.Session, req.UserMessage)
+		if err != nil {
+			return specialists.Result{}, err
+		}
+		return specialists.Result{Domain: firstNonEmpty(r.Domain, "bazi"), Summary: finalText}, nil
 	}
 
 	sink := eventSinkFromContext(ctx)

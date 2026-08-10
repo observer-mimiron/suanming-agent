@@ -1,6 +1,7 @@
-// This file belongs to the manager-owned runtime layer.
-// It owns BaZi assertion-contract validation for this package.
-// It owns execution contracts and Manager flow; specialists do not own final answers.
+// Package runtime 包含 Manager 拥有的八字运行时合同。
+//
+// 本文件校验已投影 assertion 的事实引用和兼容展示边界；
+// 不负责模型调用、命理裁断或最终 Markdown 渲染。
 package runtime
 
 import (
@@ -163,34 +164,51 @@ func ensureDynamicAssertions(state baziCharterState, in baziDynamicSynthesis) ba
 	dynamicClaim := firstClaimRefByCategory(state.Input.RuleProfile, "dynamic_framework")
 	periods := dayunPeriods(state.Input.Dayun)
 	if len(in.DayunJudgments) > 0 {
-		for i, judgment := range in.DayunJudgments {
-			if strings.TrimSpace(judgment.GanZhi) == "" && i < len(periods) {
-				judgment.GanZhi = strings.TrimSpace(stringValue(periods[i]["ganZhi"]))
+		for _, judgment := range in.DayunJudgments {
+			index, ok := dayunIndexByGanZhi(periods, judgment.GanZhi)
+			if !ok {
+				continue
 			}
-			in.Assertions = append(in.Assertions, dayunAssertionFromParts(i, judgment.GanZhi, judgment.Trend, judgment.Interpretation, dynamicClaim))
-		}
-	} else {
-		for i, line := range in.DayunPath {
-			ganZhi := ""
-			if i < len(periods) {
-				ganZhi = strings.TrimSpace(stringValue(periods[i]["ganZhi"]))
-			}
-			in.Assertions = append(in.Assertions, dayunAssertionFromParts(i, ganZhi, periodHeadline(line), line, dynamicClaim))
+			in.Assertions = append(in.Assertions, dayunAssertionFromParts(index, judgment.GanZhi, judgment.Trend, judgment.Interpretation, dynamicClaim))
 		}
 	}
 	if strings.TrimSpace(in.LiunianFocus) != "" {
+		currentIndex := currentDayunIndexForInput(state.Input)
+		factRefs := []baziFactRef{"liunian.gan_zhi", "liunian.relations"}
+		if currentIndex >= 0 {
+			factRefs = append(factRefs,
+				baziFactRef(fmt.Sprintf("dayun[%d].gan_zhi", currentIndex)),
+				baziFactRef(fmt.Sprintf("dayun[%d].relations", currentIndex)),
+			)
+		}
 		in.Assertions = append(in.Assertions, baziAssertion{
 			ID:         "dynamic.liunian",
 			Kind:       baziAssertionLiunian,
 			Subject:    "liunian",
 			Verdict:    in.LiunianFocus,
-			FactRefs:   []baziFactRef{"liunian.gan_zhi", "liunian.relations"},
+			FactRefs:   factRefs,
 			ClaimRefs:  dynamicClaim,
 			Confidence: in.ClaimStrength,
 			Boundary:   firstNonEmptyTrim(strings.Join(in.Risks, "；"), "具体应事不作展开。"),
 		})
 	}
 	return in
+}
+
+// dayunIndexByGanZhi resolves a model judgment to the calculated period it
+// actually names. DayunJudgments is sparse, so its slice position must never
+// be treated as a full-catalog index.
+func dayunIndexByGanZhi(periods []map[string]any, ganZhi string) (int, bool) {
+	ganZhi = strings.TrimSpace(ganZhi)
+	if ganZhi == "" {
+		return 0, false
+	}
+	for index, period := range periods {
+		if strings.TrimSpace(stringValue(period["ganZhi"])) == ganZhi {
+			return index, true
+		}
+	}
+	return 0, false
 }
 
 func dayunAssertionFromParts(index int, ganZhi, trend, interpretation string, claimRefs []baziClaimRef) baziAssertion {
@@ -373,10 +391,12 @@ func validateStaticAssertionEvidenceTopics(state baziCharterState, assertions []
 	return nil
 }
 
-// validateStaticTierWithheldBoundary makes missing-evidence tier handling
-// deterministic. Missing A-tier topics cap the level judgment instead of
-// removing it, because users asked the product to grade with a clear standard.
+// validateStaticTierWithheldBoundary keeps typed V2 state separate from the
+// legacy text-only compatibility path.
 func validateStaticTierWithheldBoundary(state baziCharterState, static baziStaticSynthesis) error {
+	if static.TierAssessment.Status != "" {
+		return validateTypedTierPresentation(static.TierAssessment)
+	}
 	if len(state.EvidenceQuality.RequiredTopics) == 0 {
 		return nil
 	}
@@ -399,9 +419,9 @@ func validateStaticTierWithheldBoundary(state baziCharterState, static baziStati
 					baziViolationEvidenceTopicMissing,
 					check.field,
 					assertion.ID,
-					"tier assertion is withheld_missing_evidence and must use a bounded conservative tier judgment",
+					"tier assertion is withheld_missing_evidence and must defer ranking",
 					state.EvidenceQuality.MissingTopics,
-					[]string{"命格层次中等（保守定位）", "层次封顶为中等，不上推中上或上等"},
+					[]string{"命格层次暂不定级", "不作高低定级"},
 				)
 			}
 		}
@@ -409,24 +429,28 @@ func validateStaticTierWithheldBoundary(state baziCharterState, static baziStati
 	return nil
 }
 
-// withheldTierTextIsSafe allows only bounded tier text when required topics are
-// missing; it blocks unbounded high-rank claims while still returning a grade.
+// validateTypedTierPresentation verifies typed compatibility state without
+// scanning renderer text or recalculating a chart grade.
+func validateTypedTierPresentation(assessment baziTierAssessment) error {
+	if assessment.Status == "withheld" {
+		if assessment.Level != 0 {
+			return baziViolationError(baziViolationMethodContract, "static.tier_assessment", "", "withheld tier must render as a non-ranked boundary", nil, nil)
+		}
+		return nil
+	}
+	if assessment.Level < 1 || assessment.Level > 9 {
+		return baziViolationError(baziViolationMethodContract, "static.tier_assessment", "", "tier projection must retain the selected nine-level value", nil, nil)
+	}
+	if assessment.Status == "provisional" && (assessment.Level < 3 || assessment.Level > 6) {
+		return baziViolationError(baziViolationMethodContract, "static.tier_assessment", "", "provisional tier must remain in the 3-6 band and show its boundary", nil, nil)
+	}
+	return nil
+}
+
+// withheldTierTextIsSafe accepts only an explicit deferred rank when required topics are missing.
 func withheldTierTextIsSafe(text string) bool {
 	text = strings.TrimSpace(text)
-	if text == "" {
-		return false
-	}
-	if strings.Contains(text, "暂不定级") {
-		return false
-	}
-	allowed := []string{"保守定位", "封顶", "不上推", "不拔高", "不能拔高", "不宜拔高", "受限"}
-	if !containsAnyText([]string{text}, allowed) {
-		return false
-	}
-	if containsHighTierAssertion(text) {
-		return false
-	}
-	return true
+	return strings.Contains(text, "暂不定级") || strings.Contains(text, "不作高低定级")
 }
 
 // containsHighTierAssertion detects positive high-rank language while allowing
@@ -462,8 +486,6 @@ func requiredTopicsForStaticAssertion(kind baziAssertionKind, requiredTopics []s
 		if containsString(requiredTopics, "tiaohou") {
 			return []string{"tiaohou"}
 		}
-	case baziAssertionTier:
-		return append([]string{}, requiredTopics...)
 	}
 	return nil
 }
@@ -536,16 +558,42 @@ func canonicalJudgmentText(value string) string {
 
 func validateDynamicAssertions(state baziCharterState) error {
 	dynamic := ensureDynamicAssertions(state, projectDynamicAssertionsToLegacy(state.DynamicSynthesis))
-	if expected := len(dayunPeriods(state.Input.Dayun)); expected > 0 && countAssertionsByKind(dynamic.Assertions, baziAssertionDayunPeriod) < expected {
-		return baziViolationError(baziViolationDayunCoverageMissing, "dynamic.assertions", "", fmt.Sprintf("dynamic assertions omit calculated dayun periods: got %d, want %d", countAssertionsByKind(dynamic.Assertions, baziAssertionDayunPeriod), expected), nil, nil)
-	}
 	if err := validateDayunAssertionsAgainstFacts(state, dynamic.Assertions); err != nil {
+		return err
+	}
+	if err := validateLiunianAssertionsAgainstCurrentDayun(state, dynamic.Assertions); err != nil {
 		return err
 	}
 	return validateBaziAssertions(state, dynamic.Assertions)
 }
 
+// validateLiunianAssertionsAgainstCurrentDayun binds annual interpretation to the runtime-selected luck period.
+func validateLiunianAssertionsAgainstCurrentDayun(state baziCharterState, assertions []baziAssertion) error {
+	currentIndex := currentDayunIndexForInput(state.Input)
+	if currentIndex < 0 {
+		return nil
+	}
+	wantGanZhi := fmt.Sprintf("dayun[%d].gan_zhi", currentIndex)
+	wantRelations := fmt.Sprintf("dayun[%d].relations", currentIndex)
+	for _, assertion := range assertions {
+		if assertion.Kind != baziAssertionLiunian {
+			continue
+		}
+		for _, ref := range assertion.FactRefs {
+			if string(ref) == wantGanZhi || string(ref) == wantRelations {
+				goto next
+			}
+		}
+		return baziViolationError(baziViolationFactRefMissing, "assertions.fact_refs", assertion.ID, "liunian assertion must reference the runtime-selected current period", []string{fmt.Sprintf("dayun[%d]", currentIndex)}, nil)
+	next:
+	}
+	return nil
+}
+
 func validateBaziAssertions(state baziCharterState, assertions []baziAssertion) error {
+	if err := validateBaziReferenceCatalog(state, assertions); err != nil {
+		return err
+	}
 	for _, assertion := range assertions {
 		if strings.TrimSpace(assertion.ID) == "" {
 			return baziViolationError(baziViolationScopeEscalation, "assertions", "", "assertion id is required", nil, nil)
@@ -555,6 +603,12 @@ func validateBaziAssertions(state baziCharterState, assertions []baziAssertion) 
 		}
 		if strings.TrimSpace(assertion.Verdict) == "" {
 			return baziViolationError(baziViolationScopeEscalation, "assertions.verdict", assertion.ID, "assertion verdict is required", nil, nil)
+		}
+		if token := baziPresentationReferenceToken(state, assertion.Verdict); token != "" {
+			return baziViolationError(baziViolationMethodContract, "assertions.presentation", assertion.ID, "user-visible assertion text must not expose runtime reference paths", []string{token}, []string{"fact_refs", "relation_refs", "claim_refs"})
+		}
+		if token := baziPresentationReferenceToken(state, assertion.Boundary); token != "" {
+			return baziViolationError(baziViolationMethodContract, "assertions.presentation", assertion.ID, "user-visible assertion text must not expose runtime reference paths", []string{token}, []string{"fact_refs", "relation_refs", "claim_refs"})
 		}
 		// Fact-ref paths are model-authored provenance metadata. Unknown aliases are
 		// audited in the trace, while concrete period and chart contradictions are
@@ -689,10 +743,20 @@ func claimRefAllowsAssertionKind(profile baziRuleProfile, ref string, kind baziA
 	}
 }
 
+// knownBaziFactRefs returns the deterministic IDs that a model may cite in one turn.
+// Fact capsule inputs are included when they duplicate chart facts in a typed, stable form.
 func knownBaziFactRefs(state baziCharterState) map[string]struct{} {
 	out := map[string]struct{}{
 		"chart.day_gan": {}, "chart.day_master": {}, "chart.day_master_wuxing": {}, "chart.month_branch": {},
 		"chart.month_pillar": {}, "chart.pillars": {}, "chart.wuxing": {},
+		"fact_capsule.month_command": {}, "fact_capsule.root_positions": {}, "fact_capsule.visible_same_element_stems": {},
+		"fact_capsule.month_score": {}, "fact_capsule.root_count": {}, "fact_capsule.same_element_count": {},
+		"fact_capsule.resource_support_count": {}, "fact_capsule.support_score": {}, "fact_capsule.pressure_score": {},
+		"fact_capsule.support_signals": {}, "fact_capsule.pressure_signals": {},
+		"fact_capsule.official_visible": {}, "fact_capsule.official_hidden": {},
+		"fact_capsule.fire_present": {}, "fact_capsule.fire_visible": {}, "fact_capsule.fire_effective": {},
+		"fact_capsule.fire_effectiveness_known": {}, "fact_capsule.core_facts_ready": {},
+		"fact_capsule.tier_evidence_complete": {}, "fact_capsule.tier_evidence_missing": {},
 		"yongshen.balance_status": {}, "yongshen.balance_yong_shen": {}, "yongshen.conditional_yong_shen": {},
 		"yongshen.day_master": {}, "yongshen.day_master_wuxing": {}, "yongshen.geju": {},
 		"yongshen.geju_basis": {}, "yongshen.geju_candidate": {}, "yongshen.geju_combination": {},
@@ -708,6 +772,10 @@ func knownBaziFactRefs(state baziCharterState) map[string]struct{} {
 	for i := range dayunPeriods(state.Input.Dayun) {
 		out[fmt.Sprintf("dayun[%d].end_age", i)] = struct{}{}
 		out[fmt.Sprintf("dayun[%d].end_at_exclusive", i)] = struct{}{}
+		out[fmt.Sprintf("dayun[%d].branch", i)] = struct{}{}
+		out[fmt.Sprintf("dayun[%d].branch_hidden_stems", i)] = struct{}{}
+		out[fmt.Sprintf("dayun[%d].branch_ten_gods", i)] = struct{}{}
+		out[fmt.Sprintf("dayun[%d].branch_main_ten_god", i)] = struct{}{}
 		out[fmt.Sprintf("dayun[%d].gan_zhi", i)] = struct{}{}
 		out[fmt.Sprintf("dayun[%d].period_id", i)] = struct{}{}
 		out[fmt.Sprintf("dayun[%d].relations", i)] = struct{}{}
@@ -719,67 +787,10 @@ func knownBaziFactRefs(state baziCharterState) map[string]struct{} {
 	return out
 }
 
+// isKnownBaziFactRef 只接受本轮 catalog 中逐字声明的完整 fact ID。
 func isKnownBaziFactRef(ref baziFactRef, known map[string]struct{}) bool {
-	canonical := normalizeBaziFactRef(string(ref))
-	if _, ok := known[canonical]; ok {
-		return true
-	}
-	for base := range known {
-		if isExpandableBaziFactRef(base) && (strings.HasPrefix(canonical, base+".") || strings.HasPrefix(canonical, base+"[")) {
-			return true
-		}
-	}
-	return false
-}
-
-func normalizeBaziFactRef(ref string) string {
-	ref = strings.TrimSpace(ref)
-	for _, prefix := range []string{"input.", "core_chart.", "chart_facts.", "static_facts.", "dynamic_facts."} {
-		ref = strings.TrimPrefix(ref, prefix)
-	}
-	for _, prefix := range []string{"dayun.dayun_analyzed[", "dayun.periods[", "dayun_analyzed[", "periods["} {
-		if strings.HasPrefix(ref, prefix) {
-			ref = "dayun[" + strings.TrimPrefix(ref, prefix)
-			break
-		}
-	}
-	ref = strings.ReplaceAll(ref, ".ganZhi", ".gan_zhi")
-	ref = strings.ReplaceAll(ref, ".tenGod", ".ten_god")
-	ref = strings.ReplaceAll(ref, ".startAge", ".start_age")
-	ref = strings.ReplaceAll(ref, ".endAge", ".end_age")
-	ref = strings.ReplaceAll(ref, ".startAt", ".start_at")
-	ref = strings.ReplaceAll(ref, ".endAtExclusive", ".end_at_exclusive")
-	ref = strings.ReplaceAll(ref, ".dayun_chonghe", ".relations")
-	ref = strings.ReplaceAll(ref, ".liunian_chonghe", ".relations")
-	switch ref {
-	case "day_master":
-		return "chart.day_master"
-	case "day_master_wuxing":
-		return "chart.day_master_wuxing"
-	case "liunian.liunian_ganzhi", "liunian_ganzhi":
-		return "liunian.gan_zhi"
-	case "liunian.liunian_shi_shen", "liunian_shi_shen":
-		return "liunian.shi_shen"
-	case "liunian.liunian_year", "liunian_year":
-		return "liunian.year"
-	case "liunian.liunian_stem", "liunian_stem":
-		return "liunian.stem"
-	case "liunian.liunian_branch", "liunian_branch":
-		return "liunian.branch"
-	case "liunian.liunian_chonghe", "liunian_chonghe":
-		return "liunian.relations"
-	}
-	return ref
-}
-
-func isExpandableBaziFactRef(base string) bool {
-	return strings.HasPrefix(base, "chart.month_pillar") ||
-		strings.HasPrefix(base, "chart.pillars") ||
-		strings.HasPrefix(base, "chart.wuxing") ||
-		strings.HasPrefix(base, "yongshen.") ||
-		strings.HasPrefix(base, "dayun[") ||
-		strings.HasPrefix(base, "liunian.current_dayun") ||
-		strings.HasPrefix(base, "liunian.relations")
+	_, ok := known[strings.TrimSpace(string(ref))]
+	return ok
 }
 
 func firstClaimRefByCategory(profile baziRuleProfile, categories ...string) []baziClaimRef {

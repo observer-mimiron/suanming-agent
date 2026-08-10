@@ -27,10 +27,11 @@
 
 ## 判定原则
 1. 若用户是在首次看命局、总评命格、整体看事业/婚姻/财运底盘，必须优先判为 `static_full`。
-   - `static_full` 不只是静态命局摘要，而是“静态命局 + 大运验证 + 当前流年应期 + 命格总结”的完整首轮合同，因此默认 `need_dynamic=true`
+   - `static_full` 不只是静态命局摘要，而是“静态命局 + 全程大运 + 当前流年应期 + 命格总结”的完整首轮合同，因此必须 `need_dynamic=true` 且 `need_lifetime_dayun=true`
 2. 若用户明确问某一年、这两年、最近运势、当前大运、什么时候、何时好转，必须优先判为 `dynamic_focus`。
 3. 若用户问单一专题，但问题核心仍依赖命局结构而非某一年触发，判为 `topic_focus`。
 4. `topic_focus` 只有在用户明确追问“最近/今年/哪一年/这步运”时才开启 `need_dynamic=true`。
+   - `topic_focus` 与 `dynamic_focus` 的 `need_lifetime_dayun=false`；它们不为局部问题额外调用全程运路节点。
 5. 若用户问题兼有静态与动态两层，以“用户当前最急的显性问题”为优先，再把另一层作为补充，不得贪多。
 6. writer template 必须与模式对应：
    - `static_full` → `full`
@@ -79,11 +80,4 @@
 3. 不得写成空话，不得泄露内部 JSON 字段名。
 
 ## 输出要求
-输出一个 JSON 对象，字段为：
-- `mode`（字符串：`static_full` / `dynamic_focus` / `topic_focus`）
-- `retrieval_stage`（字符串：`static` / `dynamic`）
-- `need_dynamic`（布尔值）
-- `focus_topics`（字符串数组）
-- `writer_template`（字符串：`full` / `topic` / `year`）
-- `topic_mode`（字符串：`analysis` / `explain_term` / `conservative_reason` / `timing_reason`。若 `writer_template` 不是 `topic`，固定填 `analysis`）
-- `stage_summary`（字符串，给前端展示的简短阶段说明，不超过 40 个字）
+只输出 runtime 注入 Schema 所定义的 JSON object。Schema 是唯一字段、必填、类型和 enum 合同；本节点只决定分析模式、检索阶段和焦点，不输出事实值、来源、recovery、audit 或 renderer 字段。`topic` 模板必须选择明确的 topic_mode；其他模板使用普通分析语义。

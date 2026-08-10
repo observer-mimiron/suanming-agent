@@ -34,8 +34,10 @@ package supervisor
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"sort"
 	"strings"
@@ -47,8 +49,22 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/prompts"
 	"github.com/observer-mimiron/suanming-agent/internal/schemas"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
+	"github.com/observer-mimiron/suanming-agent/internal/structured"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
+
+const supervisorTextFallbackSchema = "supervisor.text_fallback"
+
+// supervisorTextFallbackSchemaJSON 是 text fallback 使用的可审阅 Draft-07 合同唯一来源。
+//
+//go:embed schemas/supervisor-text-fallback-draft-07.json
+var supervisorTextFallbackSchemaJSON []byte
+
+func init() {
+	if err := structured.RegisterJSON(supervisorTextFallbackSchema, supervisorTextFallbackSchemaJSON); err != nil {
+		panic(err)
+	}
+}
 
 // RouteEngine 是结构化路由引擎接口，当前固定由 Eino ADK 实现。
 type RouteEngine interface {
@@ -167,6 +183,11 @@ func (c *Client) structuredDecide(ctx context.Context, prompt string, messages [
 // 每次验证失败时，将具体错误注入下一次提示词，使模型能够自我修正。
 // 所有重试耗尽时回退到第 3 层（fallbackExtract）。
 func (c *Client) textDecide(ctx context.Context, prompt string, messages []llm.Message, st *state.SessionState, msg string) (schemas.SupervisorDecision, error) {
+	contract, err := structured.PromptContract(supervisorTextFallbackSchema)
+	if err != nil {
+		return c.fallbackExtract(ctx, msg, st), err
+	}
+	prompt += "\n\n" + contract
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		callCtx := ctx
@@ -217,38 +238,54 @@ func (c *Client) ExtractProfile(ctx context.Context, msg string, st *state.Sessi
 	return profile, question, nil
 }
 
-// parseDecision 将 LLM 原始输出解析为规范化的 SupervisorDecision。
-//
-// 处理三种常见格式：
-//   - 纯 JSON：直接反序列化
-//   - Markdown 代码块：剥离 ```json / ``` 包裹后反序列化
-//   - 空字符串 / 非法 JSON：返回 normalize 后的零值（安全默认值，不 panic）
-//
-// 所有路径最终都调用 Normalize()，确保缺失字段被填充为业务安全的默认值。
-func parseDecision(raw string) schemas.SupervisorDecision {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		d := schemas.SupervisorDecision{}
-		d.Normalize()
-		return d
+// parseDecision 按 fallback Schema 严格解析文本路由输出。
+// 成功路径不做默认值填充；缺字段、未知字段、fence 和尾随 JSON 都必须进入降级链。
+func parseDecision(raw string) (schemas.SupervisorDecision, error) {
+	var decision schemas.SupervisorDecision
+	if err := structured.Decode(supervisorTextFallbackSchema, raw, &decision); err != nil {
+		return schemas.SupervisorDecision{}, err
 	}
-
-	raw = strings.TrimPrefix(raw, "```json")
-	raw = strings.TrimPrefix(raw, "```")
-	raw = strings.TrimSuffix(raw, "```")
-	raw = strings.TrimSpace(raw)
-
-	var d schemas.SupervisorDecision
-	if err := json.Unmarshal([]byte(raw), &d); err != nil {
-		d = schemas.SupervisorDecision{}
-	}
-	d.Normalize()
-	return d
+	return decision, nil
 }
 
 // parseAndValidate 解析 LLM 响应并运行领域特定的验证。
 func parseAndValidate(raw string) (schemas.SupervisorDecision, error) {
-	d := parseDecision(raw)
+	d, err := parseDecision(raw)
+	if err != nil {
+		return schemas.SupervisorDecision{}, err
+	}
+	return validateDecisionSemantics(d)
+}
+
+// parseAndValidateToolOutput preserves InferTool's optional-field contract.
+// Its success path is separate from text fallback: only the ADK output tool may
+// apply the long-standing default projection after strict JSON parsing.
+func parseAndValidateToolOutput(raw string) (schemas.SupervisorDecision, error) {
+	var output decisionOutput
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&output); err != nil {
+		return schemas.SupervisorDecision{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return schemas.SupervisorDecision{}, fmt.Errorf("trailing JSON value")
+		}
+		return schemas.SupervisorDecision{}, fmt.Errorf("trailing data: %w", err)
+	}
+	d := schemas.SupervisorDecision{
+		ConversationIntent: output.ConversationIntent, PrimaryDomain: output.PrimaryDomain, SecondaryDomains: output.SecondaryDomains,
+		TaskIntent: output.TaskIntent, NeedsClarification: output.NeedsClarification, ClarificationQuestion: output.ClarificationQuestion,
+		Parallelizable: output.Parallelizable, Confidence: output.Confidence,
+		Slots:       schemas.DecisionSlots{Profile: output.Slots.Profile, QuestionText: output.Slots.QuestionText, TimeScope: output.Slots.TimeScope, TargetSubject: output.Slots.TargetSubject, Language: output.Slots.Language},
+		PolicyHints: schemas.PolicyHints{NeedsKnowledge: output.PolicyHints.NeedsKnowledge, NeedsQimen: output.PolicyHints.NeedsQimen, QimenMode: output.PolicyHints.QimenMode, ProfileRequirement: output.PolicyHints.ProfileRequirement, CanReuseSessionProfile: output.PolicyHints.CanReuseSessionProfile, CanReuseCachedResult: output.PolicyHints.CanReuseCachedResult},
+	}
+	d.Normalize()
+	return validateDecisionSemantics(d)
+}
+
+// validateDecisionSemantics checks the business rules shared by both route output forms.
+func validateDecisionSemantics(d schemas.SupervisorDecision) (schemas.SupervisorDecision, error) {
 
 	// collect_profile + 空 profile 是合法状态：
 	// 用户表示想排盘但还没提供出生信息，系统应该追问。
@@ -322,7 +359,10 @@ func (c *Client) fallbackExtract(ctx context.Context, msg string, st *state.Sess
 		return safeFallback(st)
 	}
 
-	d := parseDecision(resp)
+	d, err := parseDecision(resp)
+	if err != nil {
+		return safeFallback(st)
+	}
 	// 确保回退后关键字段有合理的默认值。
 	if d.ConversationIntent == "" {
 		d.ConversationIntent = "consult"

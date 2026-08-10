@@ -20,6 +20,9 @@ type Config struct {
 	// UseFastModel 允许该节点优先使用 flash 级模型。
 	// 适合分析模式判定、证据规划这类轻判断节点，不适合承载完整命理综合推理的主节点。
 	UseFastModel bool
+	// StructuredSchema 标识此节点唯一的结构化输出合同。空值表示自由文本或工具调用。
+	// runtime 负责将同一份 Schema 注入 prompt 并在模型返回后校验，specialist 不解释合同内容。
+	StructuredSchema string
 }
 
 // Registry 保存当前运行时可用的 specialist runner。

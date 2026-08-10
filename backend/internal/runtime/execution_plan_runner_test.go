@@ -16,6 +16,13 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 )
 
+func TestDomainStepsForRoute_DefaultBaziRouteHasPrimaryStep(t *testing.T) {
+	steps := domainStepsForRoute(policy.ApprovedRoute{PrimaryDomain: "bazi"})
+	if len(steps) != 1 || steps[0].Domain != "bazi" || steps[0].Role != "primary" {
+		t.Fatalf("default route steps = %#v, want bazi primary", steps)
+	}
+}
+
 type recordingRunner struct {
 	result specialists.Result
 	calls  *[]string
@@ -220,9 +227,10 @@ func TestExecutor_RunExecutionPlan_ProvidesSharedEventSinkWithoutLegacyDeps(t *t
 	st := state.NewSession("s-sink")
 	st.BaziResult = map[string]any{"calendar_rule_version": currentBaziCalendarRule()}
 	plan := ExecutionPlan{
-		Route:       policy.ApprovedRoute{PrimaryDomain: "bazi"},
-		DomainSteps: []contracts.DomainStep{{Domain: "bazi", Role: executionStepRolePrimary}},
-		Domains:     []string{"bazi"},
+		Route:        policy.ApprovedRoute{PrimaryDomain: "bazi"},
+		FollowupMode: followupModeDirect,
+		DomainSteps:  []contracts.DomainStep{{Domain: "bazi", Role: executionStepRolePrimary}},
+		Domains:      []string{"bazi"},
 	}
 
 	result, err := executor.runExecutionPlan(context.Background(), &recordingSink{}, st, plan, "看看事业")

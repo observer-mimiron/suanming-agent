@@ -201,7 +201,7 @@ func TestValidateCharterConsistency_AcceptsRestrictedRouteUnderConflictCeiling_N
 	}
 }
 
-func TestValidateCharterConsistency_RejectsDynamicEscalationBeyondStaticCeiling_NewContract(t *testing.T) {
+func TestValidateCharterConsistency_AllowsDynamicMomentumBeyondStaticCeiling(t *testing.T) {
 	state := baziCharterState{
 		StaticSynthesis: baziStaticSynthesis{
 			MainAxis:                "杀印结构可见，但只可作受限结构信号",
@@ -244,8 +244,8 @@ func TestValidateCharterConsistency_RejectsDynamicEscalationBeyondStaticCeiling_
 		},
 	}
 
-	if err := validateCharterConsistency(state); err == nil {
-		t.Fatalf("expected dynamic escalation beyond static ceiling to fail")
+	if err := validateCharterConsistency(state); err != nil {
+		t.Fatalf("current-period momentum must not be capped by natal axis ceiling: %v", err)
 	}
 }
 

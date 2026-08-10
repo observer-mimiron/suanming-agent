@@ -5,34 +5,7 @@
 
 ## 输出格式
 
-只返回一个 JSON 对象。不要 markdown 代码块，不要额外说明文字。
-
-```json
-{
-  "conversation_intent": "consult",
-  "primary_domain": "bazi",
-  "secondary_domains": ["ziwei"],
-  "task_intent": "collect_profile",
-  "needs_clarification": false,
-  "clarification_question": "",
-  "confidence": 0.9,
-  "slots": {
-    "profile": {"year": 1990, "month": 5, "day": 20, "hour": 8, "gender": "男", "birthplace": "北京"},
-    "question_text": "本月运势如何",
-    "time_scope": "本月",
-    "target_subject": "",
-    "language": "zh"
-  },
-  "policy_hints": {
-    "needs_knowledge": true,
-    "needs_qimen": false,
-    "qimen_mode": "none",
-    "profile_requirement": "full",
-    "can_reuse_session_profile": false,
-    "can_reuse_cached_result": false
-  }
-}
-```
+只返回一个 JSON 对象。不要 markdown 代码块，不要额外说明文字。字段合同由运行时注入的 JSON Schema 唯一确定；不要把下文的字段语义表当作可增删字段的第二份合同。
 
 ## conversation_intent（对话意图）
 

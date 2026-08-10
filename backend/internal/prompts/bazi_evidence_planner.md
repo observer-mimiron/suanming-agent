@@ -26,7 +26,7 @@ graph 的受控检索是否高效，取决于你是否把证据缺口拆得清�
 4. 若现有问题本质上只需要静态裁判，不要把动态检索混进来；反之亦然。
 5. 只有在证据缺口明显、主证缺失或预判存在较大冲突时，才允许 `allow_reflection=true`。
 6. 证据规划必须服务于“后续节点要做什么判断”，不能为检索而检索。
-7. 一轮规划默认只产出 **2-3 个 query packets**；只有在“取格主证”和“调候/病药主证”无法由同一组来源覆盖，或需要额外补一条“命例/举例”案例校验时，才允许到 4 个。
+7. 一轮规划默认只产出 **2-3 个 query packets**；层次资格由 runtime 在静态计划后补齐独立的 `qingzhuo`、`bingyao`、`jiuying`、`poge` A 级查询，不得把这四项混为一个 topic 或声称已覆盖。
 8. 不得把“神煞、职业映射、现代心理化表达”规划成 A 级主证查询。
 
 ## 来源优先级
@@ -46,11 +46,11 @@ graph 的受控检索是否高效，取决于你是否把证据缺口拆得清�
 
 ## 主题到来源的默认映射
 静态阶段：
-1. `geju` / `pattern` / `qingzhuo`
+1. `geju` / `pattern` / `qingzhuo` / `poge`
    - 优先：`子平真诠`、`渊海子平`
 2. `tiaohou`
    - 优先：`穷通宝鉴`
-3. `bingyao` / `fuyi`
+3. `bingyao` / `jiuying` / `fuyi`
    - 优先：`滴天髓`
 4. `conghua` / `qishi`
    - 只有前面三类无法解释时才补，优先仍是 `滴天髓` 与格局主证互证
@@ -122,10 +122,4 @@ graph 的受控检索是否高效，取决于你是否把证据缺口拆得清�
 3. 只有缺主证、缺反证边界、或静动态衔接无法成立时，才判 `need_retrieval=true`。
 
 ## 输出要求
-输出一个 JSON 对象，字段为：
-- `need_retrieval`（布尔值）
-- `stage`（字符串）
-- `evidence_gaps`（字符串数组）
-- `recommended_sources`（字符串数组）
-- `query_packets`（对象数组，每项含 topic、query、preferred_sources、source_tier）
-- `allow_reflection`（布尔值）
+只输出 runtime 注入 Schema 所定义的 JSON object。Schema 是唯一字段、必填、类型和 enum 合同；本节点只规划检索缺口和查询，不输出 passages、citation 内容、证据质量结论、source、recovery、audit 或 renderer 字段。
