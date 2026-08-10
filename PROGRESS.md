@@ -23,7 +23,7 @@
 - Bazi Graph 编译会逐项拒绝缺失 callback；Graph 测试覆盖缺依赖、静态完成、缺盘硬错、步数上限降级和全程大运先于当前动态，runtime adapter 测试保护 Graph phase 不被领域 payload 反写。
 - 共享 `internal/repair` 已有独立分类、预算和 HTTP 状态测试；runtime 兼容别名仍保留到所有调用点迁移完成。
 - 模型调用级 retry 由 `backend/internal/llm/model_retry.go` 负责；`supervisor/adk_engine.go` 和 `runtime/agent_route.go` 共享 `llm.DefaultModelRetryConfig`，固定 `MaxRetries=2` 和 `ModelCallRetryDecision`。
-- Batch 2 focused test、全量 backend test、server build、残余引用审计和 `git diff --check` 已通过；未运行 `make eval-smoke`，按本批范围由主 agent 负责在线验证。
+- Batch 2 focused test、全量 backend test、server build、残余引用审计和 `git diff --check` 已通过；主 agent 已验证 `make eval-smoke` 2/2 通过，trace 为 `ce4c557e92d1eb753c842c14524812df`、`3d809c0d65d6c3cec4b14f3f644bb8ad`。
 - `executor.go` 仍是执行入口和确定性 prefill/tool owner；会话上下文、路由快照、指导状态同步已移至 `executor_context.go`，未改变调用签名、SSE 顺序或最终 guard 边界。
 - 八字 Graph 运行职责已按边界拆分：`bazi_graph_entry.go` 负责内图选择和领域失败归一，`bazi_charter_graph.go` 负责补证、审计、阶段事件和最终 writer 适配，`bazi_contract_validation.go` 负责静态/动态合同，`bazi_final_contract.go` 负责最终文本合同，`bazi_model_runtime.go` 负责分析规划、提示构建和内层 agent 适配；证据规划、受控检索、引用归并和有限补证仍由 `bazi_evidence_runtime.go` 承载，函数签名和 Graph 拓扑不变。
 - `bazi_projection_views.go` 负责阶段摘要、模型输入 payload、核心命盘/动态事实和年龄范围投影；它只格式化已验证事实，不新增命理裁断。
