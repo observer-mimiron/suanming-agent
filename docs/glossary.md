@@ -79,7 +79,7 @@
 
 **是什么**：负责执行已批准路由的运行时引擎。当前默认主链是 `Manager -> ExecutionPlan -> Prefill -> specialist runner(s) -> final guard`。
 
-**定义位置**：[internal/runtime/executor.go](../internal/runtime/executor.go)
+**定义位置**：[internal/runtime/executor_entry.go](../internal/runtime/executor_entry.go)
 
 **执行流程**：`Execute()` → `BuildExecutionPlan()` → preflight / short-circuit → prefill → `runExecutionPlan()` → final guard
 
@@ -99,7 +99,7 @@
 
 **是什么**：Go 代码直接执行排盘/用神/大运等工具链，结果注入 `SessionState` 和 Agent SessionValues。LLM Agent 不接触排盘工具。
 
-**定义位置**：[internal/runtime/executor.go](../internal/runtime/executor.go)
+**定义位置**：[internal/runtime/executor_prefill.go](../internal/runtime/executor_prefill.go)
 
 **核心原则**：排盘/用神/大运全部由 Go 确定性执行，不挂载到 Specialist Agent 的工具列表。
 
@@ -183,7 +183,7 @@
 
 **是什么**：Agent 运行完成后对输出做 contract 校验。若 PrimaryDomain=qimen 但没有 QimenResult，或 PrimaryDomain=ziwei 但没有 ZiWeiResult → 阻止输出最终结论。
 
-**定义位置**：[internal/runtime/executor.go](../internal/runtime/executor.go) 的 `guardFinalAnswerWithPlan` 调用点
+**定义位置**：[internal/runtime/executor_entry.go](../internal/runtime/executor_entry.go) 的 `guardFinalAnswerWithPlan` 调用点
 
 **关联**：在 `agentEventBridge` 后调用，是最终回答的最后一道门。
 

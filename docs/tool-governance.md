@@ -17,7 +17,7 @@
 | `backend/internal/tools/contract.go` | 定义工具合同：风险、副作用、参数、超时、重试、审批、幂等要求 |
 | `backend/internal/tools/registry.go` | 注册工具，并把工具实现和工具合同放在同一个注册表里 |
 | `backend/internal/tools/runner.go` | 按合同执行工具：参数校验、审批阻断、幂等键阻断、超时、重试、错误分类、trace 写入 |
-| `backend/internal/runtime/executor.go` | runtime 的薄接入点，只负责把 prefill 调用转给 `ToolRunner` |
+| `backend/internal/runtime/executor_tools.go` | runtime 的薄接入点，只负责把 prefill 调用转给 `ToolRunner` |
 | `backend/internal/container/container.go` | composition root，集中注册系统启动时可用的工具与合同 |
 
 这几个文件的边界要保持清楚：`Executor` 不拥有治理策略，`ToolRunner` 不懂业务编排，`Registry` 不执行工具。

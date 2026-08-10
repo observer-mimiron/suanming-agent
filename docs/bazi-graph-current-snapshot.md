@@ -659,7 +659,7 @@ repair.action
 
 | 代码位置 | 当前功能 |
 |---|---|
-| `backend/internal/runtime/executor.go` | `Executor.Execute` 入口；创建计划、注入 context、调用外层 Graph、执行 final guard、保存 artifact 和结束 turn。 |
+| `backend/internal/runtime/executor_entry.go` | `Executor.Execute` 入口；创建计划、注入 context、调用外层 Graph、执行 final guard、保存 artifact 和结束 turn。 |
 | `backend/internal/runtime/orchestration_graph.go` | 外层 Graph 的节点注册、边、分支和编译参数。 |
 | `backend/internal/runtime/orchestration_graph_loop.go` | 外层 `decide_next`、short circuit、dispatch、aggregate、terminal 和错误分支。 |
 | `backend/internal/runtime/orchestration_state.go` | 外层 Graph state、请求 context carrier 和 Invoke 后结果 side channel。 |

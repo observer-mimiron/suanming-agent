@@ -6,7 +6,7 @@
 
 - **最后更新：** 2026-08-11
 - **阶段：** v1.5 收口；Eino 迁移完成；外层 orchestration 和八字内 Graph 已切换为 bounded self-loop；完整改造计划已补齐目标目录树、文件/文件组处置表、逐批验证、失败回退和 pre-mortem。
-- **当前任务：** 保持 `orchestration`/`bazi_deterministic` 两个 Graph 的状态机、预算、错误出口和 SSE 合同稳定；共享 repair 已迁入 `backend/internal/repair/`。八字循环控制已在无反向依赖的 `specialists/bazi/graph`，runtime 上下文、证据阶段和确定性投影已按职责切分；事实胶囊、年龄授权和引用目录 DTO 已下沉到无 runtime 依赖的 Bazi domain。Batch 2 已完成模型调用级 retry owner 迁移；Batch 3-7 未开始，未获批准不得进入下一批。
+- **当前任务：** 保持 `orchestration`/`bazi_deterministic` 两个 Graph 的状态机、预算、错误出口和 SSE 合同稳定；共享 repair 已迁入 `backend/internal/repair/`。八字循环控制已在无反向依赖的 `specialists/bazi/graph`，runtime 上下文、证据阶段和确定性投影已按职责切分；事实胶囊、年龄授权和引用目录 DTO 已下沉到无 runtime 依赖的 Bazi domain。Batch 2 已完成模型调用级 retry owner 迁移，Batch 3 已完成 runtime 执行入口、确定性 prefill 和工具参数转换的同 package 文件重组；当前停在 Batch 3，Batch 4-7 未开始，未获批准不得进入下一批。
 - **代码原则：** 普通命理分歧进 `eval/` 数据集和 Langfuse trace，不进运行时专项分支。
 
 ## 当前批次
@@ -14,7 +14,8 @@
 - Batch 0：基线冻结已完成，仅作只读验证。
 - Batch 1：已完成 `docs/architecture.md` 与本文件的事实快照更新；完整改造计划已补齐目标树、文件/文件组处置表、逐批验证、失败回退、事实标记、pre-mortem 和统一执行协议。
 - Batch 2：已完成。模型调用级 retry 已移到已有 `backend/internal/llm/`，消除 `supervisor -> runtime.ModelCallRetryDecision` 反向依赖；未改变 API、SSE、Graph 拓扑、错误出口或领域语义。
-- 当前仍停在 Batch 2；Batch 3-7 未开始。
+- Batch 3：已完成。`executor.go` 已在同一 `runtime` package 内重组为 `executor_entry.go`、`executor_prefill.go`、`executor_tools.go`；未改变函数签名、API、SSE、Graph 拓扑、错误出口或领域语义。
+- 当前仍停在 Batch 3；Batch 4-7 未开始。
 
 ## 已验证事实
 
@@ -24,7 +25,7 @@
 - 共享 `internal/repair` 已有独立分类、预算和 HTTP 状态测试；runtime 兼容别名仍保留到所有调用点迁移完成。
 - 模型调用级 retry 由 `backend/internal/llm/model_retry.go` 负责；`supervisor/adk_engine.go` 和 `runtime/agent_route.go` 共享 `llm.DefaultModelRetryConfig`，固定 `MaxRetries=2` 和 `ModelCallRetryDecision`。
 - Batch 2 focused test、全量 backend test、server build、残余引用审计和 `git diff --check` 已通过；主 agent 已验证 `make eval-smoke` 2/2 通过，trace 为 `ce4c557e92d1eb753c842c14524812df`、`3d809c0d65d6c3cec4b14f3f644bb8ad`。
-- `executor.go` 仍是执行入口和确定性 prefill/tool owner；会话上下文、路由快照、指导状态同步已移至 `executor_context.go`，未改变调用签名、SSE 顺序或最终 guard 边界。
+- `executor_entry.go` 负责执行入口、Graph 调用和 final guard 后的会话收口；`executor_prefill.go` 负责确定性资产预填充；`executor_tools.go` 负责 ToolRunner 薄接入和出生资料参数转换。会话上下文、路由快照、指导状态同步仍由 `executor_context.go` 负责，未改变调用签名、SSE 顺序或最终 guard 边界。
 - 八字 Graph 运行职责已按边界拆分：`bazi_graph_entry.go` 负责内图选择和领域失败归一，`bazi_charter_graph.go` 负责补证、审计、阶段事件和最终 writer 适配，`bazi_contract_validation.go` 负责静态/动态合同，`bazi_final_contract.go` 负责最终文本合同，`bazi_model_runtime.go` 负责分析规划、提示构建和内层 agent 适配；证据规划、受控检索、引用归并和有限补证仍由 `bazi_evidence_runtime.go` 承载，函数签名和 Graph 拓扑不变。
 - `bazi_projection_views.go` 负责阶段摘要、模型输入 payload、核心命盘/动态事实和年龄范围投影；它只格式化已验证事实，不新增命理裁断。
 - `specialists/bazi/domain/` 负责无运行时依赖的事实胶囊、中文事实视图、年龄授权范围和稳定引用目录 DTO；runtime 只负责把图状态映射为 `FactInput`/`SubjectContextInput`/`ReferenceCatalogInput`，保留既有调用合同。
@@ -109,7 +110,7 @@
 - 近期运势回归覆盖 period/event/health/natal 四类分类、主次 dispatch、Qimen Case owner/time、出生字段隔离、rotating_8 异常符号、specialist tool 白名单和前端 Case 元信息/warning/Markdown 复制。
 - `DynamicFacts` 只作为本轮 Prefill 投影；流月当前固定为 `unavailable` 或 `degraded`，仅在执行计划明确有 `TimeScope` 时由最终回答说明缺口，不能由模型补算；静态或结构追问不追加无关的流年/流月缺口。
 - 静态 DTO 已收窄：模型只能输出四项 4-80 字的静态短裁断、状态、事实/规则引用和九级状态；不接收原局 relation ID、自由边界、限制或推理文本。runtime 依据 `BaziFactCapsule` 投影这些边界，避免未声明 `relation.natal.*` 耗尽唯一修复机会。
-- 本轮已验证：外层 Graph、八字领域 Graph、repair 和 runtime 定向测试通过；`go test ./backend/... -count=1` 已在允许本地 `httptest` 监听的授权环境通过；`go build ./backend/cmd/server/` 通过。新鲜真实 SSE 追问回放中，第二轮八字追问已返回 `done`、无 `error`，且最终文本不再泄露“未形成这次追问的直接裁断”或无关流年资料缺口；对应 trace 为 `trc_a874e368d621`，最终审计为 `clean`。
+- Batch 3 已验证：focused runtime 测试、`go test ./backend/internal/runtime -count=1`、授权环境下 `go test ./backend/... -count=1`、`go build ./backend/cmd/server/` 和 `git diff --check` 均通过；`make eval-smoke` 在授权环境 2/2 通过，评测器检查 SSE `done`，trace 为 `96bb5df8a7b3d321701f811646d722b5`、`e44cf23c596448ae5c336186a1576e53`。
 - 本轮重启后 `make eval-bazi-quality` 已通过 1/1；trace `ca1c85b60f5e47ade382592730161765` 验证静态合同 clean、动态合同 clean、最终审计 clean，首步大运未交运时动态 source 为 `facts_only_degraded`。
 - 新增 `make eval-bazi-answer-quality`，使用 `bazi-answer-quality-v1` 的确定性质量检查拦截内部状态泄露、保守话术过密、未成年人越权和 facts-only 冒充完整解读；runner 可用 `--include-response` 在报告中保存抽取后的正文。
 - Langfuse 评测体检入口：`python3 eval/runner/check_langfuse_setup.py`；本机 `eval_*` 与 `answer_*` ScoreConfig 类型已通过校验。
@@ -133,7 +134,7 @@
 
 ## 下一步
 
-- 保持当前批次停在 Batch 2；如后续单独批准，再开始 Batch 3 的 runtime 执行入口拆分。Batch 3 不属于本次实施。
+- 保持当前批次停在 Batch 3；如后续单独批准，再开始 Batch 4 的事件桥接、事件 trace 和 final guard 文件重组。不得自动进入下一批。
 - 结构化输出合同：V2 只调用 BaZi `analysis_plan`、`evidence_plan`、`static_synthesis`、`dynamic_synthesis` 四类 JSON Mode DTO。每份 Schema 通过 go:embed 进入同一个 registry；prompt 注入、原始 JSON 校验和 hash 都消费对应文件原文，Go DTO 只负责严格解码后的语义校验。链路为 registry -> prompt -> gojsonschema -> DisallowUnknownFields + EOF -> DTO/引用 catalog；catalog 向模型提供 `{id, hint}` 供选择，输出仍只允许 ID。静态节点输出固定槽位的短裁断和事实/规则引用，边界与限制由 runtime 投影；动态节点才允许岁运关系引用。空输出、fence、缺字段、错类型、未知字段与 trailing JSON 均拒绝。未知引用允许一次本节点定向 repair；事实值冲突和方法合同冲突仍硬失败。ADK output tool 维持 InferTool/ReturnDirectly 与既有 optional/Normalize 语义；Manager、ExecutionPlan、Prefill、outer graph、Qimen/Ziwei 自由文本与 SSE wire shape 均未改。json_object 不是 provider-native strict schema；动态未授权范围按既定 facts-only policy 降级。
 - 保持 `backend/internal/specialists/bazi/graph/` 的 Graph state、Pregel 拓扑、动作选择、repair 预算和终止不依赖 `internal/runtime`；事实胶囊、年龄授权和引用目录 DTO 已迁入 domain。catalog allow-list、projection、合同、recovery 和 renderer 只有在能定义稳定窄 DTO 时再迁移，不为缩短文件制造双轨模型。
 - 真实回放已验证八字追问的 `Graph Invoke -> final guard -> 唯一 text -> done` 收口，以及静态直接回答回退和动态资料提示边界；primary/support、cancel、facts-only 和 mixed-domain 的完整回放仍待补齐，并继续确认 `bazi.loop_step`、`bazi.next_action`、`bazi.termination_reason` 可在 trace 检索。
