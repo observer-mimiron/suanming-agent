@@ -56,10 +56,10 @@
 - 动态综合接收由出生年和目标流年推导的 `subject_context`，并以 `allowed_outcome_domains / outcome_domains` 做结构化授权。
 - 未成年人只允许结构、成长环境、照护节奏和可观察发展；遗漏或越权进入 violation 重试，不能靠扩张自然语言禁词表兜底。
 - V2 动态只裁断当前大运与流年，`current_period_ref` 必须等于 runtime 绑定 period，`current_period_realization` 只可为 `repair|assist|maintain|disturb|suppress`；动态 assertions 只从模型实际的当前运裁断生成，并按已声明干支回查完整大运目录索引，不能把稀疏裁断数组位置当作大运索引，也不要求模型覆盖全量大运目录。
-- 静态层拥有本命基础结构；完整命盘新增独立 `lifetime_dayun_judgment`，逐步覆盖全部已计算大运并输出全程运路；动态层仍只拥有当前大运、流年走势与承接状态。三层互不改写，最终成文按“总览结论 → 强弱/调候/格局视角（含命格层次、古籍参照、断语所限）→ 全程运路 → 当前应期”呈现；动态仍不得伪造本命事实或改写全程逐运结论。
+- 静态层拥有本命基础结构；完整命盘新增独立 `lifetime_dayun_judgment`，逐步覆盖全部已计算大运并输出全程运路；动态层仍只拥有当前大运、流年走势与承接状态。三层互不改写，最终成文按“强弱/调候/格局视角（含命格层次、古籍参照、断语所限）→ 全程运路 → 当前应期 → 末尾总览结论”呈现；动态仍不得伪造本命事实或改写全程逐运结论。
 - 动态流年 assertion 必须绑定 runtime 已选 current_dayun；大运引用仅作 trace provenance，renderer 投影为干支、年龄与已计算关系，不能泄露 `dayun[0].gan_zhi`。
 - 原局官星未透时，静态合同拒绝把“伤官见官”写成既成限制；涉及岁运引动只能由动态综合按当前大运说明条件风险。
-- renderer 在所有最终文本出口删除内部引用路径；主轴只在总览结论出现一次，格局、强弱、调候和层次各自只呈现所属裁断；动态 facts-only 只展示已绑定当前大运或明确未定位，不把全量人生大运目录伪装为动态解读。
+- renderer 在所有最终文本出口删除内部引用路径；总览结论置于完整报告末尾，收束主轴、层次、可发挥处、限制、发挥方向和当前阶段；格局、强弱、调候和层次各自只呈现所属裁断；动态 facts-only 只展示已绑定当前大运或明确未定位，不把全量人生大运目录伪装为动态解读。
 - 冲、刑、害只作 relation trigger 事实，不直接推出医疗、法律、财务事故等具体应事。
 - `bazi_rule_profile.go` 已删除；不存在 `defaultBaziRuleProfile`、`applyZipingBasicClaims`、`applyZipingMonthJieClaim` 或运行时调候 overlay。
 - recovery_decision 使用显式状态机：canonical parse failure 可全量 facts-only；静态仅证据越权可 facts-only；动态仅领域越权可 facts-only；事实冲突和方法合同冲突默认 hard error。
@@ -87,7 +87,7 @@
 - `RuntimeFailure` 包含 code、retryable、degraded 和用户可见消息。
 - 最近一次 REQUIRED_ARTIFACT_UNAVAILABLE 已修复：旧污染 session 回放「紫薇斗数 看一下 婚姻」与「那本月运气如何」均返回 text + done 且无 error；新 session 单轮带资料紫微婚姻也通过。
 - 调候旧问题已定位为过渡期自然语言短语表与静态 claim 合同双重校验冲突；已删除短语表，保留已覆盖证据却声明缺失的通用合同校验。模型合法输出“调候不足”等表述不会再因未命中固定短语降级。
-- 最近一次强制 `bazi-quality-v1` 在线样本未通过：trace `trc_de85c0563f72` 显示 canonical 模型猜测未声明 `fact_ref`，一次 schema repair 后仍失败，按既定合同进入 `canonical_parse_failure_facts_only`；这不是调候词表或 renderer 问题。
+- 本轮 `bazi-quality-v1` 真实回放 2/2 通过，静态/动态/最终审计均为 clean；`bazi-answer-quality-v1` 两次回放均为 2/3，未通过项是无正文响应导致的“强弱”缺失，重试时失败样本轮换，单独重试可通过，仍需观察在线模型稳定性。
 - 2026-08-10 本轮结构重构验证：Graph/adapter 定向测试、`go test ./backend/internal/runtime -count=1`、服务编译和沙箱外 MCP httptest 均通过；沙箱内全量测试仅因本地端口监听限制无法运行 MCP 用例，其余后端包通过。证据阶段、确定性投影、合同校验、Graph 入口和模型适配拆分均未改变 Graph、SSE 或动态只拥有当前大运的边界。
 - 2026-08-10 domain/runtime 边界收口验证：`specialists/bazi/domain` 已拥有事实胶囊、中文事实视图、年龄授权和引用目录 DTO；runtime 只保留窄状态适配、catalog allow-list 与合同兼容入口。引用注册表、统一合同错误和 final writer 合同已按职责拆文件；授权环境下 `GOCACHE=/tmp/suanming-go-cache go test ./backend/... -count=1` 与 `go build ./backend/cmd/server/` 均通过。
 - 2026-08-10 动态模型若把内部引用路径写入用户可见字段，runtime 会丢弃候选动态文本并以 facts-only 保留静态结论；当前大运绑定、事实冲突等真正方法合同仍为 hard error。用户资料回放 `trc_36657e827ebd` 已返回唯一 text + done、无 error，最终审计为 clean。
@@ -114,7 +114,7 @@
 - 1991 命例已在本轮真实 SSE 返回完整章节且无 `error`；此前 `natal_risk_status` 事实冲突已由 runtime 按官星透藏事实收束为 `withheld`。
 - 新鲜两轮 smoke 的首轮建盘 trace `trc_01a3138b8ca0` 因模型把静态首条 claim 标为 `candidate` 触发既定 `method_contract -> hard_error`；这不是本次追问 renderer 修复，仍需单独处理静态合同稳定性。
 - `bazi-stability-v1` 尚无本轮新报告：它会在十次串行调用全部结束后才写入报告，前次长调用期间被人为停止。取得新的十轮稳定性结论仍需允许完整在线运行。
-- `bazi-answer-quality-v1` 当前只完成离线 runner 单测和数据集校验；真实在线评测需后端 :8080 启动后再跑。
+- `bazi-answer-quality-v1` 已完成真实在线回放；答案质量合同本身通过的样本无质量违规，剩余风险是偶发无正文响应，不属于最终 renderer 格式失败。
 - 动态 baseline 已删除完整趋势生成：模型动态综合失败时，只展示已绑定当前大运的干支、年龄、日期边界、运干十神和已计算关系；无法定位时明确说明，不能回退成全量人生大运目录。
 - `current_dayun` 为空或过期时仍按透传日期边界回补；若目标时刻早于首步交运，明确显示“尚未交入第一步大运”。
 - cheap gate 仅允许 `period_fortune` 或单域 `natal_chart` 的同域普通追问复用；具体事件、健康、方法、时间和跨域变化均回完整 Supervisor，不重新分类或扩域。

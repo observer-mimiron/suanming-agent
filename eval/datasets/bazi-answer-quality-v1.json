@@ -47,7 +47,7 @@
         "max_overview_conclusion_chars": 180,
         "max_heading_occurrences_in_section": [
           {
-            "section": "大运验证",
+            "section": "全程运路",
             "heading_prefix": "### ",
             "max": 0
           }

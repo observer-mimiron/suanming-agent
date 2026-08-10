@@ -111,7 +111,7 @@ func TestRenderer_RendersEachLifetimeDayunAsAnIndependentAnalysisBlock(t *testin
 	}
 
 	out := renderBaziFinalReply(baziAnalysisPlan{WriterTemplate: "full"}, state, "")
-	for _, required := range []string{"**丙申运（10-19岁）**", "**结构作用**：平衡承接", "**运干十神（工具事实）**：丙为食神", "**甲午运（30-39岁）**", "**运干十神（工具事实）**：甲为七杀"} {
+	for _, required := range []string{"**丙申运（10-19岁）**", "**定位**：平衡承接；丙为食神", "**甲午运（30-39岁）**", "**定位**：扶助用神；甲为七杀"} {
 		if !strings.Contains(out, required) {
 			t.Fatalf("dayun analysis missing %q:\n%s", required, out)
 		}
@@ -157,9 +157,9 @@ func TestRenderer_LifetimeDayunHeadingsIncludeCalculatedDateBoundaries(t *testin
 	out := renderBaziFinalReply(baziAnalysisPlan{WriterTemplate: "full"}, state, "")
 	for _, required := range []string{
 		"**丙戌运（3-12岁；2027-01-11 00:15至2037-01-11 00:15前）**",
-		"**运干十神（工具事实）**：丙为食神",
+		"**定位**：平衡承接；丙为食神",
 		"**乙酉运（13-22岁；2037-01-11 00:15至2047-01-11 00:15前）**",
-		"**运干十神（工具事实）**：乙为劫财",
+		"**定位**：损伤用神；乙为劫财",
 	} {
 		if !strings.Contains(out, required) {
 			t.Fatalf("dayun heading missing calculated boundary %q:\n%s", required, out)
@@ -276,7 +276,7 @@ func TestRenderer_MinorDynamicDegradationShowsConciseGrowthFacts(t *testing.T) {
 	}
 }
 
-func TestRenderer_BoundedTierAppearsAfterStandardOnlyOnce(t *testing.T) {
+func TestRenderer_BoundedTierAppearsAfterStandardAndInFinalOverview(t *testing.T) {
 	static := validStaticSynthesisForConsistencyTests()
 	static.Source = "model"
 	static.MainAxis = "偏印格候选成立，但成败与清浊待规则裁断，暂以偏印为结构主轴。"
@@ -299,8 +299,8 @@ func TestRenderer_BoundedTierAppearsAfterStandardOnlyOnce(t *testing.T) {
 	if strings.Contains(out, "暂不定级") || strings.Contains(out, "证据不足") {
 		t.Fatalf("bounded tier output must not expose no-tier wording:\n%s", out)
 	}
-	if count := strings.Count(out, "命格层次中等（保守定位）"); count != 1 {
-		t.Fatalf("bounded tier verdict should appear only in 命格层次, got %d:\n%s", count, out)
+	if count := strings.Count(out, "命格层次中等（保守定位）"); count != 2 {
+		t.Fatalf("bounded tier verdict should appear in 命格层次 and final overview, got %d:\n%s", count, out)
 	}
 	standardIndex := strings.Index(out, "**判读口径**")
 	judgmentIndex := strings.Index(out, "命格层次中等（保守定位）")
@@ -312,8 +312,8 @@ func TestRenderer_BoundedTierAppearsAfterStandardOnlyOnce(t *testing.T) {
 			t.Fatalf("display should normalize repeated boundary phrase %q:\n%s", forbidden, out)
 		}
 	}
-	if strings.Contains(sectionContent(out, "## 总览结论", "## 强弱视角"), "命格层次中等（保守定位）") {
-		t.Fatalf("overview must remain readable without the rank label:\n%s", out)
+	if !strings.Contains(sectionContent(out, "## 总览结论", ""), "命格层次中等（保守定位）") {
+		t.Fatalf("final overview must include the bounded tier:\n%s", out)
 	}
 	if !strings.Contains(sectionContent(out, "### 命格层次", "## 当前应期"), "命格层次中等（保守定位）") {
 		t.Fatalf("display must keep the canonical bounded tier at 命格层次:\n%s", out)

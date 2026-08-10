@@ -11,6 +11,7 @@ import (
 )
 
 var baziInternalReferencePath = regexp.MustCompile(`(?:dayun\[[0-9]+\](?:\.[A-Za-z0-9_]+)+|(?:liunian|yongshen|evidence_quality)(?:\.[A-Za-z0-9_]+)+|\b(?:support_score|pressure_score|tier_status)\b)`)
+var classicalChapterHeadingPattern = regexp.MustCompile(`^[0-9一二三四五六七八九十百]+[、.．]\s*论`)
 
 // renderBaziFinalReply 改为由程序直接消费上游结构化结论并渲染最终 markdown。
 // 这样最终成文不再依赖自由文本 writer 自行排版，从根上消除标题、加粗结论、
@@ -159,13 +160,10 @@ func anyMapSlice(raw any) []map[string]any {
 	}
 }
 
-// renderFullTemplate 按总断、三项本命视角、运路与当前应期组织完整报告。
-// 每层只消费所属投影，避免主轴、层次与岁运结论在多个章节重复出现。
+// renderFullTemplate 按本命视角、全程运路、当前应期与末尾总览组织完整报告。
+// 总览放在证据之后作收束；每层仍只消费所属投影，不重判命理结论。
 func renderFullTemplate(state baziCharterState) string {
 	var b strings.Builder
-	writeHeading(&b, "总览结论")
-	writeConclusion(&b, buildOverviewAxisSummary(state))
-
 	writeHeading(&b, "强弱视角")
 	writeConclusion(&b, buildStrengthConclusion(state))
 	strengthBullets := []string{}
@@ -248,7 +246,38 @@ func renderFullTemplate(state baziCharterState) string {
 		})
 	}
 
+	writeFinalOverview(&b, state)
 	return strings.TrimSpace(b.String())
+}
+
+// writeFinalOverview 在报告末尾收束本命主轴、层次、限制、发挥方向与阶段走势。
+// 这些内容都来自已验证槽位，展示层不新增性格、事业或婚姻断语。
+func writeFinalOverview(b *strings.Builder, state baziCharterState) {
+	writeHeading(b, "总览结论")
+
+	writeSubheading(b, "本命总断")
+	writeConclusion(b, buildOverviewAxisSummary(state))
+	writeBullets(b, []string{
+		labeledBullet("命格层次", buildOverviewTierSummary(state)),
+		labeledBullet("可发挥之处", buildSummaryAdvantages(state)),
+		labeledBullet("主要限制", buildSummaryRisks(state)),
+		labeledBullet("发挥取向", buildProfileActionDirection(state)),
+	})
+
+	if state.AnalysisPlan.NeedLifetimeDayun {
+		writeSubheading(b, "全程走势")
+		writeConclusion(b, withoutAxisEcho(state, buildLifetimeDayunConclusion(state), "全程走势只按各运对本命结构的承接与变化观察。"))
+	}
+
+	writeSubheading(b, "当前阶段")
+	switch {
+	case isMinorBaziSubject(state):
+		writeConclusion(b, buildMinorDayunConclusion(state))
+	case isFactsOnlyDynamicSynthesis(state.DynamicSynthesis):
+		writeConclusion(b, "当前阶段仅保留可复算岁运事实，暂不判断趋势。")
+	default:
+		writeConclusion(b, buildDayunConclusion(state))
+	}
 }
 
 // buildCombinedAssessmentConclusion 只并列已接受的本命九级层次、全程和当前判断，三层互不改写。
@@ -301,39 +330,20 @@ func renderLifetimeDayunBullets(state baziCharterState) []string {
 	return items
 }
 
-// writeLifetimeDayunGroups keeps full coverage while grouping periods by their deterministic age boundary.
+// writeLifetimeDayunGroups keeps full coverage while listing periods in chronological order.
 func writeLifetimeDayunGroups(b *strings.Builder, state baziCharterState) {
 	if state.LifetimeSynthesis.Status != "accepted" {
 		writeBullets(b, renderLifetimeDayunBullets(state))
 		return
 	}
-	groups := []struct {
-		label  string
-		claims []baziLifetimeDayunClaim
-	}{
-		{label: "早期运程（29岁前）"},
-		{label: "中期运程（30-59岁）"},
-		{label: "后期运程（60岁后）"},
-	}
 	for _, claim := range state.LifetimeSynthesis.PeriodClaims {
-		group := lifetimePeriodGroup(state, claim.PeriodRef)
-		groups[group].claims = append(groups[group].claims, claim)
-	}
-	for _, group := range groups {
-		if len(group.claims) == 0 {
-			continue
-		}
-		writeSubheading(b, group.label)
-		for _, claim := range group.claims {
-			b.WriteString("\n**")
-			b.WriteString(lifetimePeriodLabel(state, claim.PeriodRef))
-			b.WriteString("**\n")
-			writeBullets(b, []string{
-				labeledBullet("结构作用", lifetimePeriodEffectLabel(claim.PeriodEffect)),
-				labeledBullet("运干十神（工具事实）", lifetimePeriodStemTenGod(state, claim.PeriodRef)),
-				labeledBullet("结构说明", lifetimePeriodEffectSummary(claim.PeriodEffect)),
-			})
-		}
+		b.WriteString("\n**")
+		b.WriteString(lifetimePeriodLabel(state, claim.PeriodRef))
+		b.WriteString("**\n")
+		writeBullets(b, []string{
+			labeledBullet("定位", lifetimePeriodEffectLabel(claim.PeriodEffect)+"；"+lifetimePeriodStemTenGod(state, claim.PeriodRef)),
+			labeledBullet("说明", lifetimePeriodEffectSummary(claim.PeriodEffect)),
+		})
 	}
 }
 
@@ -371,10 +381,10 @@ func lifetimePeriodEffectSummary(effect string) string {
 	}[strings.TrimSpace(effect)]
 }
 
-// writeClassicalReferences 只展示实际检索到且带来源名的引文。
-// 引文用于说明取法，不自动生成命理结论。
+// writeClassicalReferences 只展示可读的短引文，并过滤检索元数据与残句。
+// 引文用于说明取法，不自动生成命理结论；宁缺毋滥，避免把检索卡片当古籍正文。
 func writeClassicalReferences(b *strings.Builder, citations []baziCitation) {
-	lines := make([]string, 0, 3)
+	lines := make([]string, 0, 2)
 	seen := map[string]struct{}{}
 	for _, citation := range citations {
 		classic := strings.TrimSpace(citation.Classic)
@@ -385,7 +395,7 @@ func writeClassicalReferences(b *strings.Builder, citations []baziCitation) {
 			classic = "《" + classic + "》"
 		}
 		for _, quote := range filterNonEmpty(citation.Quotes) {
-			quote = conciseDisplayText(quote, 120)
+			quote = classicalQuoteForDisplay(quote)
 			if quote == "" {
 				continue
 			}
@@ -395,11 +405,9 @@ func writeClassicalReferences(b *strings.Builder, citations []baziCitation) {
 			}
 			seen[line] = struct{}{}
 			lines = append(lines, line)
-			if len(lines) == 3 {
-				break
-			}
+			break
 		}
-		if len(lines) == 3 {
+		if len(lines) == 2 {
 			break
 		}
 	}
@@ -410,22 +418,24 @@ func writeClassicalReferences(b *strings.Builder, citations []baziCitation) {
 	writeBullets(b, lines)
 }
 
-// lifetimePeriodGroup maps a deterministic age boundary to one presentation group.
-func lifetimePeriodGroup(state baziCharterState, ref string) int {
-	periods := dayunPeriods(state.Input.Dayun)
-	index, ok := dynamicPeriodIndex(ref, periods)
-	if !ok {
-		return 1
+// classicalQuoteForDisplay 过滤元数据、章节标题和残句，只保留可读原文。
+func classicalQuoteForDisplay(raw string) string {
+	quote := strings.TrimSpace(raw)
+	if quote == "" || len([]rune(quote)) < 4 || len([]rune(quote)) > 160 {
+		return ""
 	}
-	startAge := intValue(periods[index]["startAge"])
-	endAge := intValue(periods[index]["endAge"])
-	if endAge > 0 && endAge <= 29 {
-		return 0
+	if strings.ContainsAny(quote, "…>|") || strings.Contains(quote, "...") {
+		return ""
 	}
-	if startAge >= 60 {
-		return 2
+	for _, marker := range []string{"⭐", "清·", "民国·", "tags:", "tags：", "作者："} {
+		if strings.Contains(quote, marker) {
+			return ""
+		}
 	}
-	return 1
+	if classicalChapterHeadingPattern.MatchString(quote) {
+		return ""
+	}
+	return quote
 }
 
 func lifetimePeriodLabel(state baziCharterState, ref string) string {
@@ -494,15 +504,15 @@ func conciseTierJudgmentText(text string, maxRunes int) string {
 func buildProfileActionDirection(state baziCharterState) string {
 	parts := []string{}
 	if usage := strings.TrimSpace(state.StaticSynthesis.Usage.Fuyi); usage != "" {
-		parts = append(parts, "扶抑方向："+conciseDisplayText(usage, 96))
+		parts = append(parts, "扶抑方向："+strings.TrimRight(conciseDisplayText(usage, 96), "。；"))
 	}
 	if usage := strings.TrimSpace(state.StaticSynthesis.Usage.Tiaohou); usage != "" {
-		parts = append(parts, "调候方向："+conciseDisplayText(usage, 96))
+		parts = append(parts, "调候方向："+strings.TrimRight(conciseDisplayText(usage, 96), "。；"))
 	}
 	if len(parts) == 0 {
 		return "按总览主轴的已验证条件推进，并持续核对限制。"
 	}
-	return strings.Join(filterNonEmpty(parts), "；")
+	return strings.Join(filterNonEmpty(parts), "；") + "。"
 }
 
 func buildProfilePracticalAdvice(state baziCharterState) string {
@@ -567,6 +577,14 @@ func displayFingerprint(text string) string {
 
 func buildOverviewAxisSummary(state baziCharterState) string {
 	return firstDisplayText(conciseDisplayText(state.StaticSynthesis.MainAxis, 140), "本轮未形成主轴裁断")
+}
+
+// buildOverviewTierSummary 去掉上游层次字段可能携带的标题前缀，避免总览标签重复。
+func buildOverviewTierSummary(state baziCharterState) string {
+	text := conciseTierJudgmentText(state.StaticSynthesis.TierJudgment, 120)
+	text = strings.TrimPrefix(text, "命格基础层次：")
+	text = strings.TrimPrefix(text, "本命命格层次：")
+	return firstDisplayText(text, "本命命格层次暂未形成稳定裁断。")
 }
 
 func buildOverviewLimitationSummary(state baziCharterState) string {

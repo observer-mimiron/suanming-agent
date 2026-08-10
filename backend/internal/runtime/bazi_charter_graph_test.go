@@ -781,7 +781,6 @@ func TestRunFinalWriter_RendersFullTemplateWithoutModel(t *testing.T) {
 		t.Fatalf("deterministic final writer output should satisfy validation: %v", err)
 	}
 	for _, want := range []string{
-		"## 总览结论",
 		"## 强弱视角",
 		"## 调候视角",
 		"## 格局视角",
@@ -794,6 +793,9 @@ func TestRunFinalWriter_RendersFullTemplateWithoutModel(t *testing.T) {
 		"**依据**",
 		"**判定依据**",
 		"**判读口径**",
+		"## 总览结论",
+		"### 本命总断",
+		"### 当前阶段",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("full template output missing %q:\n%s", want, output)
