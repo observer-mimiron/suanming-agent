@@ -11,8 +11,9 @@
 
 ## 当前批次
 
+- Batch 0：基线冻结已完成，仅作只读验证。
 - Batch 1：已完成 `docs/architecture.md` 与本文件的事实快照更新；仅冻结 owner、禁止依赖、分阶段策略和后续批次门禁。
-- Batch 2-7：未开始；任何文件移动、package 拆分或 `internal/llm` 提取都必须等对应前置条件满足后单独执行。
+- 当前批次仍为 Batch 1；Batch 2-7 未开始。Batch 2 的目标是把模型调用级 retry 移到已有 `backend/internal/llm/`，消除 `supervisor -> runtime.ModelCallRetryDecision` 反向依赖；必须先复核 Batch 1 并单独批准。
 
 ## 已验证事实
 
@@ -129,7 +130,7 @@
 
 ## 下一步
 
-- 先由后续任务复核 Batch 1 文档边界；未完成复核前不开始 Batch 2。Batch 2 仅允许在现有 `supervisor` package 内按 owner 重组文件，并保持路由、fallback、trace 和运行时合同不变。
+- 先复核 Batch 1 文档边界，再单独批准 Batch 2；未获批准前不开始任何 Batch 2 实施。Batch 2 只处理模型调用级 retry owner 迁移，保持 API、SSE、Graph 拓扑、错误出口和领域语义不变。
 - 结构化输出合同：V2 只调用 BaZi `analysis_plan`、`evidence_plan`、`static_synthesis`、`dynamic_synthesis` 四类 JSON Mode DTO。每份 Schema 通过 go:embed 进入同一个 registry；prompt 注入、原始 JSON 校验和 hash 都消费对应文件原文，Go DTO 只负责严格解码后的语义校验。链路为 registry -> prompt -> gojsonschema -> DisallowUnknownFields + EOF -> DTO/引用 catalog；catalog 向模型提供 `{id, hint}` 供选择，输出仍只允许 ID。静态节点输出固定槽位的短裁断和事实/规则引用，边界与限制由 runtime 投影；动态节点才允许岁运关系引用。空输出、fence、缺字段、错类型、未知字段与 trailing JSON 均拒绝。未知引用允许一次本节点定向 repair；事实值冲突和方法合同冲突仍硬失败。ADK output tool 维持 InferTool/ReturnDirectly 与既有 optional/Normalize 语义；Manager、ExecutionPlan、Prefill、outer graph、Qimen/Ziwei 自由文本与 SSE wire shape 均未改。json_object 不是 provider-native strict schema；动态未授权范围按既定 facts-only policy 降级。
 - 保持 `backend/internal/specialists/bazi/graph/` 的 Graph state、Pregel 拓扑、动作选择、repair 预算和终止不依赖 `internal/runtime`；事实胶囊、年龄授权和引用目录 DTO 已迁入 domain。catalog allow-list、projection、合同、recovery 和 renderer 只有在能定义稳定窄 DTO 时再迁移，不为缩短文件制造双轨模型。
 - 真实回放已验证八字追问的 `Graph Invoke -> final guard -> 唯一 text -> done` 收口，以及静态直接回答回退和动态资料提示边界；primary/support、cancel、facts-only 和 mixed-domain 的完整回放仍待补齐，并继续确认 `bazi.loop_step`、`bazi.next_action`、`bazi.termination_reason` 可在 trace 检索。

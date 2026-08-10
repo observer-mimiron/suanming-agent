@@ -70,16 +70,18 @@ flowchart LR
 
 ### 分阶段迁移规则
 
-先在现有 package 内按 owner 重组文件，稳定符号、调用方向和窄 DTO；只有同 package 重组完成、依赖图无新增反向边、合同验证通过后，才允许拆分 Go package。拆 package 不是 Batch 1 的工作，不能以目录变干净为理由提前引入接口、兼容代码或双轨实现。
+Batch 2 是已存在的 `internal/llm` 边界上的责任迁移，不是新增 package；其后先在现有 package 内按 owner 重组文件。只有同 package 重组完成、依赖图无新增反向边、合同验证通过后，才进入 Batch 7 的 package 拆分可行性审查；审查不等于承诺拆分。每批只完成当前批次，不自动开始下一批。
 
-| 批次 | 迁移顺序与范围 | 前置条件 | 必须保持的不变量 |
-|---|---|---|---|
-| Batch 2 | 在 `supervisor` 内按 route、policy、fallback、adapter 重组文件 | Batch 1 文档冻结；完成符号和调用方清单 | 路由输出、准入规则、fallback 顺序和观测字段不变 |
-| Batch 3 | 在 `runtime` 内按 manager、plan、prefill、graph、output 重组文件 | Batch 2 完成；锁定 `ExecutionPlan`/`ArtifactRequirement` 合同 | Graph 拓扑、预算、错误出口、唯一 `text`/`done` 不变 |
-| Batch 4 | 在现有 package 内收拢 specialist runner、领域适配、trace/repair 调用边界 | Batch 3 完成；窄 DTO 和 owner 清单可验证 | specialist 无最终答复权；trace 只观测；repair 预算和分类不变 |
-| Batch 5 | 拆出 `backend/internal/llm/`，收拢模型调用和 transport/retry | Batch 2-4 的调用方向稳定；具备 retry/错误/trace 回归证据 | supervisor 不依赖 runtime retry；模型错误语义和 retry 计数不变 |
-| Batch 6 | 拆分 bounded specialist 与 domain package | Batch 5 完成；同 package 迁移无反向 import | specialist 只接收计划允许的输入；domain 不依赖 runtime；领域语义不变 |
-| Batch 7 | 清理旧 owner、兼容别名和残余跨层引用，完成依赖图收口 | Batch 5-6 全部通过；全量引用、构建和合同回归通过 | API/SSE/Graph/trace/repair 合同稳定；不保留双 owner 或反向依赖 |
+| 批次 | 迁移顺序与范围 | 前置条件 | 必须保持的行为不变量 | 批次门禁 |
+|---|---|---|---|---|
+| Batch 0 | 基线冻结：只读核对当前 owner、依赖、API/SSE、Graph、错误出口和领域语义 | 已读取架构事实并完成工作区、引用和现状检查 | 不改文件、不改运行时；基线可被后续回归复核 | 只完成基线核对，不自动开始 Batch 1 |
+| Batch 1 | 冻结 owner、依赖方向、禁止依赖和迁移门禁文档 | Batch 0 基线已完成；仅允许修改架构事实文档 | 不改 API、SSE、Graph 拓扑、错误出口或领域语义 | 只完成文档冻结，不自动开始 Batch 2 |
+| Batch 2 | 将模型调用级 retry 从 runtime 移到已有 `backend/internal/llm/`；涉及 `backend/internal/runtime/model_retry.go`、`backend/internal/supervisor/adk_engine.go`、`backend/internal/runtime/agent_route.go` 及对应测试和引用 | Batch 1 经复核并单独批准；确认调用图、合同、retry/错误/trace 测试和残余引用 | 消除 `supervisor -> runtime.ModelCallRetryDecision` 反向依赖；API、SSE、Graph 拓扑、错误出口和领域语义不变 | 只完成 retry owner 迁移；未获批准不得开始 Batch 3 |
+| Batch 3 | 在同一 `runtime` package 内拆 `executor.go` 的执行入口、prefill、工具调用职责 | Batch 2 完成并通过 retry/错误回归；锁定 Executor 调用合同 | `ExecutionPlan`、资产校验、Graph 状态、工具合同、错误出口和 SSE 顺序不变 | 只完成执行入口文件重组，不自动开始 Batch 4 |
+| Batch 4 | 在同一 package 内拆事件桥接、事件 trace、final guard 职责 | Batch 3 完成；事件类型、trace 字段和 final guard 合同已核对 | 唯一最终 `text`、`done` 顺序、trace 观测语义和最终合同边界不变 | 只完成事件/guard 文件重组，不自动开始 Batch 5 |
+| Batch 5 | 后置拆分 Bazi renderer | Batch 4 完成；renderer 输入投影、facts-only、引用清理和输出合同已有回归证据 | renderer 只转写已验证投影，不新增裁断；领域语义、错误出口和 SSE wire shape 不变 | 只完成 renderer 重组，不自动开始 Batch 6 |
+| Batch 6 | 只读审计兼容层并清理已确认的残余引用 | Batch 5 完成；全量符号、调用方、兼容别名和文档引用均可核对 | 不改变兼容层语义、API、SSE、Graph、错误出口或领域语义；未确认的引用不得删除 | 只清理已证明残余，不自动开始 Batch 7 |
+| Batch 7 | 审查 package 拆分可行性、依赖图和边界证据；不承诺执行 package 拆分 | Batch 6 完成；同 package 重组和依赖/合同审计通过 | 只读审查不改变运行时；不新增 package、接口、兼容代码或迁移实现 | 只输出可行性结论，package 拆分需另行批准 |
 
 ## Manager 自主性边界
 
