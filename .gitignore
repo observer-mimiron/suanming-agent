@@ -47,3 +47,4 @@ __pycache__/
 
 # Local reference checkouts and generated docs
 /docs/agent-interview/
+/.codex-go-cache/
