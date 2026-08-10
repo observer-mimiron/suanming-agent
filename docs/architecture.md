@@ -72,16 +72,37 @@ flowchart LR
 
 Batch 2 是已存在的 `internal/llm` 边界上的责任迁移，不是新增 package；其后先在现有 package 内按 owner 重组文件。只有同 package 重组完成、依赖图无新增反向边、合同验证通过后，才进入 Batch 7 的 package 拆分可行性审查；审查不等于承诺拆分。每批只完成当前批次，不自动开始下一批。
 
-| 批次 | 迁移顺序与范围 | 前置条件 | 必须保持的行为不变量 | 批次门禁 |
-|---|---|---|---|---|
-| Batch 0 | 基线冻结：只读核对当前 owner、依赖、API/SSE、Graph、错误出口和领域语义 | 已读取架构事实并完成工作区、引用和现状检查 | 不改文件、不改运行时；基线可被后续回归复核 | 只完成基线核对，不自动开始 Batch 1 |
-| Batch 1 | 冻结 owner、依赖方向、禁止依赖和迁移门禁文档 | Batch 0 基线已完成；仅允许修改架构事实文档 | 不改 API、SSE、Graph 拓扑、错误出口或领域语义 | 只完成文档冻结，不自动开始 Batch 2 |
-| Batch 2 | 将模型调用级 retry 从 runtime 移到已有 `backend/internal/llm/`；涉及 `backend/internal/runtime/model_retry.go`、`backend/internal/supervisor/adk_engine.go`、`backend/internal/runtime/agent_route.go` 及对应测试和引用 | Batch 1 经复核并单独批准；确认调用图、合同、retry/错误/trace 测试和残余引用 | 消除 `supervisor -> runtime.ModelCallRetryDecision` 反向依赖；API、SSE、Graph 拓扑、错误出口和领域语义不变 | 只完成 retry owner 迁移；未获批准不得开始 Batch 3 |
-| Batch 3 | 在同一 `runtime` package 内拆 `executor.go` 的执行入口、prefill、工具调用职责 | Batch 2 完成并通过 retry/错误回归；锁定 Executor 调用合同 | `ExecutionPlan`、资产校验、Graph 状态、工具合同、错误出口和 SSE 顺序不变 | 只完成执行入口文件重组，不自动开始 Batch 4 |
-| Batch 4 | 在同一 package 内拆事件桥接、事件 trace、final guard 职责 | Batch 3 完成；事件类型、trace 字段和 final guard 合同已核对 | 唯一最终 `text`、`done` 顺序、trace 观测语义和最终合同边界不变 | 只完成事件/guard 文件重组，不自动开始 Batch 5 |
-| Batch 5 | 后置拆分 Bazi renderer | Batch 4 完成；renderer 输入投影、facts-only、引用清理和输出合同已有回归证据 | renderer 只转写已验证投影，不新增裁断；领域语义、错误出口和 SSE wire shape 不变 | 只完成 renderer 重组，不自动开始 Batch 6 |
-| Batch 6 | 只读审计兼容层并清理已确认的残余引用 | Batch 5 完成；全量符号、调用方、兼容别名和文档引用均可核对 | 不改变兼容层语义、API、SSE、Graph、错误出口或领域语义；未确认的引用不得删除 | 只清理已证明残余，不自动开始 Batch 7 |
-| Batch 7 | 审查 package 拆分可行性、依赖图和边界证据；不承诺执行 package 拆分 | Batch 6 完成；同 package 重组和依赖/合同审计通过 | 只读审查不改变运行时；不新增 package、接口、兼容代码或迁移实现 | 只输出可行性结论，package 拆分需另行批准 |
+| 批次 | 迁移顺序与范围 | 前置条件 | 必须保持的行为不变量 | 批次门禁 | 验证命令 | 失败回退 |
+|---|---|---|---|---|---|---|
+| Batch 0 | 基线冻结：只读核对当前 owner、依赖、API/SSE、Graph、错误出口和领域语义 | 已读取架构事实并完成工作区、引用和现状检查 | 不改文件、不改运行时；基线可被后续回归复核 | 只完成基线核对，不自动开始 Batch 1 | `go list ./backend/...`；`GOCACHE=/tmp/suanming-go-cache GOTMPDIR=/tmp go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke` | 只读，无需回退 |
+| Batch 1 | 冻结 owner、依赖方向、禁止依赖和迁移门禁文档 | Batch 0 基线已完成；仅允许修改架构事实文档 | 不改 API、SSE、Graph 拓扑、错误出口或领域语义 | 只完成文档冻结，不自动开始 Batch 2 | `git diff --check`；`git show --name-only --format= HEAD` / `git diff-tree --no-commit-id --name-only -r HEAD` 检查仅含两份文档；`rg -n "Batch 0|Batch 1|Batch 2|Batch 3|Batch 4|Batch 5|Batch 6|Batch 7|strict-json-schema-implementation-plan.md" docs/architecture.md PROGRESS.md` | 失败时 `git revert` 本批文档提交 |
+| Batch 2 | 将模型调用级 retry 从 runtime 移到已有 `backend/internal/llm/`；涉及 `backend/internal/runtime/model_retry.go`、`backend/internal/supervisor/adk_engine.go`、`backend/internal/runtime/agent_route.go` 及对应测试和引用 | Batch 1 经复核并单独批准；确认调用图、合同、retry/错误/trace 测试和残余引用 | 消除 `supervisor -> runtime.ModelCallRetryDecision` 反向依赖；API、SSE、Graph 拓扑、错误出口和领域语义不变 | 只完成 retry owner 迁移；未获批准不得开始 Batch 3 | `go test ./backend/internal/llm ./backend/internal/runtime ./backend/internal/supervisor -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke`；`rg -n "runtime\.ModelCallRetryDecision" backend` 确认无残留 | 失败时 `git revert` 本批提交 |
+| Batch 3 | 在同一 `runtime` package 内拆 `executor.go` 的执行入口、prefill、工具调用职责 | Batch 2 完成并通过 retry/错误回归；锁定 Executor 调用合同 | `ExecutionPlan`、资产校验、Graph 状态、工具合同、错误出口和 SSE 顺序不变 | 只完成执行入口文件重组，不自动开始 Batch 4 | `go test ./backend/internal/runtime -run 'Executor|Prefill|ExecutionPlan|Orchestration|Tool' -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke` 真实 SSE smoke | 失败时 `git revert` 本批提交 |
+| Batch 4 | 在同一 package 内拆事件桥接、事件 trace、final guard 职责 | Batch 3 完成；事件类型、trace 字段和 final guard 合同已核对 | 唯一最终 `text`、`done` 顺序、trace 观测语义和最终合同边界不变 | 只完成事件/guard 文件重组，不自动开始 Batch 5 | `go test ./backend/internal/runtime -run 'Event|Bridge|Trace|Guard|Turn' -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke`，SSE 到 `done` 并检查唯一 `text`/`done` 与 trace | 失败时 `git revert` 本批提交 |
+| Batch 5 | 后置拆分 Bazi renderer | Batch 4 完成；renderer 输入投影、facts-only、引用清理和输出合同已有回归证据 | renderer 只转写已验证投影，不新增裁断；领域语义、错误出口和 SSE wire shape 不变 | 只完成 renderer 重组，不自动开始 Batch 6 | `go test ./backend/internal/runtime -run 'Render|Bazi|Liunian|Contract' -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-bazi-quality`；`make eval-bazi-answer-quality`，或按当前环境做等价回放 | 失败时 `git revert` 本批提交 |
+| Batch 6 | 只读审计兼容层并清理已确认的残余引用 | Batch 5 完成；全量符号、调用方、兼容别名和文档引用均可核对 | 不改变兼容层语义、API、SSE、Graph、错误出口或领域语义；未确认的引用不得删除 | 只清理已证明残余，不自动开始 Batch 7 | `codegraph explore "当前批次符号、兼容别名和所有调用者"`；`rg -n "目标符号|旧符号|兼容别名" backend docs PROGRESS.md` 全量引用审计；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke` | 失败时 `git revert` 本批提交 |
+| Batch 7 | 审查 package 拆分可行性、依赖图和边界证据；不承诺执行 package 拆分 | Batch 6 完成；同 package 重组和依赖/合同审计通过 | 只读审查不改变运行时；不新增 package、接口、兼容代码或迁移实现 | 只输出可行性结论，package 拆分需另行批准 | `go list ./backend/...`；`go list -deps ./backend/...`；CodeGraph/import-cycle 审查 | 只读，无需回退 |
+
+### 计划事实标记
+
+- **[KNOWN]** 当前已有 `backend/internal/llm/`；`supervisor/adk_engine.go` 和 `runtime/agent_route.go` 使用 `runtime.ModelCallRetryDecision`；当前 Graph、SSE、错误出口合同以现状文档为准。
+- **[INFERRED]** executor、事件桥接、trace/final guard、Bazi renderer 的文件拆分簇来自当前结构推断；每批修改前必须重新验证文件、调用者和依赖边。
+- **[UNKNOWN]** Batch 7 package 拆分是否能证明无循环依赖，以及部署级多实例高可用；本计划不承诺这两项。
+
+### 统一执行协议
+
+每批只允许一个 subagent 实施，主 agent 负责审查；生产源码修改前必须重读目标文件头和目标函数注释。每批完成后执行 `gofmt`、focused test、`go test ./backend/... -count=1`；入口或运行时批次还必须执行 `go build ./backend/cmd/server/` 和真实 SSE 直到 `done`。失败只允许 `git revert` 本批提交，不使用 `git reset` 或 `git checkout`；未获批准不得进入下一批。
+
+### Pre-mortem
+
+| 可能失败点 | 最早信号 | 预防与处置 |
+|---|---|---|
+| 错误归属迁移到错误 owner | retry、错误映射或领域语义同时出现在两个层 | 先按 owner 表核对调用图；只保留窄合同，失败回退本批提交 |
+| 隐藏调用者未被发现 | `rg`/CodeGraph 仍有旧符号、测试或 trace 字段引用 | 修改前后做符号、调用者和文档全量审计，未确认引用不删除 |
+| import 循环 | `go list` 或 `go list -deps` 失败，出现新的反向边 | 先在原 package 内重组；新反向 import 立即阻断，不用 adapter 掩盖 |
+| 只编译不验行为 | build 通过但 SSE 缺 `done`、重复 `text` 或 trace 缺字段 | 每批保留 focused test、全量 test、真实 SSE/trace 检查 |
+| SSE、trace、Graph 或领域合同破坏 | Graph phase/预算变化、错误出口漂移、wire shape 改变或 renderer 越权裁断 | 以现状合同为不变量逐项回归，按批门禁停在当前批次并回退 |
+| 迁移范围过大，存在更小方案 | 同一批同时改变 package、接口和运行时语义 | 优先同 package 文件重组或已有 `internal/llm` 边界；只有小方案不足时才扩大，并单独批准 |
 
 ## Manager 自主性边界
 
