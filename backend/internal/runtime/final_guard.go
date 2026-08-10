@@ -1,7 +1,7 @@
-// Package runtime contains the manager-owned execution flow.
+// Package runtime 包含 Manager 所有的执行主链。
 //
-// This file records runtime-visible decisions and enforces the final output
-// boundary before text is emitted to the frontend.
+// 本文件负责 Invoke 后唯一 final guard、资产存在性、安全免责声明和内部泄漏拦截；
+// 不负责 Graph 调度或领域裁断。
 package runtime
 
 import (
@@ -14,29 +14,6 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
-
-// emitEventWithTrace wraps SSE emission with a local span so traces can explain
-// what the runtime actually sent to the frontend.
-func emitEventWithTrace(ctx context.Context, sink EventSink, evt Event, attrs map[string]any) error {
-	if sink == nil {
-		return nil
-	}
-
-	sp := tracing.SpanFromContext(ctx, "sse_emit", tracing.KindChain)
-	sp.SetAttribute("event_type", evt.Type)
-	sp.SetAttribute("sse.event_type", evt.Type)
-	for k, v := range attrs {
-		sp.SetAttribute(k, v)
-	}
-	defer sp.End()
-
-	if err := sink.Emit(ctx, evt); err != nil {
-		sp.RecordError(err)
-		sp.SetStatus("error")
-		return err
-	}
-	return nil
-}
 
 // guardFinalAnswerWithTrace is the final contract gate before user-visible text.
 // It blocks missing primary artifacts and obvious internal execution leakage,
@@ -210,31 +187,4 @@ func outputBoundaryGuard(finalText string) (bool, string) {
 		}
 	}
 	return true, ""
-}
-
-// annotateApprovedRouteTrace records the approved route and gate projection for debugging.
-func annotateApprovedRouteTrace(ctx context.Context, st *state.SessionState, route policy.ApprovedRoute) {
-	tracing.SetTraceAttributes(ctx, map[string]any{
-		"approved_route.primary_domain":    route.PrimaryDomain,
-		"approved_route.secondary_domains": strings.Join(route.SecondaryDomains, ","),
-		"task_intent":                      route.TaskIntent,
-		"qimen_mode":                       route.PolicyHints.QimenMode,
-		"profile_requirement":              route.PolicyHints.ProfileRequirement,
-		"needs_clarification":              route.NeedsClarification,
-		"profile_complete":                 st != nil && st.IsProfileComplete(),
-		"gate.reason":                      route.Gate.Reason,
-		"gate.execution_mode":              route.Gate.ExecutionMode,
-		"gate.followup_policy":             route.Gate.FollowupPolicy,
-		"decision_source":                  decisionSourceForRoute(route),
-		"reuse_cached_result":              route.Gate.ReuseCachedResult,
-		"reuse_session_profile":            route.Gate.ReuseSessionProfile,
-	})
-}
-
-// decisionSourceForRoute reports whether the current route came from supervisor or cheap reuse.
-func decisionSourceForRoute(route policy.ApprovedRoute) string {
-	if route.Gate.Reason == "cheap_followup_reuse" {
-		return "cheap_followup_reuse"
-	}
-	return "supervisor"
 }

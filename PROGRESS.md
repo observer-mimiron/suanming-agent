@@ -6,7 +6,7 @@
 
 - **最后更新：** 2026-08-11
 - **阶段：** v1.5 收口；Eino 迁移完成；外层 orchestration 和八字内 Graph 已切换为 bounded self-loop；完整改造计划已补齐目标目录树、文件/文件组处置表、逐批验证、失败回退和 pre-mortem。
-- **当前任务：** 保持 `orchestration`/`bazi_deterministic` 两个 Graph 的状态机、预算、错误出口和 SSE 合同稳定；共享 repair 已迁入 `backend/internal/repair/`。八字循环控制已在无反向依赖的 `specialists/bazi/graph`，runtime 上下文、证据阶段和确定性投影已按职责切分；事实胶囊、年龄授权和引用目录 DTO 已下沉到无 runtime 依赖的 Bazi domain。Batch 2 已完成模型调用级 retry owner 迁移，Batch 3 已完成 runtime 执行入口、确定性 prefill 和工具参数转换的同 package 文件重组；当前停在 Batch 3，Batch 4-7 未开始，未获批准不得进入下一批。
+- **当前任务：** 保持 `orchestration`/`bazi_deterministic` 两个 Graph 的状态机、预算、错误出口和 SSE 合同稳定；共享 repair 已迁入 `backend/internal/repair/`。八字循环控制已在无反向依赖的 `specialists/bazi/graph`，runtime 上下文、证据阶段和确定性投影已按职责切分；事实胶囊、年龄授权和引用目录 DTO 已下沉到无 runtime 依赖的 Bazi domain。Batch 2、Batch 3 已完成；Batch 4 正在完成事件桥接、事件 trace 和 final guard 的同 package 文件重组，Batch 5-7 尚未开始。
 - **代码原则：** 普通命理分歧进 `eval/` 数据集和 Langfuse trace，不进运行时专项分支。
 
 ## 当前批次
@@ -15,7 +15,8 @@
 - Batch 1：已完成 `docs/architecture.md` 与本文件的事实快照更新；完整改造计划已补齐目标树、文件/文件组处置表、逐批验证、失败回退、事实标记、pre-mortem 和统一执行协议。
 - Batch 2：已完成。模型调用级 retry 已移到已有 `backend/internal/llm/`，消除 `supervisor -> runtime.ModelCallRetryDecision` 反向依赖；未改变 API、SSE、Graph 拓扑、错误出口或领域语义。
 - Batch 3：已完成。`executor.go` 已在同一 `runtime` package 内重组为 `executor_entry.go`、`executor_prefill.go`、`executor_tools.go`；未改变函数签名、API、SSE、Graph 拓扑、错误出口或领域语义。
-- 当前仍停在 Batch 3；Batch 4-7 未开始。
+- Batch 4：已完成。事件桥接、事件 trace 和 final guard 已在同一 `runtime` package 内按职责重组为 `event_bridge.go`、`event_trace.go`、`final_guard.go`；未改变函数签名、API、Graph 拓扑、错误出口、SSE 顺序或 trace 字段。
+- 当前停在 Batch 4 完成；Batch 5-7 尚未开始。
 
 ## 已验证事实
 
@@ -26,6 +27,7 @@
 - 模型调用级 retry 由 `backend/internal/llm/model_retry.go` 负责；`supervisor/adk_engine.go` 和 `runtime/agent_route.go` 共享 `llm.DefaultModelRetryConfig`，固定 `MaxRetries=2` 和 `ModelCallRetryDecision`。
 - Batch 2 focused test、全量 backend test、server build、残余引用审计和 `git diff --check` 已通过；主 agent 已验证 `make eval-smoke` 2/2 通过，trace 为 `ce4c557e92d1eb753c842c14524812df`、`3d809c0d65d6c3cec4b14f3f644bb8ad`。
 - `executor_entry.go` 负责执行入口、Graph 调用和 final guard 后的会话收口；`executor_prefill.go` 负责确定性资产预填充；`executor_tools.go` 负责 ToolRunner 薄接入和出生资料参数转换。会话上下文、路由快照、指导状态同步仍由 `executor_context.go` 负责，未改变调用签名、SSE 顺序或最终 guard 边界。
+- Batch 4 focused runtime test、全量 backend test、server build、旧路径引用审计和 `git diff --check` 已通过；`make eval-smoke` 2/2 通过，trace 为 `347e9dc04bd90b5dc8fd41316d882fea`、`5f9dba08bf8e170973d6ac14011b864d`，均观察到 `sse_emit` 与 `contract_gate`。
 - 八字 Graph 运行职责已按边界拆分：`bazi_graph_entry.go` 负责内图选择和领域失败归一，`bazi_charter_graph.go` 负责补证、审计、阶段事件和最终 writer 适配，`bazi_contract_validation.go` 负责静态/动态合同，`bazi_final_contract.go` 负责最终文本合同，`bazi_model_runtime.go` 负责分析规划、提示构建和内层 agent 适配；证据规划、受控检索、引用归并和有限补证仍由 `bazi_evidence_runtime.go` 承载，函数签名和 Graph 拓扑不变。
 - `bazi_projection_views.go` 负责阶段摘要、模型输入 payload、核心命盘/动态事实和年龄范围投影；它只格式化已验证事实，不新增命理裁断。
 - `specialists/bazi/domain/` 负责无运行时依赖的事实胶囊、中文事实视图、年龄授权范围和稳定引用目录 DTO；runtime 只负责把图状态映射为 `FactInput`/`SubjectContextInput`/`ReferenceCatalogInput`，保留既有调用合同。
@@ -147,7 +149,7 @@
 
 ## 核心入口
 
-- 运行时：`backend/internal/runtime/manager.go`、`orchestration_graph.go`、`orchestration_graph_loop.go`、`artifact_resolver.go`、`specialist_runner.go`、`observability.go`。
+- 运行时：`backend/internal/runtime/manager.go`、`orchestration_graph.go`、`orchestration_graph_loop.go`、`artifact_resolver.go`、`specialist_runner.go`、`event_bridge.go`、`event_trace.go`、`final_guard.go`。
 - 资产状态：`backend/internal/state/session.go`、`assets.go`。
 - 八字：`backend/internal/runtime/bazi_internal_graph.go`、`bazi_graph_loop.go`、`bazi_graph_entry.go`、`bazi_charter_graph.go`、`bazi_contract_validation.go`、`bazi_final_contract.go`、`bazi_model_runtime.go`、`bazi_canonical_synthesis.go`、`bazi_final_renderer.go`；事实胶囊、年龄授权和引用目录 DTO 在 `backend/internal/specialists/bazi/domain/`；确定性排盘在 `backend/internal/tools/bazi/`。
 - repair：`backend/internal/repair/`。

@@ -1,6 +1,7 @@
-// This file belongs to the manager-owned runtime layer.
-// It owns runtime event bridge behavior for this package.
-// It owns execution contracts and Manager flow; specialists do not own final answers.
+// Package runtime 包含 Manager 所有的执行主链。
+//
+// 本文件负责 ADK 事件到 EventSink 的桥接和 chart component 事件；
+// 不负责路由、Graph、领域裁断。
 package runtime
 
 import (

@@ -100,9 +100,9 @@ internal/
 │   ├── executor_prefill.go     # Batch 3 已完成
 │   ├── executor_tools.go       # Batch 3 已完成
 │   ├── event.go
-│   ├── event_bridge.go          # Batch 4 建议名
-│   ├── event_trace.go           # Batch 4 建议名
-│   ├── final_guard.go           # Batch 4 建议名
+│   ├── event_bridge.go          # Batch 4 已完成
+│   ├── event_trace.go           # Batch 4 已完成
+│   ├── final_guard.go           # Batch 4 已完成
 │   └── bazi_*.go
 ├── llm/
 ├── repair/
@@ -127,8 +127,8 @@ internal/
 | `runtime/manager.go`、`execution_plan.go`、`orchestration_graph*.go` | 保留，暂缓拆分 | 暂缓 | `runtime` | 低层模型 retry、SSE sink、领域事实裁断 |
 | `runtime/executor_entry.go`、`executor_prefill.go`、`executor_tools.go` | 已在同 package 内拆分执行入口、Prefill、工具调用 | Batch 3 已完成 | `runtime` | 路由、Graph 拓扑、最终 SSE 合同改写 |
 | `runtime/event.go` | 保留事件合同 | 保留 | `runtime` | 改写事件类型、SSE wire shape |
-| `runtime/bridge.go` | 拆事件桥接 | Batch 4 | `runtime` | 重新路由、补算资产、决定领域语义 |
-| `runtime/observability.go` | 拆 event trace / final guard 函数簇 | Batch 4 | `runtime` | 让 trace 改变执行真相、让 guard 替代领域解释 |
+| `runtime/event_bridge.go` | 保留事件桥接 | Batch 4 已完成 | `runtime` | 重新路由、补算资产、决定领域语义 |
+| `runtime/event_trace.go`、`runtime/final_guard.go` | 拆分 event trace / final guard 函数簇 | Batch 4 已完成 | `runtime` | 让 trace 改变执行真相、让 guard 替代领域解释 |
 | `runtime/bazi_final_renderer.go` | 在同 package 内拆 renderer 函数簇 | Batch 5 | `runtime` | 新增命理裁断、改变领域合同或 SSE wire shape |
 | `runtime/repair_compat.go` 及旧兼容别名 | 先审计；只有零调用方才允许删除 | Batch 6 | `runtime` 兼容层 | 删除未确认引用、改变 repair 合同 |
 | `internal/llm/*.go` | 保留，负责模型调用级 retry owner | Batch 2 | `internal/llm` | 路由、资产准备、领域解释 |
@@ -145,7 +145,7 @@ Batch 2 已完成在既有 `internal/llm` 边界上的责任迁移，不是新�
 | Batch 1 | 冻结 owner、依赖方向、禁止依赖和迁移门禁文档 | Batch 0 基线已完成；仅允许修改架构事实文档 | 不改 API、SSE、Graph 拓扑、错误出口或领域语义 | 只完成文档冻结，不自动开始 Batch 2 | `git diff --check`；`git show --name-only --format= HEAD` / `git diff-tree --no-commit-id --name-only -r HEAD` 检查仅含两份文档；`rg -n "Batch 0|Batch 1|Batch 2|Batch 3|Batch 4|Batch 5|Batch 6|Batch 7|strict-json-schema-implementation-plan.md" docs/architecture.md PROGRESS.md` | 失败时 `git revert` 本批文档提交 |
 | Batch 2 | 将模型调用级 retry 从 runtime 移到已有 `backend/internal/llm/`；涉及 `backend/internal/runtime/model_retry.go`、`backend/internal/supervisor/adk_engine.go`、`backend/internal/runtime/agent_route.go` 及对应测试和引用 | Batch 1 经复核并单独批准；确认调用图、合同、retry/错误/trace 测试和残余引用 | 消除 `supervisor -> runtime.ModelCallRetryDecision` 反向依赖；API、SSE、Graph 拓扑、错误出口和领域语义不变 | 只完成 retry owner 迁移；未获批准不得开始 Batch 3 | `go test ./backend/internal/llm ./backend/internal/runtime ./backend/internal/supervisor -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke`；`rg -n "runtime\.ModelCallRetryDecision" backend` 确认无残留 | 失败时 `git revert` 本批提交 |
 | Batch 3（已完成） | 在同一 `runtime` package 内将 `executor.go` 重组为执行入口、prefill、工具调用职责文件 | Batch 2 完成并通过 retry/错误回归；已锁定 Executor 调用合同 | `ExecutionPlan`、资产校验、Graph 状态、工具合同、错误出口和 SSE 顺序不变 | 只完成执行入口文件重组，不自动开始 Batch 4 | `go test ./backend/internal/runtime -run 'Executor|Prefill|ExecutionPlan|Orchestration|Tool' -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke` 真实 SSE smoke | 失败时 `git revert` 本批提交 |
-| Batch 4 | 在同一 package 内拆事件桥接、事件 trace、final guard 职责 | Batch 3 完成；事件类型、trace 字段和 final guard 合同已核对 | 唯一最终 `text`、`done` 顺序、trace 观测语义和最终合同边界不变 | 只完成事件/guard 文件重组，不自动开始 Batch 5 | `go test ./backend/internal/runtime -run 'Event|Bridge|Trace|Guard|Turn' -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke`，SSE 到 `done` 并检查唯一 `text`/`done` 与 trace | 失败时 `git revert` 本批提交 |
+| Batch 4（已完成） | 在同一 package 内拆事件桥接、事件 trace、final guard 职责 | Batch 3 完成；事件类型、trace 字段和 final guard 合同已核对 | 唯一最终 `text`、`done` 顺序、trace 观测语义和最终合同边界不变 | 只完成事件/guard 文件重组；未进入 Batch 5 的 renderer 改造 | `go test ./backend/internal/runtime -run 'Event|Bridge|Trace|Guard|Turn' -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke`，SSE 到 `done` 并检查唯一 `text`/`done` 与 trace | 失败时 `git revert` 本批提交 |
 | Batch 5 | 后置拆分 Bazi renderer | Batch 4 完成；renderer 输入投影、facts-only、引用清理和输出合同已有回归证据 | renderer 只转写已验证投影，不新增裁断；领域语义、错误出口和 SSE wire shape 不变 | 只完成 renderer 重组，不自动开始 Batch 6 | `go test ./backend/internal/runtime -run 'Render|Bazi|Liunian|Contract' -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-bazi-quality`；`make eval-bazi-answer-quality`，或按当前环境做等价回放 | 失败时 `git revert` 本批提交 |
 | Batch 6 | 只读审计兼容层并清理已确认的残余引用 | Batch 5 完成；全量符号、调用方、兼容别名和文档引用均可核对 | 不改变兼容层语义、API、SSE、Graph、错误出口或领域语义；未确认的引用不得删除 | 只清理已证明残余，不自动开始 Batch 7 | `codegraph explore "当前批次符号、兼容别名和所有调用者"`；`rg -n "目标符号|旧符号|兼容别名" backend docs PROGRESS.md` 全量引用审计；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke` | 失败时 `git revert` 本批提交 |
 | Batch 7 | 审查 package 拆分可行性、依赖图和边界证据；不承诺执行 package 拆分 | Batch 6 完成；同 package 重组和依赖/合同审计通过 | 只读审查不改变运行时；不新增 package、接口、兼容代码或迁移实现 | 只输出可行性结论，package 拆分需另行批准 | `go list ./backend/...`；`go list -deps ./backend/...`；CodeGraph/import-cycle 审查 | 只读，无需回退 |
@@ -289,7 +289,7 @@ Run Inspector 是聊天页内唯一排障入口：后端在每轮结束时发送
 ## 核心入口
 
 - 路由：`backend/internal/supervisor/approved_route.go`、`cheap_gate.go`、`adk_engine.go`。
-- 主控：`backend/internal/runtime/manager.go`、`execution_plan.go`、`orchestration_graph.go`、`orchestration_graph_loop.go`、`executor.go`。
+- 主控：`backend/internal/runtime/manager.go`、`execution_plan.go`、`orchestration_graph.go`、`orchestration_graph_loop.go`、`executor_entry.go`、`executor_prefill.go`、`executor_tools.go`。
 - 资产：`backend/internal/state/session.go`、`assets.go`、`backend/internal/runtime/artifact_resolver.go`。
 - 工具：`backend/internal/tools/contract.go`、`registry.go`、`runner.go`。
 - 八字 Graph：`backend/internal/specialists/bazi/graph/graph.go`；domain 事实、年龄授权与引用目录：`backend/internal/specialists/bazi/domain/facts.go`、`scope.go`、`reference_catalog.go`；runtime 适配与现有领域节点：`backend/internal/runtime/bazi_graph_adapter.go`、`bazi_internal_graph.go`、`bazi_graph_entry.go`、`bazi_charter_graph.go`、`bazi_contract_validation.go`、`bazi_final_contract.go`、`bazi_model_runtime.go`、`bazi_evidence_runtime.go`、`bazi_projection_views.go`、`bazi_final_renderer.go`；确定性工具：`backend/internal/tools/bazi/`。

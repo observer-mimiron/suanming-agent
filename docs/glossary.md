@@ -230,7 +230,7 @@
 
 **是什么**：消费 ADK 的异步事件流，桥接到 SSE。负责区分领域正文与普通工具结果、解析 XML 标签（analysis/response）、检测排盘结果自动推送命盘卡牌。
 
-**定义位置**：[internal/runtime/bridge.go](../internal/runtime/bridge.go)
+**定义位置**：[internal/runtime/event_bridge.go](../internal/runtime/event_bridge.go)
 
 **核心逻辑**：
 - `isSpecialistTool()`：通过 `_specialist` 后缀区分领域专家节点和普通 Tool
@@ -509,7 +509,7 @@
 
 **是什么**：LLM 输出的结构化 XML 标签。`<analysis>` 段为内部推理（走 thinking 事件），`<response>` 段为最终回答（走 text 事件）。
 
-**解析位置**：[internal/runtime/bridge.go](../internal/runtime/bridge.go)
+**解析位置**：[internal/runtime/event_bridge.go](../internal/runtime/event_bridge.go)
 
 ---
 
