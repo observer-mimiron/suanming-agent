@@ -139,7 +139,7 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 		},
 		Handlers:         b.buildSpecialistHandlers(),
 		GenModelInput:    noFStringGenModelInput,
-		ModelRetryConfig: defaultRetryConfig(),
+		ModelRetryConfig: llm.DefaultModelRetryConfig(),
 	})
 }
 
@@ -677,12 +677,4 @@ func (b *AgentBuilder) buildZiWeiDataBlock(st *state.SessionState) string {
 
 	sb.WriteString("\n**⚠️ 紫微命盘数据已就绪，直接引用解读，禁止调用 ziwei_calc/ziwei_liunian。**\n")
 	return sb.String()
-}
-
-// defaultRetryConfig 返回共享的 ModelRetryConfig，所有 Agent 统一使用。
-func defaultRetryConfig() *adk.ModelRetryConfig {
-	return &adk.ModelRetryConfig{
-		MaxRetries:  2,
-		ShouldRetry: ModelCallRetryDecision,
-	}
 }

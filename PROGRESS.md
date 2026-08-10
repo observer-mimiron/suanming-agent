@@ -4,16 +4,17 @@
 
 ## 当前阶段
 
-- **最后更新：** 2026-08-10
+- **最后更新：** 2026-08-11
 - **阶段：** v1.5 收口；Eino 迁移完成；外层 orchestration 和八字内 Graph 已切换为 bounded self-loop；完整改造计划已补齐目标目录树、文件/文件组处置表、逐批验证、失败回退和 pre-mortem。
-- **当前任务：** 保持 `orchestration`/`bazi_deterministic` 两个 Graph 的状态机、预算、错误出口和 SSE 合同稳定；共享 repair 已迁入 `backend/internal/repair/`。八字循环控制已在无反向依赖的 `specialists/bazi/graph`，runtime 上下文、证据阶段和确定性投影已按职责切分；事实胶囊、年龄授权和引用目录 DTO 已下沉到无 runtime 依赖的 Bazi domain。Batch 1 已完成文档冻结，目标树和处置表已落盘；Batch 2-7 未开始，未获批准不得进入下一批。
+- **当前任务：** 保持 `orchestration`/`bazi_deterministic` 两个 Graph 的状态机、预算、错误出口和 SSE 合同稳定；共享 repair 已迁入 `backend/internal/repair/`。八字循环控制已在无反向依赖的 `specialists/bazi/graph`，runtime 上下文、证据阶段和确定性投影已按职责切分；事实胶囊、年龄授权和引用目录 DTO 已下沉到无 runtime 依赖的 Bazi domain。Batch 2 已完成模型调用级 retry owner 迁移；Batch 3-7 未开始，未获批准不得进入下一批。
 - **代码原则：** 普通命理分歧进 `eval/` 数据集和 Langfuse trace，不进运行时专项分支。
 
 ## 当前批次
 
 - Batch 0：基线冻结已完成，仅作只读验证。
 - Batch 1：已完成 `docs/architecture.md` 与本文件的事实快照更新；完整改造计划已补齐目标树、文件/文件组处置表、逐批验证、失败回退、事实标记、pre-mortem 和统一执行协议。
-- 当前批次仍为 Batch 1；Batch 2-7 未开始。Batch 2 的目标是把模型调用级 retry 移到已有 `backend/internal/llm/`，消除 `supervisor -> runtime.ModelCallRetryDecision` 反向依赖；必须先复核 Batch 1 并单独批准。
+- Batch 2：已完成。模型调用级 retry 已移到已有 `backend/internal/llm/`，消除 `supervisor -> runtime.ModelCallRetryDecision` 反向依赖；未改变 API、SSE、Graph 拓扑、错误出口或领域语义。
+- 当前仍停在 Batch 2；Batch 3-7 未开始。
 
 ## 已验证事实
 
@@ -21,6 +22,8 @@
 - `Manager` 是 runtime 内唯一 conversation owner；负责会话焦点、追问策略、执行计划、通用直答和最终综合，不持有完整 ReAct 工具循环。
 - Bazi Graph 编译会逐项拒绝缺失 callback；Graph 测试覆盖缺依赖、静态完成、缺盘硬错、步数上限降级和全程大运先于当前动态，runtime adapter 测试保护 Graph phase 不被领域 payload 反写。
 - 共享 `internal/repair` 已有独立分类、预算和 HTTP 状态测试；runtime 兼容别名仍保留到所有调用点迁移完成。
+- 模型调用级 retry 由 `backend/internal/llm/model_retry.go` 负责；`supervisor/adk_engine.go` 和 `runtime/agent_route.go` 共享 `llm.DefaultModelRetryConfig`，固定 `MaxRetries=2` 和 `ModelCallRetryDecision`。
+- Batch 2 focused test、全量 backend test、server build、残余引用审计和 `git diff --check` 已通过；未运行 `make eval-smoke`，按本批范围由主 agent 负责在线验证。
 - `executor.go` 仍是执行入口和确定性 prefill/tool owner；会话上下文、路由快照、指导状态同步已移至 `executor_context.go`，未改变调用签名、SSE 顺序或最终 guard 边界。
 - 八字 Graph 运行职责已按边界拆分：`bazi_graph_entry.go` 负责内图选择和领域失败归一，`bazi_charter_graph.go` 负责补证、审计、阶段事件和最终 writer 适配，`bazi_contract_validation.go` 负责静态/动态合同，`bazi_final_contract.go` 负责最终文本合同，`bazi_model_runtime.go` 负责分析规划、提示构建和内层 agent 适配；证据规划、受控检索、引用归并和有限补证仍由 `bazi_evidence_runtime.go` 承载，函数签名和 Graph 拓扑不变。
 - `bazi_projection_views.go` 负责阶段摘要、模型输入 payload、核心命盘/动态事实和年龄范围投影；它只格式化已验证事实，不新增命理裁断。
@@ -130,7 +133,7 @@
 
 ## 下一步
 
-- 先复核 Batch 1 文档边界，再单独批准 Batch 2；未获批准前不开始任何 Batch 2 实施。Batch 2 只处理模型调用级 retry owner 迁移，保持 API、SSE、Graph 拓扑、错误出口和领域语义不变。
+- 保持当前批次停在 Batch 2；如后续单独批准，再开始 Batch 3 的 runtime 执行入口拆分。Batch 3 不属于本次实施。
 - 结构化输出合同：V2 只调用 BaZi `analysis_plan`、`evidence_plan`、`static_synthesis`、`dynamic_synthesis` 四类 JSON Mode DTO。每份 Schema 通过 go:embed 进入同一个 registry；prompt 注入、原始 JSON 校验和 hash 都消费对应文件原文，Go DTO 只负责严格解码后的语义校验。链路为 registry -> prompt -> gojsonschema -> DisallowUnknownFields + EOF -> DTO/引用 catalog；catalog 向模型提供 `{id, hint}` 供选择，输出仍只允许 ID。静态节点输出固定槽位的短裁断和事实/规则引用，边界与限制由 runtime 投影；动态节点才允许岁运关系引用。空输出、fence、缺字段、错类型、未知字段与 trailing JSON 均拒绝。未知引用允许一次本节点定向 repair；事实值冲突和方法合同冲突仍硬失败。ADK output tool 维持 InferTool/ReturnDirectly 与既有 optional/Normalize 语义；Manager、ExecutionPlan、Prefill、outer graph、Qimen/Ziwei 自由文本与 SSE wire shape 均未改。json_object 不是 provider-native strict schema；动态未授权范围按既定 facts-only policy 降级。
 - 保持 `backend/internal/specialists/bazi/graph/` 的 Graph state、Pregel 拓扑、动作选择、repair 预算和终止不依赖 `internal/runtime`；事实胶囊、年龄授权和引用目录 DTO 已迁入 domain。catalog allow-list、projection、合同、recovery 和 renderer 只有在能定义稳定窄 DTO 时再迁移，不为缩短文件制造双轨模型。
 - 真实回放已验证八字追问的 `Graph Invoke -> final guard -> 唯一 text -> done` 收口，以及静态直接回答回退和动态资料提示边界；primary/support、cancel、facts-only 和 mixed-domain 的完整回放仍待补齐，并继续确认 `bazi.loop_step`、`bazi.next_action`、`bazi.termination_reason` 可在 trace 检索。

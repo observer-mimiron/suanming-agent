@@ -19,7 +19,7 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 	"github.com/cloudwego/eino/compose"
-	appRuntime "github.com/observer-mimiron/suanming-agent/internal/runtime"
+	"github.com/observer-mimiron/suanming-agent/internal/llm"
 	"github.com/observer-mimiron/suanming-agent/internal/schemas"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
@@ -124,10 +124,7 @@ func (e *adkRouteEngine) runOnce(ctx context.Context, prompt, msg string) (strin
 			},
 			ReturnDirectly: map[string]bool{decisionToolName: true},
 		},
-		ModelRetryConfig: &adk.ModelRetryConfig{
-			MaxRetries:  2,
-			ShouldRetry: appRuntime.ModelCallRetryDecision,
-		},
+		ModelRetryConfig: llm.DefaultModelRetryConfig(),
 	})
 	if err != nil {
 		return "", fmt.Errorf("new chat model agent: %w", err)

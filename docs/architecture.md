@@ -63,7 +63,7 @@ flowchart LR
 目标依赖方向为：`handler/orchestrator -> supervisor -> route contract`，以及 `handler/orchestrator -> runtime -> state / tools / bounded specialists / repair / llm`；输出桥接只消费 runtime 结果和合同，trace 只消费各 owner 的观测事件。跨层调用必须通过窄 DTO 或明确合同，不以共享内部状态代替边界。
 
 - `supervisor` 不得反向依赖 `runtime`，尤其不得依赖 runtime 的模型调用、模型 transport 或 retry 决策。
-- 后续将模型 client、能力归一、transport timeout/retry 和相关错误合同收敛到 `backend/internal/llm/`；Batch 1 只记录目标，不移动代码、不新增兼容层。
+- 模型 client、能力归一、transport timeout/retry 和相关错误合同已收敛到 `backend/internal/llm/`；Batch 2 已完成模型调用级 retry owner 迁移。
 - `specialist` 不得依赖 `Manager`、Session owner、SSE bridge 或 final compose；`runtime` 只能通过 bounded runner 消费领域结果。
 - `final guard`、SSE bridge、trace 和 repair 不得反向决定路由、资产选择或领域语义；`ExecutionPlan` 不得依赖具体模型实现。
 - `backend/internal/specialists/bazi/graph` 继续保持不依赖 `internal/runtime`；domain DTO 不依赖 runtime。任何新反向 import 都是迁移阻塞，不通过增加 adapter 绕过。
@@ -74,7 +74,7 @@ flowchart LR
 |---|---|
 | **[KNOWN]** `internal/supervisor/` | route、fallback、ADK；代表 `approved_route.go`、`cheap_gate.go`、`client.go`、`adk_engine.go`、`decision_contract.go` |
 | **[KNOWN]** `internal/runtime/` | Manager、ExecutionPlan、Graph、Executor、Prefill、事件、观测及大量 `bazi_*`；runtime 结构过载是当前已确认的结构事实 |
-| **[KNOWN]** `internal/llm/` | 已有模型 factory、chat、embedding；Batch 2 追加模型调用 retry owner |
+| **[KNOWN]** `internal/llm/` | 已有模型 factory、chat、embedding，并负责模型调用级 retry owner |
 | **[KNOWN]** `internal/repair/` | failure class、policy、budget 和 attempt 合同 |
 | **[KNOWN]** `internal/specialists/bazi/domain/` | 事实 DTO、授权范围、引用目录 |
 | **[KNOWN]** `internal/specialists/bazi/graph/` | 八字 Graph 拓扑与状态机，禁止依赖 runtime |
@@ -123,7 +123,7 @@ internal/
 | 文件组 | 处置 | 批次 | 目标 owner | 明确不负责 |
 |---|---|---|---|---|
 | `supervisor/*.go` | 保留同 package；Batch 2 只更新 retry 引用 | Batch 2 | `supervisor` | 模型 transport/retry owner、ExecutionPlan、最终成文 |
-| `runtime/model_retry.go` | 移动到已有 `internal/llm/` | Batch 2 | `internal/llm` | 路由审批、领域语义、SSE 输出 |
+| `runtime/model_retry.go` → `llm/model_retry.go` | 已移动到已有 `internal/llm/` | Batch 2 | `internal/llm` | 路由审批、领域语义、SSE 输出 |
 | `runtime/manager.go`、`execution_plan.go`、`orchestration_graph*.go` | 保留，暂缓拆分 | 暂缓 | `runtime` | 低层模型 retry、SSE sink、领域事实裁断 |
 | `runtime/executor.go` | 在同 package 内拆执行入口、Prefill、工具调用 | Batch 3 | `runtime` | 路由、Graph 拓扑、最终 SSE 合同改写 |
 | `runtime/event.go` | 保留事件合同 | 保留 | `runtime` | 改写事件类型、SSE wire shape |
@@ -131,13 +131,13 @@ internal/
 | `runtime/observability.go` | 拆 event trace / final guard 函数簇 | Batch 4 | `runtime` | 让 trace 改变执行真相、让 guard 替代领域解释 |
 | `runtime/bazi_final_renderer.go` | 在同 package 内拆 renderer 函数簇 | Batch 5 | `runtime` | 新增命理裁断、改变领域合同或 SSE wire shape |
 | `runtime/repair_compat.go` 及旧兼容别名 | 先审计；只有零调用方才允许删除 | Batch 6 | `runtime` 兼容层 | 删除未确认引用、改变 repair 合同 |
-| `internal/llm/*.go` | 保留，追加 retry owner | Batch 2 | `internal/llm` | 路由、资产准备、领域解释 |
+| `internal/llm/*.go` | 保留，负责模型调用级 retry owner | Batch 2 | `internal/llm` | 路由、资产准备、领域解释 |
 | `specialists/bazi/domain/` 与 `specialists/bazi/graph/` | 保留现有边界 | 暂缓 | Bazi domain / graph | 依赖 runtime、拥有 Manager 或最终答复权 |
 | 其余 `runtime/bazi_*.go` | 暂缓，不在 Batch 3/4 顺手改 | 暂缓 | `runtime` | 借重构改变 Graph、领域语义或 renderer 合同 |
 
 ### 分阶段迁移规则
 
-Batch 2 是已存在的 `internal/llm` 边界上的责任迁移，不是新增 package；其后先在现有 package 内按 owner 重组文件。只有同 package 重组完成、依赖图无新增反向边、合同验证通过后，才进入 Batch 7 的 package 拆分可行性审查；审查不等于承诺拆分。每批只完成当前批次，不自动开始下一批。
+Batch 2 已完成在既有 `internal/llm` 边界上的责任迁移，不是新增 package；其后先在现有 package 内按 owner 重组文件。只有同 package 重组完成、依赖图无新增反向边、合同验证通过后，才进入 Batch 7 的 package 拆分可行性审查；审查不等于承诺拆分。每批只完成当前批次，不自动开始下一批。
 
 | 批次 | 迁移顺序与范围 | 前置条件 | 必须保持的行为不变量 | 批次门禁 | 验证命令 | 失败回退 |
 |---|---|---|---|---|---|---|
@@ -152,7 +152,7 @@ Batch 2 是已存在的 `internal/llm` 边界上的责任迁移，不是新增 p
 
 ### 计划事实标记
 
-- **[KNOWN]** 当前已有 `backend/internal/llm/`；`supervisor/adk_engine.go` 和 `runtime/agent_route.go` 使用 `runtime.ModelCallRetryDecision`；当前 Graph、SSE、错误出口合同以现状文档为准。
+- **[KNOWN]** `backend/internal/llm/model_retry.go` 负责模型调用级 retry；`supervisor/adk_engine.go` 和 `runtime/agent_route.go` 共享 `llm.DefaultModelRetryConfig`；当前 Graph、SSE、错误出口合同未因 Batch 2 改变。
 - **[INFERRED]** executor、事件桥接、trace/final guard、Bazi renderer 的文件拆分簇来自当前结构推断；每批修改前必须重新验证文件、调用者和依赖边。
 - **[UNKNOWN]** Batch 7 package 拆分是否能证明无循环依赖，以及部署级多实例高可用；本计划不承诺这两项。
 

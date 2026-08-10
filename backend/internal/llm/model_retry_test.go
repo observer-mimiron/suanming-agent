@@ -1,4 +1,4 @@
-package runtime
+package llm
 
 import (
 	"context"
@@ -56,5 +56,18 @@ func TestModelCallRetryDecisionRetriesEmptyOutput(t *testing.T) {
 	})
 	if decision == nil || !decision.Retry {
 		t.Fatalf("decision = %+v, want retry", decision)
+	}
+}
+
+func TestDefaultModelRetryConfig(t *testing.T) {
+	config := DefaultModelRetryConfig()
+	if config == nil {
+		t.Fatal("config = nil, want default model retry config")
+	}
+	if config.MaxRetries != 2 {
+		t.Fatalf("MaxRetries = %d, want 2", config.MaxRetries)
+	}
+	if config.ShouldRetry == nil {
+		t.Fatal("ShouldRetry = nil, want model call retry decision")
 	}
 }

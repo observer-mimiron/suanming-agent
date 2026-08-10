@@ -1,7 +1,8 @@
-// 本文件属于 Manager-owned runtime 层。
-// 它只负责 ADK 模型调用级 retry 分类，供 agent 构建处复用。
-// 它不得分类业务 validator 失败，也不得运行 repair 回环。
-package runtime
+// Package llm 包含模型 provider 的适配与调用级合同。
+//
+// 本文件属于 LLM adapter 层，只负责 ADK 模型调用级有限 retry；
+// 不负责业务 validator、repair loop、路由或领域语义。
+package llm
 
 import (
 	"context"
@@ -14,9 +15,19 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
 )
 
 var modelRetryStatusPattern = regexp.MustCompile("(?i)(?:status code:|http)\\s*(\\d{3})")
+
+// DefaultModelRetryConfig 返回共享的 ADK 模型调用级 retry 配置。
+// MaxRetries 固定为 2，ShouldRetry 只负责 transport、timeout 和空输出分类。
+func DefaultModelRetryConfig() *adk.ModelRetryConfig {
+	return &adk.ModelRetryConfig{
+		MaxRetries:  2,
+		ShouldRetry: ModelCallRetryDecision,
+	}
+}
 
 // ModelCallRetryDecision 返回 ADK 模型调用级的有限 retry 决策。
 // 只允许 429、5xx、timeout 和空输出重试；业务校验失败、用户/宿主取消不重试。
@@ -47,13 +58,13 @@ func shouldRetryModelCallError(err error) bool {
 		return true
 	}
 	if status, ok := modelRetryHTTPStatus(err); ok {
-		return RepairHTTPStatusRetryable(status)
+		return repair.HTTPStatusRetryable(status)
 	}
 	return false
 }
 
 // modelRetryHTTPStatus 从常见模型 SDK 错误中提取 HTTP 状态码。
-// 它避免把供应商 SDK 类型引入 runtime retry 合同。
+// 它避免把供应商 SDK 类型引入 LLM retry 合同。
 func modelRetryHTTPStatus(err error) (int, bool) {
 	for cur := err; cur != nil; cur = errors.Unwrap(cur) {
 		if status, ok := statusFromErrorFields(cur); ok {
