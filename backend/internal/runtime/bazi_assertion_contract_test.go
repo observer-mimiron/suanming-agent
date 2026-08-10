@@ -292,6 +292,32 @@ func TestStaticJudgmentPolicyRejectsFreeTextStatus(t *testing.T) {
 	assertBaziViolationCode(t, validateBaziStaticJudgmentPolicy(state, judgment), baziViolationFactConflict)
 }
 
+func TestStaticJudgmentPolicyRejectsMainAxisPatternConflict(t *testing.T) {
+	state := assertionTestState()
+	state.Input.Yongshen["geju_candidate"] = "伤官格(官未透)"
+	judgment := baziStructuredStaticSynthesis{
+		AxisStatus:      "established",
+		NatalRiskStatus: "withheld",
+		Claims: []baziStructuredStaticClaim{{
+			Verdict: "建禄月劫之格，取伤官泄秀为轴",
+			Status:  "established",
+		}},
+		TierAssessment: tierAssessmentForTest("provisional", 5),
+	}
+	assertBaziViolationCode(t, validateBaziStaticJudgmentPolicy(state, judgment), baziViolationFactConflict)
+}
+
+func TestValidateStaticMainAxisPatternAllowsUsageRouteWithinToolPattern(t *testing.T) {
+	state := assertionTestState()
+	state.Input.Yongshen["geju_candidate"] = "伤官格(官未透)"
+	judgment := baziStructuredStaticSynthesis{Claims: []baziStructuredStaticClaim{{
+		Verdict: "伤官格取伤官佩印为用",
+	}}}
+	if err := validateStaticMainAxisPattern(state, judgment); err != nil {
+		t.Fatalf("usage route within the deterministic pattern must pass: %v", err)
+	}
+}
+
 func TestValidateBaziAssertionsRejectsCatalogDerivedInternalFieldName(t *testing.T) {
 	state := assertionTestState()
 	err := validateBaziAssertions(state, []baziAssertion{{

@@ -13,16 +13,6 @@ type baziCharterInput struct {
 	RuleProfile  baziRuleProfile `json:"selected_rule_profile"`
 }
 
-// baziSubjectContext gives dynamic synthesis deterministic age context for the
-// requested target year. It limits life-domain scope without encoding a chart.
-type baziSubjectContext struct {
-	BirthYear             int      `json:"birth_year,omitempty"`
-	TargetYear            int      `json:"target_year,omitempty"`
-	Age                   int      `json:"age,omitempty"`
-	AgeBand               string   `json:"age_band"`
-	AllowedOutcomeDomains []string `json:"allowed_outcome_domains"`
-}
-
 // baziRuleProfile describes the sole rule family allowed to issue verdicts for
 // one chart. Facts remain reusable, while profile rules are explicit and versioned.
 type baziRuleProfile struct {

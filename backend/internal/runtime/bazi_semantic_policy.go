@@ -50,11 +50,56 @@ func validateBaziStaticJudgmentPolicy(state baziCharterState, judgment baziStruc
 	if len(judgment.Claims) > 0 && judgment.AxisStatus == "candidate" && judgment.Claims[0].Status == "established" {
 		return baziViolationError(baziViolationMethodContract, "static.claims[0].status", "static.main_axis", "candidate axis cannot use an established main-axis claim", nil, []string{"candidate", "limited", "withheld"})
 	}
+	if err := validateStaticMainAxisPattern(state, judgment); err != nil {
+		return err
+	}
 	if err := validateBaziTierAssessment(facts, judgment.AxisStatus, judgment.TierAssessment); err != nil {
 		return err
 	}
 	if !facts.OfficialVisible && judgment.NatalRiskStatus != "withheld" {
 		return baziViolationError(baziViolationFactConflict, "static.natal_risk_status", "", "natal official conflict is unavailable when official is not visible", nil, nil)
+	}
+	return nil
+}
+
+// validateStaticMainAxisPattern prevents a free-text main axis from replacing
+// the deterministic month-command pattern with a different named pattern.
+// The model may still describe the usage route (for example, 伤官佩印), but
+// the principal pattern frame must remain the tool candidate.
+func validateStaticMainAxisPattern(state baziCharterState, judgment baziStructuredStaticSynthesis) error {
+	if len(judgment.Claims) == 0 {
+		return nil
+	}
+	expected := normalizePatternCandidateName(stringValue(state.Input.Yongshen["geju_candidate"]))
+	if expected == "" {
+		return nil
+	}
+	axis := strings.ReplaceAll(strings.TrimSpace(judgment.Claims[0].Verdict), " ", "")
+	if axis == "" {
+		return nil
+	}
+	principal := map[string][]string{
+		"正官格": {"正官格"}, "七杀格": {"七杀格"}, "正财格": {"正财格"}, "偏财格": {"偏财格"},
+		"正印格": {"正印格"}, "偏印格": {"偏印格"}, "食神格": {"食神格"}, "伤官格": {"伤官格"},
+		"建禄格": {"建禄格", "建禄"}, "月劫格": {"月劫格", "月劫"}, "月刃格": {"月刃格", "月刃"},
+	}
+	for candidate, markers := range principal {
+		if candidate == expected {
+			continue
+		}
+		for _, marker := range markers {
+			if !strings.Contains(axis, marker) {
+				continue
+			}
+			return baziViolationError(
+				baziViolationFactConflict,
+				"static.claims[0].verdict",
+				"static.main_axis",
+				"main-axis pattern conflicts with deterministic month-command candidate",
+				[]string{"yongshen.geju_candidate"},
+				[]string{expected},
+			)
+		}
 	}
 	return nil
 }

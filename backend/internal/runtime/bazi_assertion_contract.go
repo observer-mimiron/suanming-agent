@@ -5,7 +5,6 @@
 package runtime
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -23,36 +22,6 @@ var requiredPatternComparisonDimensions = []string{
 	"season_support",
 	"structural_closure",
 	"counter_evidence",
-}
-
-type baziValidationError struct {
-	Violation baziValidationViolation
-}
-
-func (e baziValidationError) Error() string {
-	if strings.TrimSpace(e.Violation.Message) == "" {
-		return string(e.Violation.Code)
-	}
-	return fmt.Sprintf("%s: %s", e.Violation.Code, e.Violation.Message)
-}
-
-func baziViolationError(code baziViolationCode, field, assertionID, message string, missing, allowed []string) error {
-	return baziValidationError{Violation: baziValidationViolation{
-		Code:        code,
-		Field:       field,
-		Message:     message,
-		AssertionID: assertionID,
-		MissingRefs: filterNonEmpty(missing),
-		AllowedRefs: filterNonEmpty(allowed),
-	}}
-}
-
-func baziViolationFromError(err error) (baziValidationViolation, bool) {
-	var validationErr baziValidationError
-	if errors.As(err, &validationErr) {
-		return validationErr.Violation, true
-	}
-	return baziValidationViolation{}, false
 }
 
 func ensureStaticAssertions(state baziCharterState, in baziStaticSynthesis) baziStaticSynthesis {
@@ -506,6 +475,9 @@ func evidenceStatusForTopics(quality baziEvidenceQuality, topics []string) strin
 func normalizePatternCandidateName(value string) string {
 	value = strings.ReplaceAll(strings.TrimSpace(value), " ", "")
 	value = strings.TrimSuffix(value, "候选")
+	if index := strings.IndexAny(value, "(（"); index >= 0 {
+		value = value[:index]
+	}
 	return value
 }
 
@@ -685,24 +657,6 @@ func allowedBaziAssertionKind(kind baziAssertionKind) bool {
 	}
 }
 
-func knownBaziClaimRefs(profile baziRuleProfile) map[string]struct{} {
-	out := map[string]struct{}{}
-	for _, claim := range profile.Claims {
-		if strings.TrimSpace(claim.ID) != "" {
-			out[claim.ID] = struct{}{}
-		}
-		if strings.TrimSpace(claim.RuleID) != "" {
-			out[claim.RuleID] = struct{}{}
-		}
-	}
-	for _, verdict := range profile.Verdicts {
-		if strings.TrimSpace(verdict.RuleID) != "" {
-			out[verdict.RuleID] = struct{}{}
-		}
-	}
-	return out
-}
-
 func claimRefAllowsAssertionKind(profile baziRuleProfile, ref string, kind baziAssertionKind) bool {
 	category := ""
 	for _, claim := range profile.Claims {
@@ -741,56 +695,6 @@ func claimRefAllowsAssertionKind(profile baziRuleProfile, ref string, kind baziA
 	default:
 		return true
 	}
-}
-
-// knownBaziFactRefs returns the deterministic IDs that a model may cite in one turn.
-// Fact capsule inputs are included when they duplicate chart facts in a typed, stable form.
-func knownBaziFactRefs(state baziCharterState) map[string]struct{} {
-	out := map[string]struct{}{
-		"chart.day_gan": {}, "chart.day_master": {}, "chart.day_master_wuxing": {}, "chart.month_branch": {},
-		"chart.month_pillar": {}, "chart.pillars": {}, "chart.wuxing": {},
-		"fact_capsule.month_command": {}, "fact_capsule.root_positions": {}, "fact_capsule.visible_same_element_stems": {},
-		"fact_capsule.month_score": {}, "fact_capsule.root_count": {}, "fact_capsule.same_element_count": {},
-		"fact_capsule.resource_support_count": {}, "fact_capsule.support_score": {}, "fact_capsule.pressure_score": {},
-		"fact_capsule.support_signals": {}, "fact_capsule.pressure_signals": {},
-		"fact_capsule.official_visible": {}, "fact_capsule.official_hidden": {},
-		"fact_capsule.fire_present": {}, "fact_capsule.fire_visible": {}, "fact_capsule.fire_effective": {},
-		"fact_capsule.fire_effectiveness_known": {}, "fact_capsule.core_facts_ready": {},
-		"fact_capsule.tier_evidence_complete": {}, "fact_capsule.tier_evidence_missing": {},
-		"yongshen.balance_status": {}, "yongshen.balance_yong_shen": {}, "yongshen.conditional_yong_shen": {},
-		"yongshen.day_master": {}, "yongshen.day_master_wuxing": {}, "yongshen.geju": {},
-		"yongshen.geju_basis": {}, "yongshen.geju_candidate": {}, "yongshen.geju_combination": {},
-		"yongshen.geju_detail": {}, "yongshen.geju_qing_zhuo": {}, "yongshen.geju_qing_zhuo_reason": {},
-		"yongshen.geju_status": {}, "yongshen.ji_shen": {}, "yongshen.official_visibility": {},
-		"yongshen.official_visibility.visible": {}, "yongshen.official_visibility.hidden": {},
-		"yongshen.season": {}, "yongshen.seasonal_tiaohou_hint": {}, "yongshen.shi_shen_power": {},
-		"yongshen.strength": {}, "yongshen.strength_evidence": {}, "yongshen.strength_method": {},
-		"yongshen.tiao_hou": {}, "yongshen.tiaohou_yong_shen": {}, "yongshen.xi_shen": {}, "yongshen.yong_shen": {},
-		"liunian.branch": {}, "liunian.current_dayun": {}, "liunian.gan_zhi": {}, "liunian.relations": {},
-		"liunian.shen_sha": {}, "liunian.shi_shen": {}, "liunian.stem": {}, "liunian.year": {},
-	}
-	for i := range dayunPeriods(state.Input.Dayun) {
-		out[fmt.Sprintf("dayun[%d].end_age", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].end_at_exclusive", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].branch", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].branch_hidden_stems", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].branch_ten_gods", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].branch_main_ten_god", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].gan_zhi", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].period_id", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].relations", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].sequence", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].start_age", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].start_at", i)] = struct{}{}
-		out[fmt.Sprintf("dayun[%d].ten_god", i)] = struct{}{}
-	}
-	return out
-}
-
-// isKnownBaziFactRef 只接受本轮 catalog 中逐字声明的完整 fact ID。
-func isKnownBaziFactRef(ref baziFactRef, known map[string]struct{}) bool {
-	_, ok := known[strings.TrimSpace(string(ref))]
-	return ok
 }
 
 func firstClaimRefByCategory(profile baziRuleProfile, categories ...string) []baziClaimRef {

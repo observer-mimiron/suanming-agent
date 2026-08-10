@@ -785,13 +785,15 @@ func TestRunFinalWriter_RendersFullTemplateWithoutModel(t *testing.T) {
 		"## 强弱视角",
 		"## 调候视角",
 		"## 格局视角",
-		"## 大运验证",
-		"## 综合判定",
-		"▲ 限制",
+		"### 命格层次",
+		"> 断语所限",
+		"## 当前应期",
+		"### 当前大运",
+		"### 流年应期",
 		"**规则口径**",
 		"**依据**",
 		"**判定依据**",
-		"**岁运兑现**",
+		"**判读口径**",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("full template output missing %q:\n%s", want, output)

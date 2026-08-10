@@ -254,7 +254,7 @@ func TestRenderFullTemplateSanitizesInternalReferencesAndControlsAxisEcho(t *tes
 	}
 }
 
-func TestRenderFullTemplateCombinesNatalBaselineAndCurrentMomentum(t *testing.T) {
+func TestRenderFullTemplateSeparatesNatalTierAndCurrentMomentum(t *testing.T) {
 	out := renderFullTemplate(baziCharterState{
 		StaticSynthesis: baziStaticSynthesis{
 			TierJudgment: "命格基础层次：第5级（中格）",
@@ -265,10 +265,16 @@ func TestRenderFullTemplateCombinesNatalBaselineAndCurrentMomentum(t *testing.T)
 			CurrentPeriodRealization: "assist",
 		},
 	})
-	section := sectionContent(out, "## 综合判定", "")
-	for _, want := range []string{"命格基础层次：第5级（中格）", "当前岁运走势：甲午运进入较强发力窗口", "**判定依据**", "**岁运兑现**"} {
-		if !strings.Contains(section, want) {
-			t.Fatalf("combined assessment missing %q:\n%s", want, section)
+	natalSection := sectionContent(out, "### 命格层次", "## 当前应期")
+	for _, want := range []string{"第5级（中格）", "**判定依据**"} {
+		if !strings.Contains(natalSection, want) {
+			t.Fatalf("natal tier section missing %q:\n%s", want, natalSection)
+		}
+	}
+	currentSection := sectionContent(out, "### 当前大运", "### 流年应期")
+	for _, want := range []string{"当前大运承接：助成", "甲午运进入较强发力窗口"} {
+		if !strings.Contains(currentSection, want) {
+			t.Fatalf("current-period section missing %q:\n%s", want, currentSection)
 		}
 	}
 }

@@ -105,12 +105,29 @@ func baziContractFailureFromViolation(stage string, violation baziValidationViol
 	case baziViolationFactConflict, baziViolationFactRefMissing:
 		failure.Class = baziContractFailureFactConflict
 	case baziViolationMethodContract, baziViolationClaimNotAuthorized:
-		failure.Class = baziContractFailureMethodContract
+		// 动态模型把 runtime 引用路径写进用户可见文本时，候选文本可安全丢弃；
+		// 保留静态结论并生成动态 facts-only。其它方法合同仍必须硬失败。
+		if isDynamicPresentationReferenceViolation(stage, violation) {
+			failure.Class = baziContractFailureProjectionMismatch
+		} else {
+			failure.Class = baziContractFailureMethodContract
+		}
 	case baziViolationScopeEscalation, baziViolationDayunCoverageMissing, baziViolationSemanticContract:
 		failure.Class = baziContractFailureProjectionMismatch
 	}
 	failure.RecoveryPolicy = baziRecoveryPolicyForFailure(stage, failure.Class)
 	return withBaziStaticFallback(stage, failure)
+}
+
+// isDynamicPresentationReferenceViolation 识别动态文本泄露内部引用路径的可降级错误。
+// 只有带 invalid ref 且字段属于动态用户可见文本的合同错误才进入 facts-only。
+func isDynamicPresentationReferenceViolation(stage string, violation baziValidationViolation) bool {
+	if !strings.HasPrefix(strings.TrimSpace(stage), "dynamic") || len(violation.MissingRefs) == 0 {
+		return false
+	}
+	field := strings.TrimSpace(violation.Field)
+	return strings.HasPrefix(field, "dynamic.") &&
+		(strings.Contains(field, "limitations") || strings.Contains(field, "reasoning") || strings.Contains(field, "period_claims") || strings.Contains(field, "liunian_claim"))
 }
 
 // baziContractFailureFromError extracts the classification from validation

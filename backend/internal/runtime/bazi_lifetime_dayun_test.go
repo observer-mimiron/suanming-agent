@@ -7,13 +7,13 @@ import (
 
 func TestValidateFinalWriterOutputAcceptsLifetimeHeadings(t *testing.T) {
 	plan := baziAnalysisPlan{WriterTemplate: "full", NeedLifetimeDayun: true}
-	output := "## 总览结论\n**结论：本命结构可用。**\n> ▲ 限制：仍有边界。\n\n## 强弱视角\n**结论：日主中和。**\n\n## 调候视角\n**结论：调候待核。**\n\n## 格局视角\n**结论：主轴可用。**\n- **规则口径**：已声明\n\n## 全程运路\n**结论：起伏中有兑现。**\n\n## 当前大运\n**结论：当前承接。**\n\n## 流年应期\n**结论：本年触发。**\n\n## 评判标准\n**结论：按本命与运路观察。**\n\n## 综合判定\n**结论：本命、全程与当前分别成立。**\n- **判定依据**：旧层次审计依据"
+	output := "## 总览结论\n**结论：本命结构可用。**\n\n## 强弱视角\n**结论：日主中和。**\n\n## 调候视角\n**结论：调候待核。**\n\n## 格局视角\n**结论：主轴可用。**\n- **规则口径**：已声明\n- **依据**：月令与透干\n\n### 命格层次\n- **判读口径**：按结构评价。\n**结论：第5级。**\n- **判定依据**：旧层次审计依据\n> 断语所限：仍有边界。\n\n## 全程运路\n**结论：起伏中有兑现。**\n\n## 当前应期\n### 当前大运\n**结论：当前承接。**\n\n### 流年应期\n**结论：本年触发。**"
 	state := baziCharterState{AnalysisPlan: plan, StaticSynthesis: baziStaticSynthesis{TierJudgment: "第5级", TierBasis: "旧层次审计依据"}}
 	if err := validateFinalWriterOutput(plan, state, output); err != nil {
 		t.Fatalf("lifetime headings rejected: %v", err)
 	}
 	rendered := renderFullTemplate(state)
-	if !strings.Contains(rendered, "### 本命命格层次\n**结论：第5级**") || !strings.Contains(rendered, "**判定依据**：旧层次审计依据") {
+	if !strings.Contains(rendered, "### 命格层次\n- **判读口径**") || !strings.Contains(rendered, "**结论：第5级**") || !strings.Contains(rendered, "**判定依据**：旧层次审计依据") {
 		t.Fatalf("lifetime template dropped nine-level natal assessment: %s", rendered)
 	}
 }
@@ -81,23 +81,44 @@ func TestValidateLifetimeDayunOutputRequiresOwnPeriodFact(t *testing.T) {
 func TestWriteLifetimeDayunGroupsSeparatesRoleFromVerdict(t *testing.T) {
 	state := baziCharterState{
 		Input: baziCharterInput{Dayun: map[string]any{"dayun_analyzed": []any{
-			map[string]any{"ganZhi": "丙申", "startAge": 10, "endAge": 19},
-			map[string]any{"ganZhi": "甲午", "startAge": 30, "endAge": 39},
+			map[string]any{"ganZhi": "戊子", "tenGod": "比肩", "startAge": 10, "endAge": 19},
+			map[string]any{"ganZhi": "甲午", "tenGod": "七杀", "startAge": 30, "endAge": 39},
 		}}},
 		LifetimeSynthesis: baziLifetimeDayunSynthesis{Status: "accepted", PeriodClaims: []baziLifetimeDayunClaim{
-			{PeriodRef: "dayun[0]", PeriodEffect: "carry_balance", Verdict: "以泄身与生扶的平衡承接为主。"},
+			{PeriodRef: "dayun[0]", PeriodEffect: "carry_balance", Verdict: "己土劫财，承托与耗损并存。"},
 			{PeriodRef: "dayun[1]", PeriodEffect: "support_use", Verdict: "以扶助用神的结构作用为主。"},
 		}},
 	}
 	var b strings.Builder
 	writeLifetimeDayunGroups(&b, state)
 	output := b.String()
-	for _, want := range []string{"### 早期运程（29岁前）", "#### 丙申运（10-19岁）", "**结构定位：平衡承接**", "#### 甲午运（30-39岁）"} {
+	for _, want := range []string{"### 早期运程（29岁前）", "**戊子运（10-19岁）**", "**结构作用**：平衡承接", "**运干十神（工具事实）**：戊为比肩", "**甲午运（30-39岁）**"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("lifetime group output missing %q: %s", want, output)
 		}
 	}
+	if strings.Contains(output, "己土劫财") {
+		t.Fatalf("lifetime model prose must not override deterministic stem-ten-god facts: %s", output)
+	}
 	if strings.Contains(output, "dayun[") {
 		t.Fatalf("lifetime group output leaked internal ref: %s", output)
+	}
+}
+
+func TestRenderFullTemplateDisplaysRetrievedClassicalReferences(t *testing.T) {
+	out := renderFullTemplate(baziCharterState{
+		StaticSynthesis: baziStaticSynthesis{MainAxis: "主轴可用。"},
+		EvidenceBundle: baziEvidenceBundle{Citations: []baziCitation{
+			{Classic: "穷通宝鉴", Quotes: []string{"戊土酉月，取火以温燥。"}},
+			{Classic: "无引文书", Quotes: nil},
+		}},
+	})
+	for _, want := range []string{"### 古籍参照", "**《穷通宝鉴》**：戊土酉月，取火以温燥。"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("classical reference missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "无引文书") {
+		t.Fatalf("citation without a quote must stay hidden:\n%s", out)
 	}
 }

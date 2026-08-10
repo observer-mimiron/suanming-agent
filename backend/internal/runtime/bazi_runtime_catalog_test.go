@@ -3,6 +3,8 @@ package runtime
 import (
 	"strings"
 	"testing"
+
+	bazidomain "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/domain"
 )
 
 func TestBaziRuntimeCatalogViewUsesReadableHintsButValidatesOnlyIDs(t *testing.T) {
@@ -14,9 +16,9 @@ func TestBaziRuntimeCatalogViewUsesReadableHintsButValidatesOnlyIDs(t *testing.T
 	}}
 
 	view := baziRuntimeCatalogView(state)
-	relations, ok := view["relation_refs"].([]baziCatalogEntry)
+	relations, ok := view["relation_refs"].([]bazidomain.ReferenceCatalogEntry)
 	if !ok {
-		t.Fatalf("relation_refs type = %T; want []baziCatalogEntry", view["relation_refs"])
+		t.Fatalf("relation_refs type = %T; want []ReferenceCatalogEntry", view["relation_refs"])
 	}
 	if len(relations) != 1 || relations[0].ID != "relation.natal.0" || relations[0].Hint != "已计算关系：巳亥冲" {
 		t.Fatalf("relation catalog = %#v", relations)
@@ -46,7 +48,7 @@ func TestBaziDynamicRuntimeCatalogExcludesStaticReferences(t *testing.T) {
 	if !ok || len(periodRefs) != 1 || periodRefs[0] != "dayun[0]" {
 		t.Fatalf("dynamic period catalog = %#v", view["period_refs"])
 	}
-	facts := view["fact_refs"].([]baziCatalogEntry)
+	facts := view["fact_refs"].([]bazidomain.ReferenceCatalogEntry)
 	for _, entry := range facts {
 		if !strings.HasPrefix(entry.ID, "dayun[") && !strings.HasPrefix(entry.ID, "liunian.") {
 			t.Fatalf("dynamic catalog leaked static fact %q", entry.ID)
@@ -74,7 +76,7 @@ func TestBaziStaticRuntimeCatalogExcludesDynamicReferences(t *testing.T) {
 		},
 	}}
 	view := baziStaticRuntimeCatalogView(state)
-	for _, entry := range view["fact_refs"].([]baziCatalogEntry) {
+	for _, entry := range view["fact_refs"].([]bazidomain.ReferenceCatalogEntry) {
 		if strings.HasPrefix(entry.ID, "dayun[") || strings.HasPrefix(entry.ID, "liunian.") {
 			t.Fatalf("static catalog leaked dynamic fact %q", entry.ID)
 		}
@@ -102,7 +104,7 @@ func TestBaziRuntimeCatalogIncludesFactCapsuleReferences(t *testing.T) {
 			t.Fatalf("fact capsule reference %q rejected: %v", ref, err)
 		}
 	}
-	entries := baziRuntimeCatalogView(state)["fact_refs"].([]baziCatalogEntry)
+	entries := baziRuntimeCatalogView(state)["fact_refs"].([]bazidomain.ReferenceCatalogEntry)
 	for _, entry := range entries {
 		if entry.ID == "fact_capsule.support_score" && entry.Hint == "输入 fact_capsule：已计算的裁断前提" {
 			return

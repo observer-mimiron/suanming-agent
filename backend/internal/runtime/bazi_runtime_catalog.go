@@ -1,30 +1,25 @@
 // Package runtime 包含 Manager 拥有的八字运行时事实引用目录。
 //
-// 本文件从确定性输入和规则材料派生模型可引用的 ID，并提供只读定位说明；
-// 不推断关系、不生成 claim、不决定修复，也不渲染输出。
+// 本文件从确定性输入和规则材料派生模型可引用的 ID，并把 runtime 状态适配为目录 DTO；
+// 不生成模型提示、不推断关系、不生成 claim、不决定修复，也不渲染输出。
 package runtime
 
 import (
 	"fmt"
 	"sort"
 	"strings"
+
+	bazidomain "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/domain"
 )
 
-// baziRuntimeCatalog is the per-turn allow-list for model provenance references.
+// baziRuntimeCatalog 是单轮模型引用的 allow-list；它只用于 runtime 合同校验。
 type baziRuntimeCatalog struct {
 	Facts     map[string]struct{}
 	Claims    map[string]struct{}
 	Relations map[string]struct{}
 }
 
-// baziCatalogEntry 是给模型选择引用的只读索引。hint 仅帮助定位输入事实，
-// 输出合同仍只允许回传 ID，不能把 hint 当作事实字段回传。
-type baziCatalogEntry struct {
-	ID   string `json:"id"`
-	Hint string `json:"hint"`
-}
-
-// buildBaziRuntimeCatalog derives all allowed reference IDs before model output is validated.
+// buildBaziRuntimeCatalog 在模型输出校验前派生本轮全部允许引用 ID。
 func buildBaziRuntimeCatalog(state baziCharterState) baziRuntimeCatalog {
 	catalog := baziRuntimeCatalog{
 		Facts: knownBaziFactRefs(state), Claims: knownBaziClaimRefs(state.Input.RuleProfile), Relations: map[string]struct{}{},
@@ -43,13 +38,12 @@ func buildBaziRuntimeCatalog(state baziCharterState) baziRuntimeCatalog {
 	return catalog
 }
 
-// validateBaziReferenceCatalog rejects unregistered IDs before semantic validators run.
+// validateBaziReferenceCatalog 在语义校验前拒绝未注册的引用 ID。
 func validateBaziReferenceCatalog(state baziCharterState, assertions []baziAssertion) error {
 	return validateBaziReferenceCatalogAgainst(assertions, buildBaziRuntimeCatalog(state))
 }
 
-// validateStaticBaziReferenceCatalog accepts only the deterministic facts that
-// belong to a natal judgment. Dynamic period facts are intentionally absent.
+// validateStaticBaziReferenceCatalog 只接受本命裁断所属的确定性事实，主动排除动态事实。
 func validateStaticBaziReferenceCatalog(state baziCharterState, assertions []baziAssertion) error {
 	return validateBaziReferenceCatalogAgainst(assertions, buildStaticBaziRuntimeCatalog(state))
 }
@@ -128,14 +122,76 @@ func sortedCatalogIDs(catalog map[string]struct{}) []string {
 	return ids
 }
 
+// knownBaziClaimRefs 返回规则 profile 已声明、模型可引用的 claim ID。
+func knownBaziClaimRefs(profile baziRuleProfile) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, claim := range profile.Claims {
+		if strings.TrimSpace(claim.ID) != "" {
+			out[claim.ID] = struct{}{}
+		}
+		if strings.TrimSpace(claim.RuleID) != "" {
+			out[claim.RuleID] = struct{}{}
+		}
+	}
+	for _, verdict := range profile.Verdicts {
+		if strings.TrimSpace(verdict.RuleID) != "" {
+			out[verdict.RuleID] = struct{}{}
+		}
+	}
+	return out
+}
+
+// knownBaziFactRefs 返回本轮模型可引用的确定性事实 ID。
+// 事实胶囊字段与命盘字段同时保留，避免模型用自由别名替代稳定引用。
+func knownBaziFactRefs(state baziCharterState) map[string]struct{} {
+	out := map[string]struct{}{
+		"chart.day_gan": {}, "chart.day_master": {}, "chart.day_master_wuxing": {}, "chart.month_branch": {},
+		"chart.month_pillar": {}, "chart.pillars": {}, "chart.wuxing": {},
+		"fact_capsule.month_command": {}, "fact_capsule.root_positions": {}, "fact_capsule.visible_same_element_stems": {},
+		"fact_capsule.month_score": {}, "fact_capsule.root_count": {}, "fact_capsule.same_element_count": {},
+		"fact_capsule.resource_support_count": {}, "fact_capsule.support_score": {}, "fact_capsule.pressure_score": {},
+		"fact_capsule.support_signals": {}, "fact_capsule.pressure_signals": {},
+		"fact_capsule.official_visible": {}, "fact_capsule.official_hidden": {},
+		"fact_capsule.fire_present": {}, "fact_capsule.fire_visible": {}, "fact_capsule.fire_effective": {},
+		"fact_capsule.fire_effectiveness_known": {}, "fact_capsule.core_facts_ready": {},
+		"fact_capsule.tier_evidence_complete": {}, "fact_capsule.tier_evidence_missing": {},
+		"yongshen.balance_status": {}, "yongshen.balance_yong_shen": {}, "yongshen.conditional_yong_shen": {},
+		"yongshen.day_master": {}, "yongshen.day_master_wuxing": {}, "yongshen.geju": {},
+		"yongshen.geju_basis": {}, "yongshen.geju_candidate": {}, "yongshen.geju_combination": {},
+		"yongshen.geju_detail": {}, "yongshen.geju_qing_zhuo": {}, "yongshen.geju_qing_zhuo_reason": {},
+		"yongshen.geju_status": {}, "yongshen.ji_shen": {}, "yongshen.official_visibility": {},
+		"yongshen.official_visibility.visible": {}, "yongshen.official_visibility.hidden": {},
+		"yongshen.season": {}, "yongshen.seasonal_tiaohou_hint": {}, "yongshen.shi_shen_power": {},
+		"yongshen.strength": {}, "yongshen.strength_evidence": {}, "yongshen.strength_method": {},
+		"yongshen.tiao_hou": {}, "yongshen.tiaohou_yong_shen": {}, "yongshen.xi_shen": {}, "yongshen.yong_shen": {},
+		"liunian.branch": {}, "liunian.current_dayun": {}, "liunian.gan_zhi": {}, "liunian.relations": {},
+		"liunian.shen_sha": {}, "liunian.shi_shen": {}, "liunian.stem": {}, "liunian.year": {},
+	}
+	for i := range dayunPeriods(state.Input.Dayun) {
+		for _, field := range []string{
+			"end_age", "end_at_exclusive", "branch", "branch_hidden_stems", "branch_ten_gods",
+			"branch_main_ten_god", "gan_zhi", "period_id", "relations", "sequence", "start_age",
+			"start_at", "ten_god",
+		} {
+			out[fmt.Sprintf("dayun[%d].%s", i, field)] = struct{}{}
+		}
+	}
+	return out
+}
+
+// isKnownBaziFactRef 只接受本轮 catalog 中逐字声明的完整 fact ID。
+func isKnownBaziFactRef(ref baziFactRef, known map[string]struct{}) bool {
+	_, ok := known[strings.TrimSpace(string(ref))]
+	return ok
+}
+
 // baziRuntimeCatalogView 将本轮允许的引用以 ID 加定位说明暴露给模型。
 // 只给裸 ID 会迫使模型猜编号；hint 来自同轮确定性输入，输出校验仍只接受 ID。
 func baziRuntimeCatalogView(state baziCharterState) map[string]any {
 	return baziRuntimeCatalogViewFor(state, buildBaziRuntimeCatalog(state))
 }
 
-// baziStaticRuntimeCatalogView exposes the exact static allow-list used by the
-// static validator. Relation selectors are intentionally absent from this DTO.
+// baziStaticRuntimeCatalogView 暴露静态校验使用的精确 allow-list，主动移除关系选择器。
 func baziStaticRuntimeCatalogView(state baziCharterState) map[string]any {
 	view := baziRuntimeCatalogViewFor(state, buildStaticBaziRuntimeCatalog(state))
 	delete(view, "relation_refs")
@@ -161,8 +217,7 @@ func baziDynamicPeriodRefs(state baziCharterState) []string {
 	return refs
 }
 
-// currentDayunPeriodRef exposes the runtime-selected period without replacing
-// the complete period directory used for deterministic display.
+// currentDayunPeriodRef 暴露 runtime 选中的当前大运，不替换用于确定性展示的完整目录。
 func currentDayunPeriodRef(state baziCharterState) string {
 	if index := currentDayunIndexForInput(state.Input); index >= 0 {
 		return fmt.Sprintf("dayun[%d]", index)
@@ -170,81 +225,56 @@ func currentDayunPeriodRef(state baziCharterState) string {
 	return ""
 }
 
-// baziRuntimeCatalogViewFor 将指定 allow-list 以 ID 和定位说明投影给模型。
+// baziRuntimeCatalogViewFor 将 runtime 状态适配为领域目录 DTO，再交给领域包稳定投影。
 func baziRuntimeCatalogViewFor(state baziCharterState, catalog baziRuntimeCatalog) map[string]any {
-	return map[string]any{
-		"fact_refs":     baziCatalogEntries(sortedCatalogIDs(catalog.Facts), func(id string) string { return baziFactRefHint(state, id) }),
-		"claim_refs":    baziCatalogEntries(sortedCatalogIDs(catalog.Claims), func(id string) string { return baziClaimRefHint(state, id) }),
-		"relation_refs": baziCatalogEntries(sortedCatalogIDs(catalog.Relations), func(id string) string { return baziRelationRefHint(state, id) }),
-	}
+	return bazidomain.BuildReferenceCatalogView(bazidomain.ReferenceCatalogInput{
+		FactIDs:         sortedCatalogIDs(catalog.Facts),
+		ClaimCategories: baziClaimCategories(state, catalog.Claims),
+		RelationTexts:   baziRelationTexts(state, catalog.Relations),
+	})
 }
 
-// baziCatalogEntries 保持稳定顺序，避免模型输入和回归快照受 map 遍历影响。
-func baziCatalogEntries(ids []string, hint func(string) string) []baziCatalogEntry {
-	entries := make([]baziCatalogEntry, 0, len(ids))
-	for _, id := range ids {
-		entries = append(entries, baziCatalogEntry{ID: id, Hint: hint(id)})
-	}
-	return entries
-}
-
-// baziFactRefHint 将事实 ID 对应到输入中的稳定字段位置，不创建额外命理结论。
-func baziFactRefHint(state baziCharterState, id string) string {
-	switch id {
-	case "chart.pillars":
-		return "输入 core_chart.pillars：四柱"
-	case "chart.day_master":
-		return "输入 core_chart.day_master：日主"
-	case "chart.month_branch", "chart.month_pillar":
-		return "输入 core_chart.month_pillar：月令/月柱"
-	case "yongshen.strength", "yongshen.strength_evidence", "yongshen.balance_status":
-		return "输入 core_chart：强弱与受力证据"
-	case "yongshen.season", "yongshen.seasonal_tiaohou_hint", "yongshen.tiao_hou", "yongshen.tiaohou_yong_shen":
-		return "输入 core_chart：季节与调候材料"
-	case "yongshen.geju", "yongshen.geju_basis", "yongshen.geju_candidate", "yongshen.geju_detail", "yongshen.geju_status":
-		return "输入 core_chart：格局候选与依据"
-	case "fact_capsule.month_command", "fact_capsule.root_positions", "fact_capsule.visible_same_element_stems",
-		"fact_capsule.month_score", "fact_capsule.root_count", "fact_capsule.same_element_count",
-		"fact_capsule.resource_support_count", "fact_capsule.support_score", "fact_capsule.pressure_score",
-		"fact_capsule.support_signals", "fact_capsule.pressure_signals", "fact_capsule.official_visible",
-		"fact_capsule.official_hidden", "fact_capsule.fire_present", "fact_capsule.fire_visible",
-		"fact_capsule.fire_effective", "fact_capsule.fire_effectiveness_known", "fact_capsule.core_facts_ready",
-		"fact_capsule.tier_evidence_complete", "fact_capsule.tier_evidence_missing":
-		return "输入 fact_capsule：已计算的裁断前提"
-	case "liunian.year", "liunian.gan_zhi", "liunian.stem", "liunian.branch", "liunian.shi_shen", "liunian.current_dayun":
-		return "输入 dynamic_facts.liunian：本轮流年计算事实"
-	}
-	if strings.HasPrefix(id, "dayun[") {
-		return "输入 dynamic_facts.dayun：对应序号大运的计算事实"
-	}
-	return "输入 core_chart 或 dynamic_facts 的已计算字段：" + id
-}
-
-// baziClaimRefHint 将规则 claim 定位到 selected_rule_profile，不暴露或扩写规则结论。
-func baziClaimRefHint(state baziCharterState, id string) string {
-	for _, claim := range state.Input.RuleProfile.Claims {
-		if id == claim.ID || id == claim.RuleID {
-			return "输入 selected_rule_profile：" + firstNonEmptyTrim(claim.Category, "已声明规则 claim")
+// baziClaimCategories 从规则 profile 提取目录中允许的分类，不把完整规则结论带入 DTO。
+func baziClaimCategories(state baziCharterState, allowed map[string]struct{}) map[string]string {
+	categories := make(map[string]string, len(allowed))
+	for id := range allowed {
+		for _, claim := range state.Input.RuleProfile.Claims {
+			if id == claim.ID || id == claim.RuleID {
+				categories[id] = strings.TrimSpace(claim.Category)
+				break
+			}
+		}
+		if _, ok := categories[id]; !ok {
+			categories[id] = ""
 		}
 	}
-	return "输入 selected_rule_profile 的已声明规则 claim"
+	return categories
 }
 
-// baziRelationRefHint 将关系 ID 定位到同轮已计算关系文本，只供模型选择 ID。
-func baziRelationRefHint(state baziCharterState, id string) string {
+// baziRelationTexts 从同轮确定性输入提取关系文本，空值交给领域 DTO 使用来源回退。
+func baziRelationTexts(state baziCharterState, allowed map[string]struct{}) map[string]string {
+	texts := make(map[string]string, len(allowed))
+	for id := range allowed {
+		texts[id] = baziRelationText(state, id)
+	}
+	return texts
+}
+
+// baziRelationText 将关系 ID 定位到同轮已计算关系文本。
+func baziRelationText(state baziCharterState, id string) string {
 	if index, ok := baziRelationIndex(id, "relation.natal."); ok {
-		return firstNonEmptyTrim(relationHint(relationTextList(state.Input.Yongshen["chonghe"]), index), "输入 core_chart：原局已计算关系")
+		return relationTextAt(state.Input.Yongshen["chonghe"], index)
 	}
 	if index, ok := baziRelationIndex(id, "relation.liunian."); ok {
-		return firstNonEmptyTrim(relationHint(relationTextList(state.Input.Liunian["liunian_chonghe"]), index), "输入 dynamic_facts.liunian：已计算关系")
+		return relationTextAt(state.Input.Liunian["liunian_chonghe"], index)
 	}
 	if periodIndex, relationIndex, ok := baziDayunRelationIndex(id); ok {
 		periods := dayunPeriods(state.Input.Dayun)
 		if periodIndex < len(periods) {
-			return firstNonEmptyTrim(relationHint(relationTextList(periods[periodIndex]["dayun_chonghe"]), relationIndex), "输入 dynamic_facts.dayun：对应大运已计算关系")
+			return relationTextAt(periods[periodIndex]["dayun_chonghe"], relationIndex)
 		}
 	}
-	return "输入中的已计算关系"
+	return ""
 }
 
 // baziRelationIndex 解析单层关系 ID 的末尾序号。
@@ -268,10 +298,11 @@ func baziDayunRelationIndex(id string) (int, int, bool) {
 	return periodIndex, relationIndex, true
 }
 
-// relationHint 返回已计算关系的短说明，空值交由上层回退为字段定位。
-func relationHint(relations []string, index int) string {
+// relationTextAt 返回指定关系文本，越界时保留空值让领域投影使用通用来源提示。
+func relationTextAt(raw any, index int) string {
+	relations := relationTextList(raw)
 	if index < 0 || index >= len(relations) {
 		return ""
 	}
-	return "已计算关系：" + strings.TrimSpace(relations[index])
+	return strings.TrimSpace(relations[index])
 }
