@@ -675,7 +675,7 @@ repair.action
 | `backend/internal/runtime/bazi_contract_validation.go` | 静态/动态投影、证据边界和年龄授权合同校验。 |
 | `backend/internal/runtime/bazi_final_contract.go` | 最终 writer 的标题顺序、结构和边界保留合同校验。 |
 | `backend/internal/runtime/bazi_model_runtime.go` | 分析规划、阶段提示构建和内层 agent 的文本/JSON 适配。 |
-| `backend/internal/runtime/bazi_final_renderer.go` | 把已接受的静态、全程和动态投影转成程序化中文文本，不负责重新裁断。 |
+| `backend/internal/runtime/bazi_final_renderer.go` 及 `bazi_final_renderer_{templates,facts,sections,topic,markdown}.go` | 把已接受的静态、全程和动态投影转成程序化中文文本，不负责重新裁断。 |
 | `backend/internal/repair/` | repair class、policy、attempt 和共享预算。 |
 | `backend/internal/orchestrator/orchestrator.go` | 把 runtime 返回的错误转为 SSE `error`，并保证最后发送 `done`。 |
 
