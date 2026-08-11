@@ -44,7 +44,7 @@ flowchart LR
 
 ## Backend 重构边界（Batch 1 冻结）
 
-本节只冻结后续文件迁移的事实边界，不代表 Batch 2-7 已实施；Batch 1 不改变运行时、API、SSE、Graph 或领域语义。
+本节冻结后续文件迁移的事实边界；Batch 1 只改变架构事实文档，不改变运行时、API、SSE、Graph 或领域语义。Batch 2-8 的实施状态见下方批次表和 `PROGRESS.md`。
 
 | owner | 负责 | 明确不负责 |
 |---|---|---|
@@ -130,31 +130,33 @@ internal/
 | `runtime/event_bridge.go` | 保留事件桥接 | Batch 4 已完成 | `runtime` | 重新路由、补算资产、决定领域语义 |
 | `runtime/event_trace.go`、`runtime/final_guard.go` | 拆分 event trace / final guard 函数簇 | Batch 4 已完成 | `runtime` | 让 trace 改变执行真相、让 guard 替代领域解释 |
 | `runtime/bazi_final_renderer.go`、`bazi_final_renderer_{templates,facts,sections,topic,markdown}.go` | 在同 package 内按模板、事实/大运、报告章节、追问和 Markdown 清理拆分 renderer 函数簇 | Batch 5 文件重组完成 | `runtime` | 新增命理裁断、改变领域合同或 SSE wire shape |
-| `runtime/repair_compat.go` 及旧兼容别名 | 先审计；只有零调用方才允许删除 | Batch 6 | `runtime` 兼容层 | 删除未确认引用、改变 repair 合同 |
+| `runtime/repair_compat.go` 及旧兼容别名 | 已完成直接引用迁移；旧兼容文件已删除 | Batch 8 已完成 | `internal/repair` | 重新定义 repair 合同、改变预算或错误分类 |
 | `internal/llm/*.go` | 保留，负责模型调用级 retry owner | Batch 2 | `internal/llm` | 路由、资产准备、领域解释 |
 | `specialists/bazi/domain/` 与 `specialists/bazi/graph/` | 保留现有边界 | 暂缓 | Bazi domain / graph | 依赖 runtime、拥有 Manager 或最终答复权 |
 | 其余 `runtime/bazi_*.go` | 暂缓，不在 Batch 3/4 顺手改 | 暂缓 | `runtime` | 借重构改变 Graph、领域语义或 renderer 合同 |
 
 ### 分阶段迁移规则
 
-Batch 2 已完成在既有 `internal/llm` 边界上的责任迁移，不是新增 package；其后先在现有 package 内按 owner 重组文件。只有同 package 重组完成、依赖图无新增反向边、合同验证通过后，才进入 Batch 7 的 package 拆分可行性审查；审查不等于承诺拆分。每批只完成当前批次，不自动开始下一批。
+Batch 2 已完成在既有 `internal/llm` 边界上的责任迁移，不是新增 package；其后先在现有 package 内按 owner 重组文件。只有同 package 重组完成、依赖图无新增反向边、合同验证通过后，才进入 package 拆分可行性审查；审查不等于承诺拆分。Batch 8 已完成 repair 兼容层收口；后续每批只完成当前批次，不自动开始下一批。
 
 | 批次 | 迁移顺序与范围 | 前置条件 | 必须保持的行为不变量 | 批次门禁 | 验证命令 | 失败回退 |
 |---|---|---|---|---|---|---|
 | Batch 0 | 基线冻结：只读核对当前 owner、依赖、API/SSE、Graph、错误出口和领域语义 | 已读取架构事实并完成工作区、引用和现状检查 | 不改文件、不改运行时；基线可被后续回归复核 | 只完成基线核对，不自动开始 Batch 1 | `go list ./backend/...`；`GOCACHE=/tmp/suanming-go-cache GOTMPDIR=/tmp go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke` | 只读，无需回退 |
-| Batch 1 | 冻结 owner、依赖方向、禁止依赖和迁移门禁文档 | Batch 0 基线已完成；仅允许修改架构事实文档 | 不改 API、SSE、Graph 拓扑、错误出口或领域语义 | 只完成文档冻结，不自动开始 Batch 2 | `git diff --check`；`git show --name-only --format= HEAD` / `git diff-tree --no-commit-id --name-only -r HEAD` 检查仅含两份文档；`rg -n "Batch 0|Batch 1|Batch 2|Batch 3|Batch 4|Batch 5|Batch 6|Batch 7|strict-json-schema-implementation-plan.md" docs/architecture.md PROGRESS.md` | 失败时 `git revert` 本批文档提交 |
+| Batch 1 | 冻结 owner、依赖方向、禁止依赖和迁移门禁文档 | Batch 0 基线已完成；仅允许修改架构事实文档 | 不改 API、SSE、Graph 拓扑、错误出口或领域语义 | 只完成文档冻结，不自动开始 Batch 2 | `git diff --check`；`git show --name-only --format= HEAD` / `git diff-tree --no-commit-id --name-only -r HEAD` 检查仅含两份文档；`rg -n "Batch 0|Batch 1|Batch 2|Batch 3|Batch 4|Batch 5|Batch 6|Batch 7|Batch 8|strict-json-schema-implementation-plan.md" docs/architecture.md PROGRESS.md` | 失败时 `git revert` 本批文档提交 |
 | Batch 2 | 将模型调用级 retry 从 runtime 移到已有 `backend/internal/llm/`；涉及 `backend/internal/runtime/model_retry.go`、`backend/internal/supervisor/adk_engine.go`、`backend/internal/runtime/agent_route.go` 及对应测试和引用 | Batch 1 经复核并单独批准；确认调用图、合同、retry/错误/trace 测试和残余引用 | 消除 `supervisor -> runtime.ModelCallRetryDecision` 反向依赖；API、SSE、Graph 拓扑、错误出口和领域语义不变 | 只完成 retry owner 迁移；未获批准不得开始 Batch 3 | `go test ./backend/internal/llm ./backend/internal/runtime ./backend/internal/supervisor -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke`；`rg -n "runtime\.ModelCallRetryDecision" backend` 确认无残留 | 失败时 `git revert` 本批提交 |
 | Batch 3（已完成） | 在同一 `runtime` package 内将 `executor.go` 重组为执行入口、prefill、工具调用职责文件 | Batch 2 完成并通过 retry/错误回归；已锁定 Executor 调用合同 | `ExecutionPlan`、资产校验、Graph 状态、工具合同、错误出口和 SSE 顺序不变 | 只完成执行入口文件重组，不自动开始 Batch 4 | `go test ./backend/internal/runtime -run 'Executor|Prefill|ExecutionPlan|Orchestration|Tool' -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke` 真实 SSE smoke | 失败时 `git revert` 本批提交 |
 | Batch 4（已完成） | 在同一 package 内拆事件桥接、事件 trace、final guard 职责 | Batch 3 完成；事件类型、trace 字段和 final guard 合同已核对 | 唯一最终 `text`、`done` 顺序、trace 观测语义和最终合同边界不变 | 只完成事件/guard 文件重组；未进入 Batch 5 的 renderer 改造 | `go test ./backend/internal/runtime -run 'Event|Bridge|Trace|Guard|Turn' -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke`，SSE 到 `done` 并检查唯一 `text`/`done` 与 trace | 失败时 `git revert` 本批提交 |
-| Batch 5 | 后置拆分 Bazi renderer | Batch 4 完成；renderer 输入投影、facts-only、引用清理和输出合同已有回归证据 | renderer 只转写已验证投影，不新增裁断；领域语义、错误出口和 SSE wire shape 不变 | 文件重组已完成；`bazi-quality-v1` 儿童首运前样例仍有 `static.contract_audit=not_run` 残余，未开始 Batch 6 | `go test ./backend/internal/runtime -run 'Render|Bazi|Liunian|Contract' -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-bazi-answer-quality` 3/3；`make eval-bazi-quality` 需另行修复上游 trace 合同后复核 | 失败时 `git revert` 本批提交 |
-| Batch 6 | 只读审计兼容层并清理已确认的残余引用 | Batch 5 完成；全量符号、调用方、兼容别名和文档引用均可核对 | 不改变兼容层语义、API、SSE、Graph、错误出口或领域语义；未确认的引用不得删除 | 只清理已证明残余，不自动开始 Batch 7 | `codegraph explore "当前批次符号、兼容别名和所有调用者"`；`rg -n "目标符号|旧符号|兼容别名" backend docs PROGRESS.md` 全量引用审计；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-smoke` | 失败时 `git revert` 本批提交 |
+| Batch 5（已完成） | 后置拆分 Bazi renderer | Batch 4 完成；renderer 输入投影、facts-only、引用清理和输出合同已有回归证据 | renderer 只转写已验证投影，不新增裁断；领域语义、错误出口和 SSE wire shape 不变 | 文件重组已完成；`bazi-quality-v1` 儿童首运前样例仍有 `static.contract_audit=not_run` 残余；Batch 6 已单独完成只读审计 | `go test ./backend/internal/runtime -run 'Render|Bazi|Liunian|Contract' -count=1`；`go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；`make eval-bazi-answer-quality` 3/3；`make eval-bazi-quality` 需另行修复上游 trace 合同后复核 | 失败时 `git revert` 本批提交 |
+| Batch 6（审计完成，无生产代码变更） | 只读审计兼容层并清理已确认的残余引用 | Batch 5 文件重组完成；全量符号、调用方、兼容别名和文档引用已核对 | 不改变兼容层语义、API、SSE、Graph、错误出口或领域语义；未确认的引用不得删除 | 当时确认 repair 类型、策略、预算和 trace 别名仍有调用，故延后到 Batch 8 机械迁移 | `rg -n` 符号/调用者审计；`go list -deps ./backend/internal/runtime ./backend/internal/specialists/bazi/graph` 确认共享 `internal/repair`；Batch 5 全量 test/build 已通过 | 无生产代码变更，无需回退 |
 | Batch 7 | 审查 package 拆分可行性、依赖图和边界证据；不承诺执行 package 拆分 | Batch 6 完成；同 package 重组和依赖/合同审计通过 | 只读审查不改变运行时；不新增 package、接口、兼容代码或迁移实现 | 只输出可行性结论，package 拆分需另行批准 | `go list ./backend/...`；`go list -deps ./backend/...`；CodeGraph/import-cycle 审查 | 只读，无需回退 |
+| Batch 8（已完成） | 将 runtime 对共享 repair 合同的引用从兼容别名迁移为 `internal/repair` 直接引用，并删除零调用者的 `repair_compat.go` | Batch 7 结论确认；所有别名调用者、Graph state、trace 和测试已盘点 | repair 类型值、预算、错误分类、trace key、Graph 拓扑、SSE 和领域语义不变 | 只完成机械引用迁移，不新增接口或改控制流 | `gofmt`；focused runtime test；授权环境 `go test ./backend/... -count=1`；`go build ./backend/cmd/server/`；授权环境 `make eval-smoke` 2/2；旧别名零残留 | 回退本批提交 |
 
 ### 计划事实标记
 
 - **[KNOWN]** `backend/internal/llm/model_retry.go` 负责模型调用级 retry；`supervisor/adk_engine.go` 和 `runtime/agent_route.go` 共享 `llm.DefaultModelRetryConfig`；当前 Graph、SSE、错误出口合同未因 Batch 2 改变。
 - **[INFERRED]** executor、事件桥接、trace/final guard、Bazi renderer 的文件拆分簇来自当前结构推断；每批修改前必须重新验证文件、调用者和依赖边。
-- **[UNKNOWN]** Batch 7 package 拆分是否能证明无循环依赖，以及部署级多实例高可用；本计划不承诺这两项。
+- **[KNOWN]** Batch 8 已完成 repair 兼容别名迁移；focused runtime test、授权环境全量 backend test、server build 和授权环境 `make eval-smoke` 2/2 通过。
+- **[UNKNOWN]** Batch 10/11 package 拆分是否能证明无循环依赖，以及部署级多实例高可用；本计划不承诺这两项。
 
 ### 统一执行协议
 
@@ -170,6 +172,59 @@ Batch 2 已完成在既有 `internal/llm` 边界上的责任迁移，不是新�
 | 只编译不验行为 | build 通过但 SSE 缺 `done`、重复 `text` 或 trace 缺字段 | 每批保留 focused test、全量 test、真实 SSE/trace 检查 |
 | SSE、trace、Graph 或领域合同破坏 | Graph phase/预算变化、错误出口漂移、wire shape 改变或 renderer 越权裁断 | 以现状合同为不变量逐项回归，按批门禁停在当前批次并回退 |
 | 迁移范围过大，存在更小方案 | 同一批同时改变 package、接口和运行时语义 | 优先同 package 文件重组或已有 `internal/llm` 边界；只有小方案不足时才扩大，并单独批准 |
+
+### Batch 7 package 可行性结论
+
+- **[KNOWN]** 当前 `go list ./backend/...` 通过，现有 package import 图没有已确认的循环；`internal/repair`、`specialists/bazi/domain` 和 `specialists/bazi/graph` 都不反向依赖 `runtime`。
+- **[KNOWN]** `runtime` 仍是约 25k 行的单 package。外层 Graph state、`Executor`、`ExecutionPlan`、`EventSink`、Bazi adapter、合同校验和 renderer 通过大量同 package 未导出符号互相连接；`bazi_graph_adapter.go:19-40` 只对领域 Graph 暴露窄 callback，但 callback 的 owner 仍是 runtime `Executor`。
+- **[KNOWN]** specialist 请求仍直接携带 `policy.ApprovedRoute`、`state.ManagerContext` 和 `*state.SessionState`（`specialists/runner.go:14-22`）；这不是当前 API 故障，但说明 specialist package 尚不是纯领域输入边界。
+- **[INFERRED]** 直接把 `runtime` 按目录改成多个 Go package，会迫使未导出状态变成导出类型，或让子 package 反向 import 父 package；这会扩大 diff，并可能改变 Graph/SSE/错误合同。因此当前没有足够证据批准 `runtime` package 拆分。
+- **[UNKNOWN]** package 拆分后是否能在不新增接口、不改变 DTO、不形成循环的前提下完成；部署级多实例高可用也未被当前代码证明。
+
+#### 边界问题优先级
+
+| 优先级 | 已确认或待证实问题 | 最小处置 |
+|---|---|---|
+| P0 | 当前没有已确认的 import cycle；任何新反向 import 都会阻断迁移 | 以 `go list ./backend/...` 为硬门禁，不用 adapter 掩盖循环 |
+| P1 | `runtime` 同时服务 Manager、Graph、执行、Bazi 合同和输出 owner，package 级边界仍过宽 | 继续只做同 package 文件重组；先完成 alias/调用者清理，再证明稳定 DTO |
+| P1 | Bazi 领域 Graph/domain 已独立，但 Bazi 适配、合同、恢复和 renderer 仍在 runtime | 保留现状，不跨边界搬语义；未来仅按稳定输入/输出 DTO 逐簇迁移 |
+| P1 | `MemoryStore` + 本地 JSON 和 `MemoryLocker` 只证明单进程/单机协作（`state/store.go:19-24`、`state/locker.go:14-18`） | 单列高可用专项；未确定部署目标和共享存储前不改 provider |
+| P2 | `runtime` 泛名和 `tools/ziwei -> tools/bazi` 仍有命名/归属提示噪声 | 只在明确 owner 后清理；不为目录整齐扩大 package 拆分 |
+
+#### 目标结构方案比较
+
+| 方案 | 核心差异 | 适用场景 | 优缺点 |
+|---|---|---|---|
+| A：同 package 文件级收口 | 保持 `internal/runtime` 一个 package，只按 owner 分组文件 | 先降低导航成本、保持行为合同 | 改动小、回退简单；编译器不能阻止跨职责调用 |
+| B：contract-first package 拆分 | 先证明窄 DTO，再拆为 `runtime/plan`、`runtime/graph`、`runtime/execution`、`runtime/output` 等 package | 未导出依赖已收敛，且需要编译期边界 | 边界清晰；需处理导出面、依赖方向和循环风险，改动大 |
+| C：Bazi domain-first 拆分 | 将 runtime 内 Bazi adapter/合同/renderer 迁入 Bazi 专属运行包 | Bazi 输入输出 DTO 已稳定，领域 owner 需要独立演进 | 领域导航最好；最容易反向依赖 Manager、SSE、trace，当前证据不足 |
+
+当前执行基线只冻结方案 A；方案 B/C 不是默认迁移目标，必须在独立可行性证据和明确批准后选择。
+
+#### 后续 gated 批次
+
+| 批次 | 涉及文件 | 前置条件 | 行为不变量 | 验证命令 | 失败回退 |
+|---|---|---|---|---|---|
+| Batch 9A（只读） | 全部 `runtime/*.go` 的 import 图、CodeGraph caller/callee 和 package 依赖 | Batch 8 完成；工作区无未识别生产修改 | 不改代码、不新增接口、不改变任何合同 | `codegraph_explore`；`go list ./backend/...`；`go list -deps ./backend/...`；新旧路径全量审计 | 只读，无需回退 |
+| Batch 9B（只读） | `execution_plan.go`、`orchestration_state.go`、`graph_loop_contracts.go`、`executor_entry.go`、`bazi_graph_adapter.go`、`event.go`、`final_guard.go`、`specialists/runner.go` | 9A 完成；状态 owner、可变对象、context 注入和 specialist 输入边界清单完整 | 不把 `SessionState`、`Executor`、SSE sink 或 Graph state 偷渡为新 package 公共 API | CodeGraph 符号关系；结构体字段/调用者清单；禁止依赖清单 | 只读，无需回退 |
+| Batch 9C-0（已完成） | `execution_dispatch.go`、`execution_plan_runner_test.go`、`specialists/runner.go`、正式 specialist tool 配置和 SessionState 写入路径的并发审查 | 9B 完成；先区分测试夹具 race 与 active production 写入路径 | 并行启动、plan order、Runner 接口、SessionState owner 不变；不以测试加锁改变生产语义 | `recordingRunner` 夹具互斥；`go test -race ./backend/internal/runtime ./backend/internal/specialists ./backend/internal/state -count=1`；正式 specialist tool allow-list 审计；全量 test/build | 已完成；测试夹具改动可单独回退 |
+| Batch 9C-1（进行中，未通过） | Graph/SSE/trace/错误出口/领域合同的行为基线矩阵 | 9C-0 完成；允许使用现有 eval 和真实服务，不改运行时 | 已确认 Graph 16/24 步上限、部分事件顺序和澄清路径唯一 `text`/`done`；完整八字动态合同和活动 cancel 证据仍有缺口 | focused contract tests、授权全量 test/build、真实澄清 SSE；mixed-domain/facts-only 有既有 trace/eval 证据；在线八字主链出现 `dynamic method_contract -> hard_error`，`/api/chat` 未接入 TurnLoop cancel | 只读，无需回退；不得进入 Batch 10 |
+| Batch 10A（条件执行） | 只锁定一个由 9A-9C 证明为单向依赖的目标 package、窄 DTO、状态 owner 和禁止依赖 | 9A-9C 全部通过；儿童首运前 `bazi.static.contract_audit=not_run` 已查明或被明确批准为既有风险 | 不扩大导出面，不新增接口、DAG、checkpoint、supervisor 或框架 | 目标 package 设计审查；import-cycle 预演；DTO 编译期边界测试样例 | 回退计划，不改生产代码 |
+| Batch 10B（条件执行） | 只移动一个已锁定文件簇，优先 `git mv`，不同时改变语义 | 10A 单独批准；目标文件头和函数注释已重读 | Graph phase/预算、错误出口、领域语义、唯一 `text`/`done` 和 trace 字段不变 | `git mv`；`gofmt`；相关 focused test；全量 test/build；对应真实 SSE/trace 回放 | 回退本批提交 |
+| Batch 10C（条件执行） | 清理该文件簇的调用者、测试、文档和兼容路径 | 10B 通过；无新增反向依赖 | 仅清理已确认零调用者的旧路径，不改变公共入口 | `rg`/CodeGraph 全量引用审计；全量 test/build；对应 eval 和 SSE smoke | 回退本批提交 |
+| Batch 11A（条件执行） | 下一簇 package 或在方案 A 内继续同 package 文件收口 | 10C 通过，且上一簇的行为基线无漂移 | 每次只推进一个 owner 簇；不得跨 Manager、Graph、SSE 和领域解释边界 | 重复 9A-9C 的依赖与行为门禁 | 回退本批提交 |
+| Batch 11B（条件执行） | 最终残留引用、测试、文档和兼容路径清理 | 所有已批准簇通过；无未确认调用者 | 不删除仍有调用者的兼容代码，不改变公共 API | `rg`/CodeGraph 全量审计；全量 test/build；对应 eval 和 SSE smoke | 回退本批提交 |
+
+Batch 10 的目标文件在 Batch 9 前不预先指定；若无法证明单向依赖，最终结构就停在方案 A，不为“高可用”新增接口、DAG、checkpoint、supervisor 或框架。Batch 9 任一子批次未通过，都不得进入 Batch 10。
+
+#### 高可用专项（不与目录迁移混批）
+
+当前代码只证明单进程会话锁、本地会话 JSON 和可选本地 trace 文件；它不证明多实例会话串行、共享 trace、故障转移、SSE 断线恢复或幂等提交。高可用专项必须先定义语义，再选 provider：
+
+- H0：冻结部署拓扑、RTO/RPO、同 session 并发策略、进程在 route/prefill/dispatch/final text/done 前后崩溃时的恢复语义，以及 SSE 断线是续传还是整轮重跑。
+- H1：分别验证 Store、Locker、trace provider 的跨实例读写、一致性、租约/超时和查询关联；不在未获部署选择前写 Redis、数据库或队列实现。
+- H2：定义并验证保存提交失败、取消、超时、进程终止、重复请求、幂等提交和 SSE sink 写失败的错误出口；特别确认 `Store.Save`、trace 持久化和事件写失败哪些阻断请求、哪些只记录。
+- H3：双实例并发、故障注入、断线重连、重复 text/done 检查和负载验证；只有 H0-H2 通过后才执行。
 
 ## Manager 自主性边界
 
@@ -277,7 +332,7 @@ Run Inspector 是聊天页内唯一排障入口：后端在每轮结束时发送
 - 动态事实缺口提示属于展示边界，不是静态合同失败：只有执行计划带明确 `TimeScope` 时才追加 `unavailable/degraded` 说明；静态追问不得因为缺少流年/流月事实而改变主线结论或追加无关提示。
 - cheap gate 只复用窄范围同域普通追问，必须写入 `decision_source`、`gate_reason` 等观测信号，不能成为第二套路由器。
 - 会话恢复恢复当前 session 和最近一轮展示态；`ExecutionSnapshot` 是 `RunInspection` 根 span 运行时摘要的来源。
-- 共享 repair 分类、策略和预算位于 `backend/internal/repair/`；runtime 只保留兼容别名。八字 Graph 控制已拆入 `backend/internal/specialists/bazi/graph/`；事实胶囊、年龄授权和引用目录 DTO 位于 `backend/internal/specialists/bazi/domain/`，catalog allow-list、合同、recovery 和 renderer 仍通过 runtime 适配，不能绕过 Manager-owned `ExecutionPlan`、Prefill 或 final guard。
+- 共享 repair 分类、策略和预算位于 `backend/internal/repair/`；runtime 直接引用共享类型，旧兼容别名已删除。八字 Graph 控制已拆入 `backend/internal/specialists/bazi/graph/`；事实胶囊、年龄授权和引用目录 DTO 位于 `backend/internal/specialists/bazi/domain/`，catalog allow-list、合同、recovery 和 renderer 仍通过 runtime 适配，不能绕过 Manager-owned `ExecutionPlan`、Prefill 或 final guard。
 
 ## 当前非目标
 

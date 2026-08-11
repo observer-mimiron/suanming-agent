@@ -4,7 +4,11 @@
 // 不持久化用户输入，也不把历史失败自动写回模型 prompt。
 package runtime
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
+)
 
 const maxRepairLearningHintsPerField = 3
 
@@ -13,7 +17,7 @@ const maxRepairLearningHintsPerField = 3
 type RepairLearningHint struct {
 	Domain      string
 	Stage       string
-	Class       RepairClass
+	Class       repair.Class
 	Field       string
 	Pattern     string
 	Instruction string
@@ -26,7 +30,7 @@ var repairLearningHints = []RepairLearningHint{
 	{
 		Domain:      "bazi",
 		Stage:       "static_projection",
-		Class:       RepairProjectionMismatch,
+		Class:       repair.ProjectionMismatch,
 		Field:       "static.tiaohou_anchor",
 		Pattern:     "调候证据已覆盖，但 canonical.tiaohou.verdict 没有明确裁断词。",
 		Instruction: "调候证据覆盖时必须给出明确裁断词，如调候不足、调候受限、调候得力、调候受损。",
@@ -37,7 +41,7 @@ var repairLearningHints = []RepairLearningHint{
 	{
 		Domain:      "bazi",
 		Stage:       "static_projection",
-		Class:       RepairProjectionMismatch,
+		Class:       repair.ProjectionMismatch,
 		Field:       "static.tiaohou_anchor",
 		Pattern:     "只描述季节环境，没有说明调候力度或成败边界。",
 		Instruction: "把季节事实收束成一个短 verdict，再把限制放入 boundary。",
@@ -48,7 +52,7 @@ var repairLearningHints = []RepairLearningHint{
 	{
 		Domain:      "bazi",
 		Stage:       "static_projection",
-		Class:       RepairProjectionMismatch,
+		Class:       repair.ProjectionMismatch,
 		Field:       "static.tiaohou_anchor",
 		Pattern:     "调候 verdict 回避裁断，导致 legacy 投影不能形成锚点。",
 		Instruction: "不得改四柱或主轴，只补 canonical.tiaohou.verdict 的裁断短句。",
@@ -59,7 +63,7 @@ var repairLearningHints = []RepairLearningHint{
 }
 
 // RepairLearningHintsFor 返回匹配失败字段的固化短提示，单字段最多三条。
-func RepairLearningHintsFor(failure RepairFailure) []RepairLearningHint {
+func RepairLearningHintsFor(failure repair.Failure) []RepairLearningHint {
 	hints := make([]RepairLearningHint, 0, maxRepairLearningHintsPerField)
 	for _, hint := range repairLearningHints {
 		if !repairLearningHintMatches(hint, failure) {
@@ -93,7 +97,7 @@ func RepairLearningHintCount(feedback map[string]any) int {
 }
 
 // repairLearningHintMatches 执行 domain/stage/class/field 精确匹配。
-func repairLearningHintMatches(hint RepairLearningHint, failure RepairFailure) bool {
+func repairLearningHintMatches(hint RepairLearningHint, failure repair.Failure) bool {
 	return strings.TrimSpace(hint.Domain) == strings.TrimSpace(failure.Domain) &&
 		strings.TrimSpace(hint.Stage) == strings.TrimSpace(failure.Stage) &&
 		hint.Class == failure.Class &&

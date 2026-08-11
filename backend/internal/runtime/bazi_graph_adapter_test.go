@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
 	bazigraph "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/graph"
 )
 
@@ -78,10 +79,20 @@ func TestApplyBaziGraphControlCopiesStateSafeFailureProjection(t *testing.T) {
 	if in.Failure.FailureCode != "DYNAMIC_SCHEMA" || in.FailureStage != "dynamic_synthesis" {
 		t.Fatalf("copied failure = %+v stage=%q", in.Failure, in.FailureStage)
 	}
-	if in.RepairAction != RepairActionFallback {
-		t.Fatalf("repair action = %q, want %q", in.RepairAction, RepairActionFallback)
+	if in.RepairAction != repair.ActionFallback {
+		t.Fatalf("repair action = %q, want %q", in.RepairAction, repair.ActionFallback)
 	}
 	if in.TerminationReason != "graph_step_limit_degraded" {
 		t.Fatalf("termination reason = %q, want graph_step_limit_degraded", in.TerminationReason)
+	}
+}
+
+func TestBaziGraphResultCarriesTerminalPayloadAudit(t *testing.T) {
+	terminal := &baziInternalGraphState{}
+	terminal.ChartState.StaticSynthesis.ContractAudit = baziContractAudit{Compliant: true}
+	result := bazigraph.Result{Payload: terminal}
+	got, ok := result.Payload.(*baziInternalGraphState)
+	if !ok || got != terminal || !got.ChartState.StaticSynthesis.ContractAudit.Compliant {
+		t.Fatalf("terminal payload audit = %#v, want clean terminal audit", result.Payload)
 	}
 }

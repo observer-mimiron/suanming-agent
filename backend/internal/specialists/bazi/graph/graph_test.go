@@ -110,6 +110,20 @@ func TestRunCompletesStaticPipeline(t *testing.T) {
 	}
 }
 
+func TestRunReturnsTerminalPayload(t *testing.T) {
+	payload := &struct{ Marker string }{Marker: "terminal"}
+	deps := noOpDeps()
+	deps.Bootstrap = recordCallback(&[]string{}, "bootstrap", func(state *State) { state.Payload = payload })
+	deps.Render = recordCallback(&[]string{}, "render", nil)
+	result, err := Run(context.Background(), deps, &State{ChartReady: true, AnalysisPlanned: true, StaticAttempted: true, StaticAccepted: true})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Payload != payload {
+		t.Fatalf("terminal payload = %#v, want %#v", result.Payload, payload)
+	}
+}
+
 func TestRunMissingChartReachesHardErrorTerminal(t *testing.T) {
 	var calls []string
 	deps := noOpDeps()

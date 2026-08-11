@@ -24,10 +24,17 @@ type sseEventSink struct {
 	dbg       *os.File
 	dbgEnc    *json.Encoder
 	sessionID string
+	cancel    context.CancelFunc
 }
 
-// Emit writes one orchestrator event to SSE and optionally mirrors it into debug JSONL.
+// Emit 将一个编排事件写入 SSE，并可选镜像到调试 JSONL。
+//
+// SSE 写入失败通常表示客户端已经断连；此处必须取消本轮 context，
+// 让仍在运行的路由、模型或工具尽快停止，而不是继续占用会话锁。
 func (s *sseEventSink) Emit(ctx context.Context, evt orchestrator.Event) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if s.dbgEnc != nil {
 		tid := tracing.TraceIDFromContext(ctx)
 		s.dbgEnc.Encode(debugEntry{
@@ -38,7 +45,13 @@ func (s *sseEventSink) Emit(ctx context.Context, evt orchestrator.Event) error {
 			Payload:   evt.Data,
 		})
 	}
-	return s.sw.Send(evt.Type, evt.Data)
+	if err := s.sw.Send(evt.Type, evt.Data); err != nil {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		return err
+	}
+	return nil
 }
 
 // debugEntry is the per-SSE-event debug record written when HTTP debug mode is enabled.
@@ -114,8 +127,9 @@ func (h *ChatHandler) HandleChat(c *gin.Context) {
 		}()
 	}
 
-	sink := &sseEventSink{sw: sw, dbg: dbgFile, dbgEnc: dbgEnc, sessionID: req.SessionID}
-	ctx := c.Request.Context()
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+	sink := &sseEventSink{sw: sw, dbg: dbgFile, dbgEnc: dbgEnc, sessionID: req.SessionID, cancel: cancel}
 	if err := h.orch.Run(ctx, sink, req.SessionID, req.Message); err != nil {
 		log.Printf("[handler] orchestrator.Run session=%s error: %v", req.SessionID, err)
 		if errors.Is(err, context.Canceled) {

@@ -5,7 +5,10 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
@@ -15,6 +18,28 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/tools"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
+
+type cancelableWaitLocker struct {
+	waiting  chan struct{}
+	release  chan struct{}
+	unlocked chan struct{}
+	started  sync.Once
+	finished sync.Once
+}
+
+func newCancelableWaitLocker() *cancelableWaitLocker {
+	return &cancelableWaitLocker{
+		waiting:  make(chan struct{}),
+		release:  make(chan struct{}),
+		unlocked: make(chan struct{}),
+	}
+}
+
+func (l *cancelableWaitLocker) Lock(string) func() {
+	l.started.Do(func() { close(l.waiting) })
+	<-l.release
+	return func() { l.finished.Do(func() { close(l.unlocked) }) }
+}
 
 type recordingSink struct {
 	events []Event
@@ -152,5 +177,37 @@ func TestRootTraceCanExposeLangfuseReadableInputOutput(t *testing.T) {
 	}
 	if got := tr.Attributes["langfuse.trace.output"]; got != "这是最终回答。" {
 		t.Fatalf("langfuse.trace.output = %v, want 这是最终回答。", got)
+	}
+}
+
+func TestAcquireSessionLock_ReturnsPromptlyWhenContextCancelled(t *testing.T) {
+	locker := newCancelableWaitLocker()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+
+	go func() {
+		_, err := acquireSessionLock(ctx, locker, "same-session")
+		result <- err
+	}()
+	select {
+	case <-locker.waiting:
+	case <-time.After(time.Second):
+		t.Fatal("lock acquisition did not begin")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("acquireSessionLock() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("acquireSessionLock() did not return after cancellation")
+	}
+	close(locker.release)
+	select {
+	case <-locker.unlocked:
+	case <-time.After(time.Second):
+		t.Fatal("deferred lock waiter did not release the lock")
 	}
 }

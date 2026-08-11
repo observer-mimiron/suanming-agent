@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
@@ -124,13 +125,13 @@ func TestAnnotateBaziGraphErrorProjectsContractFindingTraceAttrs(t *testing.T) {
 	if got := tr.Attributes["repair.stage"]; got != "dynamic_synthesis" {
 		t.Fatalf("repair.stage = %v", got)
 	}
-	if got := tr.Attributes["repair.class"]; got != string(RepairDomainUnauthorized) {
+	if got := tr.Attributes["repair.class"]; got != string(repair.DomainUnauthorized) {
 		t.Fatalf("repair.class = %v", got)
 	}
 	if got := tr.Attributes["repair.field"]; got != "dynamic.dayun_judgments[0].interpretation" {
 		t.Fatalf("repair.field = %v", got)
 	}
-	if got := tr.Attributes["repair.action"]; got != string(RepairActionFallback) {
+	if got := tr.Attributes["repair.action"]; got != string(repair.ActionFallback) {
 		t.Fatalf("repair.action = %v", got)
 	}
 }

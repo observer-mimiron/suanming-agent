@@ -1,64 +1,68 @@
 package runtime
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
+)
 
 func TestRepairPolicyEnforcesBusinessBudget(t *testing.T) {
-	policy := DefaultRepairPolicy()
-	failure := RepairFailure{
+	policy := repair.DefaultPolicy()
+	failure := repair.Failure{
 		Domain:   "bazi",
 		Stage:    "static_projection",
-		Class:    RepairProjectionMismatch,
+		Class:    repair.ProjectionMismatch,
 		Field:    "static.tiaohou_anchor",
 		Fallback: "facts_only",
 	}
 
-	decision := policy.Decide(failure, NewRepairState())
-	if decision.Action != RepairActionRepairNode {
+	decision := policy.Decide(failure, repair.NewState())
+	if decision.Action != repair.ActionRepairNode {
 		t.Fatalf("Action = %q, want repair_node", decision.Action)
 	}
 	if !decision.Repairable || !decision.Retryable || decision.Exhausted {
 		t.Fatalf("unexpected decision: %+v", decision)
 	}
 
-	state := RecordRepairAttempt(NewRepairState(), RepairAttempt{
+	state := repair.RecordAttempt(repair.NewState(), repair.Attempt{
 		Domain: failure.Domain,
 		Stage:  failure.Stage,
 		Class:  failure.Class,
 		Field:  failure.Field,
-		Action: RepairActionRepairNode,
+		Action: repair.ActionRepairNode,
 	})
 	decision = policy.Decide(failure, state)
-	if decision.Action != RepairActionFallback || !decision.Exhausted {
+	if decision.Action != repair.ActionFallback || !decision.Exhausted {
 		t.Fatalf("decision after same stage/field attempt = %+v, want exhausted fallback", decision)
 	}
 }
 
 func TestRepairPolicyEnforcesWholeTurnBudget(t *testing.T) {
-	policy := DefaultRepairPolicy()
-	state := NewRepairState()
-	for _, attempt := range []RepairAttempt{
-		{Domain: "bazi", Stage: "static_projection", Field: "static.tiaohou_anchor", Action: RepairActionRepairNode},
-		{Domain: "bazi", Stage: "dynamic_projection", Field: "dynamic.dayun", Action: RepairActionRepairNode},
+	policy := repair.DefaultPolicy()
+	state := repair.NewState()
+	for _, attempt := range []repair.Attempt{
+		{Domain: "bazi", Stage: "static_projection", Field: "static.tiaohou_anchor", Action: repair.ActionRepairNode},
+		{Domain: "bazi", Stage: "dynamic_projection", Field: "dynamic.dayun", Action: repair.ActionRepairNode},
 	} {
-		state = RecordRepairAttempt(state, attempt)
+		state = repair.RecordAttempt(state, attempt)
 	}
 
-	decision := policy.Decide(RepairFailure{
+	decision := policy.Decide(repair.Failure{
 		Domain:   "bazi",
 		Stage:    "final_guard",
-		Class:    RepairProjectionMismatch,
+		Class:    repair.ProjectionMismatch,
 		Field:    "answer",
 		Fallback: "facts_only",
 	}, state)
-	if decision.Action != RepairActionFallback || !decision.Exhausted {
+	if decision.Action != repair.ActionFallback || !decision.Exhausted {
 		t.Fatalf("decision after whole-turn budget = %+v, want exhausted fallback", decision)
 	}
 }
 
 func TestRepairPolicyRejectsFactConflictAndMethodContract(t *testing.T) {
-	for _, class := range []RepairClass{RepairFactConflict, RepairMethodContract} {
-		decision := DefaultRepairPolicy().Decide(RepairFailure{Class: class}, NewRepairState())
-		if decision.Action != RepairActionHardError {
+	for _, class := range []repair.Class{repair.FactConflict, repair.MethodContract} {
+		decision := repair.DefaultPolicy().Decide(repair.Failure{Class: class}, repair.NewState())
+		if decision.Action != repair.ActionHardError {
 			t.Fatalf("%s action = %q, want hard_error", class, decision.Action)
 		}
 		if decision.Repairable || decision.Retryable {
@@ -69,18 +73,18 @@ func TestRepairPolicyRejectsFactConflictAndMethodContract(t *testing.T) {
 
 func TestRepairHTTPStatusRetryable(t *testing.T) {
 	for _, status := range []int{400, 401, 402} {
-		if RepairHTTPStatusRetryable(status) {
+		if repair.HTTPStatusRetryable(status) {
 			t.Fatalf("status %d retryable = true, want false", status)
 		}
-		if got := RepairClassForHTTPStatus(status); got != RepairTransportFatal {
+		if got := repair.ClassForHTTPStatus(status); got != repair.TransportFatal {
 			t.Fatalf("status %d class = %q, want transport_fatal", status, got)
 		}
 	}
 	for _, status := range []int{408, 429, 500, 503} {
-		if !RepairHTTPStatusRetryable(status) {
+		if !repair.HTTPStatusRetryable(status) {
 			t.Fatalf("status %d retryable = false, want true", status)
 		}
-		if got := RepairClassForHTTPStatus(status); got != RepairTransportTransient {
+		if got := repair.ClassForHTTPStatus(status); got != repair.TransportTransient {
 			t.Fatalf("status %d class = %q, want transport_transient", status, got)
 		}
 	}
@@ -88,19 +92,19 @@ func TestRepairHTTPStatusRetryable(t *testing.T) {
 
 func TestRepairTraceAttrsProjectsOnlySafeFields(t *testing.T) {
 	attrs := RepairTraceAttrs(RepairTraceEvent{
-		Failure: RepairFailure{
+		Failure: repair.Failure{
 			Domain: "bazi",
 			Stage:  "static_projection",
-			Class:  RepairProjectionMismatch,
+			Class:  repair.ProjectionMismatch,
 			Field:  "static.tiaohou_anchor",
 		},
 		Attempt:           1,
 		MaxAttempts:       1,
-		Action:            RepairActionRepairNode,
+		Action:            repair.ActionRepairNode,
 		Feedback:          map[string]any{"reason": "private detail", "allowed_fix": []string{"x"}},
 		LearningHintCount: 0,
 		Exhausted:         false,
-		FinalAction:       RepairActionRepairNode,
+		FinalAction:       repair.ActionRepairNode,
 	})
 
 	if _, ok := attrs["reason"]; ok {
@@ -125,7 +129,7 @@ func TestRepairFailureFromBaziContract(t *testing.T) {
 	if !ok {
 		t.Fatal("repairFailureFromBaziContract returned false")
 	}
-	if failure.Domain != "bazi" || failure.Class != RepairSchemaError || failure.Field != "static.main_axis" {
+	if failure.Domain != "bazi" || failure.Class != repair.SchemaError || failure.Field != "static.main_axis" {
 		t.Fatalf("unexpected repair failure: %+v", failure)
 	}
 	if !failure.Repairable || !failure.Retryable {
@@ -168,11 +172,11 @@ func TestRepairFailureFromBaziContractStaticStrengthBalanceFactsOnly(t *testing.
 	if !ok {
 		t.Fatal("repairFailureFromBaziContract returned false")
 	}
-	if failure.Class != RepairFactConflict || failure.Field != "static.strength_balance" || failure.Fallback != "facts_only" {
+	if failure.Class != repair.FactConflict || failure.Field != "static.strength_balance" || failure.Fallback != "facts_only" {
 		t.Fatalf("unexpected repair failure: %+v", failure)
 	}
-	decision := DefaultRepairPolicy().Decide(failure, NewRepairState())
-	if decision.Action != RepairActionHardError || decision.Repairable || decision.Retryable {
+	decision := repair.DefaultPolicy().Decide(failure, repair.NewState())
+	if decision.Action != repair.ActionHardError || decision.Repairable || decision.Retryable {
 		t.Fatalf("decision = %+v, want hard non-repairable before recovery fallback", decision)
 	}
 }
@@ -181,7 +185,7 @@ func TestRepairFailureFromBaziContractStaticProjectionValidators(t *testing.T) {
 	tests := []struct {
 		name         string
 		err          func() error
-		wantClass    RepairClass
+		wantClass    repair.Class
 		wantField    string
 		wantFallback string
 	}{
@@ -192,7 +196,7 @@ func TestRepairFailureFromBaziContractStaticProjectionValidators(t *testing.T) {
 				static.MainAxis = ""
 				return validateStaticStage(baziCharterState{StaticSynthesis: static})
 			},
-			wantClass: RepairProjectionMismatch,
+			wantClass: repair.ProjectionMismatch,
 			wantField: "static.main_axis",
 		},
 		{
@@ -200,7 +204,7 @@ func TestRepairFailureFromBaziContractStaticProjectionValidators(t *testing.T) {
 			err: func() error {
 				return validateAllowedValue("static axis level", "乱填", []string{"结构可见", "方向成立"})
 			},
-			wantClass: RepairProjectionMismatch,
+			wantClass: repair.ProjectionMismatch,
 			wantField: "static.axis.level",
 		},
 		{
@@ -215,7 +219,7 @@ func TestRepairFailureFromBaziContractStaticProjectionValidators(t *testing.T) {
 				static.ConflictReasons = []string{"调候冲突，不能拔高。"}
 				return validateStaticAxisVerdictConsistency(static)
 			},
-			wantClass: RepairProjectionMismatch,
+			wantClass: repair.ProjectionMismatch,
 			wantField: "static.axis_ceiling",
 		},
 		{
@@ -226,7 +230,7 @@ func TestRepairFailureFromBaziContractStaticProjectionValidators(t *testing.T) {
 				static.MainAxis = "一飞冲天之象"
 				return validateStaticDecisionConsistency(static)
 			},
-			wantClass: RepairProjectionMismatch,
+			wantClass: repair.ProjectionMismatch,
 			wantField: "static.wording_cap",
 		},
 		{
@@ -239,7 +243,7 @@ func TestRepairFailureFromBaziContractStaticProjectionValidators(t *testing.T) {
 					StaticSynthesis: static,
 				})
 			},
-			wantClass:    RepairEvidenceOverclaim,
+			wantClass:    repair.EvidenceOverclaim,
 			wantField:    "static.axis_level",
 			wantFallback: "facts_only",
 		},
@@ -302,7 +306,7 @@ func TestRepairFailureFromBaziContractFactsOnlyStaticValidators(t *testing.T) {
 			if !ok {
 				t.Fatalf("repairFailureFromBaziContract returned false for %v", err)
 			}
-			if failure.Class != RepairProjectionMismatch || failure.Field != tt.wantField || failure.Fallback != "" {
+			if failure.Class != repair.ProjectionMismatch || failure.Field != tt.wantField || failure.Fallback != "" {
 				t.Fatalf("failure = %+v; want projection mismatch field=%s without fallback", failure, tt.wantField)
 			}
 		})
@@ -313,10 +317,10 @@ func TestRepairFailureFromBaziContractRejectsFactConflictAndMethodContract(t *te
 	tests := []struct {
 		name      string
 		code      string
-		wantClass RepairClass
+		wantClass repair.Class
 	}{
-		{name: "fact conflict", code: "branch_tengod_conflict", wantClass: RepairFactConflict},
-		{name: "method contract", code: "hidden_axis_uncompared", wantClass: RepairMethodContract},
+		{name: "fact conflict", code: "branch_tengod_conflict", wantClass: repair.FactConflict},
+		{name: "method contract", code: "hidden_axis_uncompared", wantClass: repair.MethodContract},
 	}
 
 	for _, tt := range tests {
@@ -329,8 +333,8 @@ func TestRepairFailureFromBaziContractRejectsFactConflictAndMethodContract(t *te
 			if failure.Class != tt.wantClass {
 				t.Fatalf("failure.Class = %q, want %q", failure.Class, tt.wantClass)
 			}
-			decision := DefaultRepairPolicy().Decide(failure, NewRepairState())
-			if decision.Action != RepairActionHardError || decision.Retryable || decision.Repairable {
+			decision := repair.DefaultPolicy().Decide(failure, repair.NewState())
+			if decision.Action != repair.ActionHardError || decision.Retryable || decision.Repairable {
 				t.Fatalf("decision = %+v, want hard non-repairable", decision)
 			}
 		})

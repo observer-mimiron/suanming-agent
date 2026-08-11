@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 )
 
@@ -548,7 +549,7 @@ func claimRefsToStrings(refs []baziClaimRef) []string {
 
 // buildBaziCanonicalRepairFeedback 生成字段级 repair 反馈。
 // learning_hints 只来自代码固化短提示，不读取线上 trace 或候选全文。
-func buildBaziCanonicalRepairFeedback(failure RepairFailure, attempt int) map[string]any {
+func buildBaziCanonicalRepairFeedback(failure repair.Failure, attempt int) map[string]any {
 	feedback := map[string]any{
 		"retry_attempt":  attempt,
 		"failed_stage":   failure.Stage,

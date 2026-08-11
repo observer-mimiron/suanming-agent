@@ -51,8 +51,14 @@ func (o *Orchestrator) SetSupervisor(sv RouteAdvisor) { o.supervisor = sv }
 //  3. 记录轮次 + 上下文窗口维护。
 //  4. 跟踪摘要 + done 事件。
 func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, message string) error {
-	unlock := o.locker.Lock(sessionID)
+	unlock, err := acquireSessionLock(ctx, o.locker, sessionID)
+	if err != nil {
+		return err
+	}
 	defer unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	ctx, trace := o.tracer.StartTrace(ctx, "chat.turn")
 	defer trace.End()
@@ -110,6 +116,32 @@ func (o *Orchestrator) Run(ctx context.Context, sink EventSink, sessionID, messa
 	o.emitTracePanels(ctx, sink, turnType)
 	sink.Emit(ctx, Event{Type: "done", Data: map[string]any{}})
 	return turnErr
+}
+
+// acquireSessionLock 在保持既有 Locker 合同的前提下等待会话锁。
+// Locker 本身不支持 context；请求取消时当前调用立即返回，随后获得锁的
+// 后台等待者会自行释放锁，避免已取消请求继续进入对话执行链。
+func acquireSessionLock(ctx context.Context, locker state.Locker, sessionID string) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	acquired := make(chan func())
+	go func() {
+		unlock := locker.Lock(sessionID)
+		select {
+		case acquired <- unlock:
+		case <-ctx.Done():
+			unlock()
+		}
+	}()
+
+	select {
+	case unlock := <-acquired:
+		return unlock, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // emitRuntimeError converts runtime failures into the public SSE error contract.

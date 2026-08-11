@@ -4,18 +4,22 @@
 // 完整 trace、候选文本、feedback value 或用户隐私。
 package runtime
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
+)
 
 // RepairTraceEvent 是 repair trace 投影的安全输入。
 type RepairTraceEvent struct {
-	Failure           RepairFailure
+	Failure           repair.Failure
 	Attempt           int
 	MaxAttempts       int
-	Action            RepairAction
+	Action            repair.Action
 	Feedback          map[string]any
 	LearningHintCount int
 	Exhausted         bool
-	FinalAction       RepairAction
+	FinalAction       repair.Action
 }
 
 // RepairTraceAttrs 只返回允许写入 trace 的 repair.* 短字段。

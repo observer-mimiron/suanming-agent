@@ -278,7 +278,7 @@ hard_error
 | 控制 | `Phase`、`NextAction`、`LoopStep`、`MaxRunSteps` | 选择下一动作和限制循环 |
 | 输入状态 | `ChartReady`、`AnalysisPlanned`、`NeedDynamic`、`NeedLifetimeDayun`、`CurrentPeriodReady` | 表示前置事实、计划和当前大运引用是否就绪 |
 | 完成状态 | `EvidenceValidated`、`EvidenceNeedsAction`、`StaticAttempted/Accepted`、`LifetimeAttempted/Accepted`、`DynamicAttempted/Accepted` | 防止遗漏阶段或重复执行已完成阶段 |
-| 失败与恢复 | `Failure`、`RecoveryPolicy`、`RepairState`、`RepairFailure`、`RepairAction` | 让合同门后的恢复成为显式动作 |
+| 失败与恢复 | `Failure`、`RecoveryPolicy`、`repair.State`、`repair.Failure`、`repair.Action` | 让合同门后的恢复成为显式动作 |
 | 预算 | `EvidenceAttempts`、`TransportAttempts`、`RepairAttempts` | 分开记录证据、传输和业务 repair |
 | 终态 | `RecoveryState`、`TerminationReason`、`Output` | 供 render、hard error 和外层读取 |
 | 领域载体 | `Payload` | 指向 runtime 的 `baziInternalGraphState`；不参与动作选择，JSON 中排除 |
@@ -320,7 +320,7 @@ Output
 
 | 顺序 | 状态条件 | 下一动作 | 边界 |
 |---:|---|---|---|
-| 1 | 已有 failure | 先交给 `RepairPolicy`；可 repair 则 `repair`，允许 fallback 则 `recover_facts`，否则 `hard_error` | `fact_conflict`、`method_contract` 不调用模型 repair |
+| 1 | 已有 failure | 先交给 `repair.Policy`；可 repair 则 `repair`，允许 fallback 则 `recover_facts`，否则 `hard_error` | `fact_conflict`、`method_contract` 不调用模型 repair |
 | 2 | 没有命盘事实 | `hard_error` | `BAZI_CHART_MISSING`，不允许模型补盘 |
 | 3 | 没有分析计划 | `analysis_plan` | planner 失败时仍有确定性默认计划 |
 | 4 | 证据需要动作 | `evidence_action` | 首次规划/检索，必要时一次定向缺口补检 |
@@ -344,7 +344,7 @@ Output
 | `lifetime_dayun_judgment` | 对全部已计算大运生成全程运路 synthesis。 | `LifetimeCandidate`，只包含逐运/全程结果。 | 进入同一合同门；未接受不能伪装成完整结果。 |
 | `dynamic_judgment` | 只处理当前已绑定大运和目标流年；没有合法 `current_period_ref` 时不调用模型。 | 生成 `DynamicCandidate` 或确定性动态 facts-only。 | 合同失败由 policy 决定 repair、facts-only 或 hard error。 |
 | `contract_check` | 根据当前 `Phase` 校验静态、全程或动态 projection；不调用模型。 | 标记对应 `Accepted`，清理 failure。 | 只写结构化 failure，动作由 `decide_next` 重新选择。 |
-| `repair` | 先调用 `RepairPolicy`，再记录 `RecordRepairAttempt`，只对允许的合同错误调用定向模型 repair。 | 新候选回到 `contract_check`。 | repair 失败仍回合同门，由 policy 决定 fallback 或 hard error。 |
+| `repair` | 先调用 `repair.Policy`，再记录 `repair.RecordAttempt`，只对允许的合同错误调用定向模型 repair。 | 新候选回到 `contract_check`。 | repair 失败仍回合同门，由 policy 决定 fallback 或 hard error。 |
 | `recover_facts` | 只应用已经批准的 deterministic facts-only fallback，丢弃被拒绝的候选文本。 | 标记 degraded recovery，并转 `render`。 | 没有允许的 fallback 时改为 `hard_error`。 |
 | `render` | 合并 field audit，发 thinking/reasoning 和 trace，调用程序化 BaZi renderer 生成 `Output`。 | `TerminationReason=completed`（若未提前设置）。 | final writer 合同失败写 failure，最终转 hard error。 |
 | `hard_error` | 标记 `hard_error` 和 recovery state。 | Graph 结束，返回 typed failure。 | 不暴露被拒绝的模型文本。 |
@@ -412,7 +412,7 @@ flowchart TD
 flowchart LR
     CAND["候选 synthesis"] --> CHECK["contract_check\n只校验"]
     CHECK -->|"accepted"| NEXT["回 decide_next"]
-    CHECK -->|"repairable"| POLICY["RepairPolicy"]
+    CHECK -->|"repairable"| POLICY["repair.Policy"]
     POLICY -->|"允许且预算足"| REPAIR["repair\n定向模型修复"]
     REPAIR --> CHECK
     POLICY -->|"允许 facts-only"| FACTS["recover_facts"]
@@ -425,7 +425,7 @@ flowchart LR
 - `repair` 是唯一允许调用 business repair model 的节点。
 - `fact_conflict` 和 `method_contract` 不得调用模型 repair。
 - transport retry 与 business repair 分开计数；不能用一次 transport 重试冒充一次业务修复。
-- 单阶段 repair 受 `RepairPolicy` 和共享 `internal/repair/` 状态限制；每次 attempt 都要经过 `RecordRepairAttempt`。
+- 单阶段 repair 受 `repair.Policy` 和共享 `internal/repair/` 状态限制；每次 attempt 都要经过 `repair.RecordAttempt`。
 - facts-only 只使用确定性事实和已批准边界；候选模型文本被丢弃，不能把“部分模型成功”当成成功状态。
 
 ### 7.3 外层和内层失败的关系

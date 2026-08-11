@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
 	bazigraph "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/graph"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
@@ -154,17 +155,21 @@ func (e *Executor) runBaziDomainGraph(ctx context.Context, sink EventSink, st *s
 	ctx = withBaziGraphRuntime(ctx, &baziGraphRuntime{Executor: e, Session: st, Sink: sink})
 	payload := &baziInternalGraphState{
 		Question: question, Phase: baziPhaseAnalysisPlan, MaxRunSteps: bazigraph.MaxRunSteps,
-		RecoveryState: baziRecoveryStateClean, RepairState: NewRepairState(),
+		RecoveryState: baziRecoveryStateClean, RepairState: repair.NewState(),
 	}
 	result, err := bazigraph.Run(ctx, e.baziGraphDeps(), &bazigraph.State{
 		Phase: baziPhaseAnalysisPlan, MaxRunSteps: bazigraph.MaxRunSteps, RecoveryState: baziRecoveryStateClean,
-		RepairState: NewRepairState(), Payload: payload,
+		RepairState: repair.NewState(), Payload: payload,
 	})
 	if err != nil {
 		return BaziGraphResult{}, err
 	}
+	terminal, ok := result.Payload.(*baziInternalGraphState)
+	if !ok || terminal == nil {
+		return BaziGraphResult{}, fmt.Errorf("bazi graph terminal payload is invalid")
+	}
 	return BaziGraphResult{
 		Text: result.Text, RecoveryState: result.RecoveryState, TerminationReason: result.TerminationReason,
-		Failure: graphFailureFromBaziGraph(result.Failure), ContractAudit: payload.ChartState.StaticSynthesis.ContractAudit,
+		Failure: graphFailureFromBaziGraph(result.Failure), ContractAudit: terminal.ChartState.StaticSynthesis.ContractAudit,
 	}, nil
 }

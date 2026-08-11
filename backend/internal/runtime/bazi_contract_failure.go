@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
 	"github.com/observer-mimiron/suanming-agent/internal/structured"
 )
 
@@ -142,33 +143,33 @@ func baziContractFailureFromError(stage string, err error) (baziContractFailure,
 
 // repairFailureFromBaziContract maps BaZi-only validation failures into the
 // global Repair Harness contract without changing current control flow.
-func repairFailureFromBaziContract(stage string, err error) (RepairFailure, bool) {
+func repairFailureFromBaziContract(stage string, err error) (repair.Failure, bool) {
 	var schemaErr *structured.Error
 	if errors.As(err, &schemaErr) {
-		failure := RepairFailure{
-			Domain: "bazi", Stage: strings.TrimSpace(stage), Class: RepairSchemaError,
+		failure := repair.Failure{
+			Domain: "bazi", Stage: strings.TrimSpace(stage), Class: repair.SchemaError,
 			Field: schemaErr.Schema, Code: "schema_error", Message: schemaErr.Detail,
 			Fallback: baziStructuredFailureFallback(stage), Cause: err,
 		}
-		decision := DefaultRepairPolicy().Decide(failure, RepairState{})
+		decision := repair.DefaultPolicy().Decide(failure, repair.State{})
 		failure.Retryable, failure.Repairable = decision.Retryable, decision.Repairable
 		return failure, true
 	}
 	if isBaziInnerAgentParseError(err) {
-		failure := RepairFailure{
-			Domain: "bazi", Stage: strings.TrimSpace(stage), Class: RepairParseError,
+		failure := repair.Failure{
+			Domain: "bazi", Stage: strings.TrimSpace(stage), Class: repair.ParseError,
 			Field: "output", Code: "parse_error", Message: err.Error(),
 			Fallback: baziStructuredFailureFallback(stage), Cause: err,
 		}
-		decision := DefaultRepairPolicy().Decide(failure, RepairState{})
+		decision := repair.DefaultPolicy().Decide(failure, repair.State{})
 		failure.Retryable, failure.Repairable = decision.Retryable, decision.Repairable
 		return failure, true
 	}
 	failure, ok := baziContractFailureFromError(stage, err)
 	if !ok {
-		return RepairFailure{}, false
+		return repair.Failure{}, false
 	}
-	repairFailure := RepairFailure{
+	repairFailure := repair.Failure{
 		Domain:   "bazi",
 		Stage:    strings.TrimSpace(stage),
 		Class:    repairClassFromBaziContract(failure.Class),
@@ -183,7 +184,7 @@ func repairFailureFromBaziContract(stage string, err error) (RepairFailure, bool
 		repairFailure.MissingRefs = append([]string(nil), violation.MissingRefs...)
 		repairFailure.AllowedRefs = append([]string(nil), violation.AllowedRefs...)
 	}
-	decision := DefaultRepairPolicy().Decide(repairFailure, RepairState{})
+	decision := repair.DefaultPolicy().Decide(repairFailure, repair.State{})
 	repairFailure.Retryable = decision.Retryable
 	repairFailure.Repairable = decision.Repairable
 	return repairFailure, true
@@ -278,7 +279,7 @@ func baziTraceAttrsForContractFailure(stage string, err error) map[string]any {
 		attrs["bazi.contract.detected_domain"] = failure.DetectedDomain
 	}
 	if repairFailure, ok := repairFailureFromBaziContract(stage, err); ok {
-		decision := DefaultRepairPolicy().Decide(repairFailure, RepairState{})
+		decision := repair.DefaultPolicy().Decide(repairFailure, repair.State{})
 		for key, value := range RepairTraceAttrs(RepairTraceEvent{
 			Failure:     repairFailure,
 			Attempt:     0,
@@ -295,22 +296,22 @@ func baziTraceAttrsForContractFailure(stage string, err error) map[string]any {
 
 // repairClassFromBaziContract bridges the BaZi-local closed taxonomy into the
 // global Repair Harness taxonomy.
-func repairClassFromBaziContract(class string) RepairClass {
+func repairClassFromBaziContract(class string) repair.Class {
 	switch class {
 	case baziContractFailureEvidenceOverclaim:
-		return RepairEvidenceOverclaim
+		return repair.EvidenceOverclaim
 	case baziContractFailureDomainUnauthorized:
-		return RepairDomainUnauthorized
+		return repair.DomainUnauthorized
 	case baziContractFailureProjectionMismatch:
-		return RepairProjectionMismatch
+		return repair.ProjectionMismatch
 	case baziContractFailureSchemaError:
-		return RepairSchemaError
+		return repair.SchemaError
 	case baziContractFailureFactConflict:
-		return RepairFactConflict
+		return repair.FactConflict
 	case baziContractFailureMethodContract:
-		return RepairMethodContract
+		return repair.MethodContract
 	default:
-		return RepairUnknown
+		return repair.Unknown
 	}
 }
 

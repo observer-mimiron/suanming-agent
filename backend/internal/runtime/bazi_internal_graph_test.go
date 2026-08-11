@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
 	bazigraph "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/graph"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/structured"
@@ -99,7 +100,84 @@ func TestBaziRecordInternalFailureReplacesStaleFindingWithParseError(t *testing.
 	if got := attrs["bazi.contract.finding_field"]; got != structuredSchemaBaziStaticSynthesis {
 		t.Fatalf("finding field = %v; want %s", got, structuredSchemaBaziStaticSynthesis)
 	}
-	if got := attrs["bazi.contract.failure_class"]; got != string(RepairSchemaError) {
-		t.Fatalf("failure class = %v; want %s", got, RepairSchemaError)
+	if got := attrs["bazi.contract.failure_class"]; got != string(repair.SchemaError) {
+		t.Fatalf("failure class = %v; want %s", got, repair.SchemaError)
+	}
+}
+
+func TestBaziRecordInternalFailureRecordsTerminalRepairAfterBusinessAttempt(t *testing.T) {
+	tracer := tracing.NewRealTracer(nil)
+	ctx, trace := tracer.StartTrace(context.Background(), "chat.turn")
+	defer trace.End()
+
+	in := &baziInternalGraphState{
+		RepairState: repair.RecordAttempt(repair.NewState(), repair.Attempt{
+			Domain:  "bazi",
+			Stage:   "dynamic_projection",
+			Class:   repair.ProjectionMismatch,
+			Field:   "dynamic.current_period_ref",
+			Attempt: 1,
+			Action:  repair.ActionRepairNode,
+		}),
+	}
+	err := baziViolationError(
+		baziViolationMethodContract,
+		"dynamic.current_period_ref",
+		"",
+		"runtime cannot bind a current dayun",
+		nil,
+		nil,
+	)
+	baziRecordInternalFailure(ctx, in, "dynamic_projection", err, "repair_failed")
+
+	attrs := tracing.TraceFromContext(ctx).Attributes
+	if got := attrs["repair.class"]; got != string(repair.MethodContract) {
+		t.Fatalf("repair.class = %v; want %s", got, repair.MethodContract)
+	}
+	if got := attrs["repair.attempt"]; got != 1 {
+		t.Fatalf("repair.attempt = %v; want 1", got)
+	}
+	if got := attrs["repair.action"]; got != string(repair.ActionHardError) {
+		t.Fatalf("repair.action = %v; want %s", got, repair.ActionHardError)
+	}
+	if got := attrs["repair.final_action"]; got != string(repair.ActionHardError) {
+		t.Fatalf("repair.final_action = %v; want %s", got, repair.ActionHardError)
+	}
+}
+
+func TestBaziContractCheckAfterRepairMarksStaticAuditClean(t *testing.T) {
+	in := &baziInternalGraphState{
+		Phase: baziPhaseRepair,
+		Failure: graphFailure{
+			FailureStage: "static_projection",
+			FailureClass: "contract_error",
+		},
+		ChartState: baziCharterState{
+			StaticSynthesis: buildFactsOnlyStaticSynthesis(baziCharterInput{}, "repair fallback"),
+		},
+	}
+	if _, err := (&Executor{}).baziContractCheckNode(context.Background(), in); err != nil {
+		t.Fatalf("repair contract check returned error: %v", err)
+	}
+	if !in.ChartState.StaticSynthesis.ContractAudit.Compliant || baziContractAuditSummary(in.ChartState.StaticSynthesis.ContractAudit) != "clean" {
+		t.Fatalf("static audit = %+v, want clean", in.ChartState.StaticSynthesis.ContractAudit)
+	}
+}
+
+func TestBaziDynamicFactsOnlyKeepsRecoveryReasonAndCleanAudit(t *testing.T) {
+	in := &baziInternalGraphState{
+		Phase: baziPhaseDynamic,
+		ChartState: baziCharterState{
+			StaticSynthesis: buildFactsOnlyStaticSynthesis(baziCharterInput{}, "static recovery"),
+		},
+	}
+	if _, err := (&Executor{}).baziRecoverFactsNode(context.Background(), in); err != nil {
+		t.Fatalf("dynamic facts-only recovery returned error: %v", err)
+	}
+	if !in.ChartState.DynamicSynthesis.ContractAudit.Compliant || baziContractAuditSummary(in.ChartState.DynamicSynthesis.ContractAudit) != "clean" {
+		t.Fatalf("dynamic audit = %+v, want clean", in.ChartState.DynamicSynthesis.ContractAudit)
+	}
+	if in.ChartState.DynamicSynthesis.RecoveryReason == "" {
+		t.Fatal("dynamic facts-only recovery reason is empty")
 	}
 }

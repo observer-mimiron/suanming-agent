@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
@@ -67,10 +68,10 @@ type baziInternalGraphState struct {
 	RecoveryState     string
 	FailureClass      string
 	RecoveryPolicy    string
-	RepairState       RepairState
+	RepairState       repair.State
 	RepairFailure     baziRepairFailureState
 	RepairFeedback    map[string]any
-	RepairAction      RepairAction
+	RepairAction      repair.Action
 	RepairedStage     string
 	BranchPath        []string
 	Output            string
@@ -192,15 +193,15 @@ func (e *Executor) baziRenderNode(ctx context.Context, in *baziInternalGraphStat
 }
 
 // baziAnnotateRepairFinalAction 更新最后 repair 结果，不投影 feedback value。
-func baziAnnotateRepairFinalAction(ctx context.Context, in *baziInternalGraphState, action RepairAction) {
+func baziAnnotateRepairFinalAction(ctx context.Context, in *baziInternalGraphState, action repair.Action) {
 	if in == nil || in.RepairFailure.Domain == "" {
 		return
 	}
 	failure := in.RepairFailure.runtime()
-	attempt := RepairAttemptsFor(in.RepairState, failure)
-	decision := DefaultRepairPolicy().Decide(failure, in.RepairState)
+	attempt := repair.AttemptsFor(in.RepairState, failure)
+	decision := repair.DefaultPolicy().Decide(failure, in.RepairState)
 	exhausted := decision.Exhausted
-	if action == RepairActionAccept {
+	if action == repair.ActionAccept {
 		exhausted = false
 	}
 	tracing.SetTraceAttributes(ctx, RepairTraceAttrs(RepairTraceEvent{
@@ -227,9 +228,9 @@ func baziAcceptRepair(ctx context.Context, in *baziInternalGraphState, canonical
 	in.FailureClass = ""
 	in.RecoveryPolicy = ""
 	in.RecoveryState = baziRecoveryStateClean
-	in.RepairAction = RepairActionAccept
+	in.RepairAction = repair.ActionAccept
 	baziClearContractFailureTraceAttrs(ctx)
-	baziAnnotateRepairFinalAction(ctx, in, RepairActionAccept)
+	baziAnnotateRepairFinalAction(ctx, in, repair.ActionAccept)
 }
 
 // baziClearContractFailureTraceAttrs 覆盖旧合同失败 trace，不删除 repair 链路信息。
@@ -291,7 +292,8 @@ func baziAnnotateInternalGraphPath(ctx context.Context, in *baziInternalGraphSta
 
 // baziRecordInternalFailure preserves one failure as state-machine metadata so
 // recovery decisions and trace attributes do not have to infer policy from a
-// later generic error.
+// later generic error. It also projects a safe terminal repair result when a
+// prior business repair is followed by a failure that is no longer repairable.
 func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, stage string, err error, recoveryCode string) {
 	if in == nil {
 		return
@@ -310,6 +312,8 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 		"bazi.contract.finding_code":         "",
 		"bazi.contract.finding_field":        "",
 	}
+	var currentRepairFailure repair.Failure
+	var hasCurrentRepairFailure bool
 	if recoveryCode != "" {
 		attrs["bazi.contract.recovery_code"] = recoveryCode
 	}
@@ -336,7 +340,7 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 			MissingRefs:  append([]string(nil), failure.MissingRefs...),
 			AllowedRefs:  append([]string(nil), failure.AllowedRefs...),
 		}
-		in.RepairFailure = repairFailureStateFromRuntime(RepairFailure{
+		in.RepairFailure = repairFailureStateFromRuntime(repair.Failure{
 			Domain:      "bazi",
 			Stage:       stage,
 			Class:       repairClassFromBaziContract(failure.Class),
@@ -350,6 +354,8 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 			Retryable:   failure.RecoveryPolicy == baziRecoveryPolicyRetryOnly,
 			Repairable:  failure.RecoveryPolicy == baziRecoveryPolicyRetryOnly,
 		})
+		currentRepairFailure = in.RepairFailure.runtime()
+		hasCurrentRepairFailure = true
 		attrs["bazi.internal_graph.recovery_state"] = in.RecoveryState
 		attrs["bazi.contract.failure_class"] = failure.Class
 		attrs["bazi.contract.recovery_policy"] = failure.RecoveryPolicy
@@ -373,9 +379,32 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 			AllowedRefs:  append([]string(nil), repairFailure.AllowedRefs...),
 		}
 		in.RepairFailure = repairFailureStateFromRuntime(repairFailure)
+		currentRepairFailure = repairFailure
+		hasCurrentRepairFailure = true
 		attrs["bazi.contract.failure_class"] = in.FailureClass
 		attrs["bazi.contract.recovery_policy"] = in.RecoveryPolicy
 		attrs["bazi.contract.finding_field"] = repairFailure.Field
+	}
+	// 仅在本轮已有业务 repair 且当前 policy 不再允许继续 repair 时补写终态；
+	// 复用安全投影，避免把 repair 后的候选正文或 feedback value 写入 trace。
+	if hasCurrentRepairFailure {
+		decision := repair.DefaultPolicy().Decide(currentRepairFailure, in.RepairState)
+		businessRepairAttempts := 0
+		for _, attempt := range in.RepairState.Attempts {
+			if attempt.Action == repair.ActionRepairNode {
+				businessRepairAttempts++
+			}
+		}
+		if businessRepairAttempts > 0 && !decision.Repairable {
+			tracing.SetTraceAttributes(ctx, RepairTraceAttrs(RepairTraceEvent{
+				Failure:     currentRepairFailure,
+				Attempt:     businessRepairAttempts,
+				MaxAttempts: decision.MaxAttempts,
+				Action:      decision.Action,
+				Exhausted:   decision.Exhausted,
+				FinalAction: decision.Action,
+			}))
+		}
 	}
 	tracing.SetTraceAttributes(ctx, attrs)
 }

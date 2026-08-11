@@ -108,6 +108,8 @@ type Result struct {
 	TerminationReason string
 	Failure           Failure
 	ContractAudit     any
+	// Payload 是 adapter 消费的终态领域数据；Graph 只负责透传，不用它选择动作。
+	Payload any
 }
 
 // Deps is the narrow capability surface required by the BaZi graph. Each
@@ -224,7 +226,13 @@ func Run(ctx context.Context, deps Deps, state *State) (Result, error) {
 	if out == nil {
 		return Result{}, fmt.Errorf("bazi graph returned nil state")
 	}
-	return Result{Text: out.Output, RecoveryState: out.RecoveryState, TerminationReason: out.TerminationReason, Failure: out.Failure}, nil
+	return Result{
+		Text:              out.Output,
+		RecoveryState:     out.RecoveryState,
+		TerminationReason: out.TerminationReason,
+		Failure:           out.Failure,
+		Payload:           out.Payload,
+	}, nil
 }
 
 // validateDeps 在编译前拒绝缺失 callback。这里保持逐项 typed 检查，因为把

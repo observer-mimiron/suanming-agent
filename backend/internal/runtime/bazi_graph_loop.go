@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 )
 
@@ -43,18 +44,18 @@ type BaziGraphResult struct {
 // baziRepairFailureState keeps repair policy input free of error interfaces so
 // it can travel through a single-turn graph state.
 type baziRepairFailureState struct {
-	Domain      string      `json:"domain,omitempty"`
-	Stage       string      `json:"stage,omitempty"`
-	Class       RepairClass `json:"class,omitempty"`
-	Field       string      `json:"field,omitempty"`
-	Code        string      `json:"code,omitempty"`
-	Message     string      `json:"message,omitempty"`
-	Excerpt     string      `json:"excerpt,omitempty"`
-	MissingRefs []string    `json:"missing_refs,omitempty"`
-	AllowedRefs []string    `json:"allowed_refs,omitempty"`
-	Fallback    string      `json:"fallback,omitempty"`
-	Retryable   bool        `json:"retryable,omitempty"`
-	Repairable  bool        `json:"repairable,omitempty"`
+	Domain      string       `json:"domain,omitempty"`
+	Stage       string       `json:"stage,omitempty"`
+	Class       repair.Class `json:"class,omitempty"`
+	Field       string       `json:"field,omitempty"`
+	Code        string       `json:"code,omitempty"`
+	Message     string       `json:"message,omitempty"`
+	Excerpt     string       `json:"excerpt,omitempty"`
+	MissingRefs []string     `json:"missing_refs,omitempty"`
+	AllowedRefs []string     `json:"allowed_refs,omitempty"`
+	Fallback    string       `json:"fallback,omitempty"`
+	Retryable   bool         `json:"retryable,omitempty"`
+	Repairable  bool         `json:"repairable,omitempty"`
 }
 
 func withBaziGraphRuntime(ctx context.Context, runtime *baziGraphRuntime) context.Context {
@@ -69,7 +70,7 @@ func baziGraphRuntimeFromContext(ctx context.Context) (*baziGraphRuntime, error)
 	return runtime, nil
 }
 
-func repairFailureStateFromRuntime(failure RepairFailure) baziRepairFailureState {
+func repairFailureStateFromRuntime(failure repair.Failure) baziRepairFailureState {
 	return baziRepairFailureState{
 		Domain:      failure.Domain,
 		Stage:       failure.Stage,
@@ -86,8 +87,8 @@ func repairFailureStateFromRuntime(failure RepairFailure) baziRepairFailureState
 	}
 }
 
-func (failure baziRepairFailureState) runtime() RepairFailure {
-	return RepairFailure{
+func (failure baziRepairFailureState) runtime() repair.Failure {
+	return repair.Failure{
 		Domain:      failure.Domain,
 		Stage:       failure.Stage,
 		Class:       failure.Class,
@@ -205,11 +206,13 @@ func (e *Executor) baziContractCheckNode(ctx context.Context, in *baziInternalGr
 	in.FailureClass = ""
 	in.RecoveryPolicy = ""
 	if stage == "dynamic_projection" {
+		in.ChartState.DynamicSynthesis.ContractAudit = baziContractAudit{Compliant: true}
 		in.DynamicAccepted = true
 		in.AcceptedDynamic = in.ChartState.DynamicSynthesis
 	} else if stage == "lifetime_projection" {
 		in.LifetimeAccepted = true
 	} else {
+		in.ChartState.StaticSynthesis.ContractAudit = baziContractAudit{Compliant: true}
 		in.StaticAccepted = true
 		in.AcceptedStatic = in.ChartState.StaticSynthesis
 	}
@@ -249,19 +252,19 @@ func (e *Executor) baziRepairNode(ctx context.Context, in *baziInternalGraphStat
 		return nil, err
 	}
 	failure := in.RepairFailure.runtime()
-	decision := DefaultRepairPolicy().Decide(failure, in.RepairState)
+	decision := repair.DefaultPolicy().Decide(failure, in.RepairState)
 	in.RepairAction = decision.Action
-	if decision.Action != RepairActionRepairNode || decision.Exhausted {
+	if decision.Action != repair.ActionRepairNode || decision.Exhausted {
 		return in, nil
 	}
-	attempt := RepairAttemptsFor(in.RepairState, failure) + 1
-	in.RepairState = RecordRepairAttempt(in.RepairState, RepairAttempt{
+	attempt := repair.AttemptsFor(in.RepairState, failure) + 1
+	in.RepairState = repair.RecordAttempt(in.RepairState, repair.Attempt{
 		Domain:  failure.Domain,
 		Stage:   failure.Stage,
 		Class:   failure.Class,
 		Field:   failure.Field,
 		Attempt: attempt,
-		Action:  RepairActionRepairNode,
+		Action:  repair.ActionRepairNode,
 	})
 	in.RepairAttempts++
 	in.RepairFeedback = buildBaziCanonicalRepairFeedback(failure, attempt)
@@ -321,7 +324,7 @@ func (e *Executor) baziRecoverFactsNode(ctx context.Context, in *baziInternalGra
 		in.TerminationReason = "hard_error"
 		return in, nil
 	}
-	baziAnnotateRepairFinalAction(ctx, in, RepairActionFallback)
+	baziAnnotateRepairFinalAction(ctx, in, repair.ActionFallback)
 	in.Failure = graphFailure{}
 	in.FailureStage = ""
 	in.RecoveryCode = ""

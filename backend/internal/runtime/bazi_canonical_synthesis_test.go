@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
 )
 
 func TestProjectCanonicalSynthesis_WithheldTierUsesBoundedRuntimeTemplate(t *testing.T) {
@@ -280,10 +282,10 @@ func TestRenderFullTemplateSeparatesNatalTierAndCurrentMomentum(t *testing.T) {
 }
 
 func TestBuildBaziCanonicalRepairFeedbackSkipsUnmatchedLearningHints(t *testing.T) {
-	feedback := buildBaziCanonicalRepairFeedback(RepairFailure{
+	feedback := buildBaziCanonicalRepairFeedback(repair.Failure{
 		Domain:  "bazi",
 		Stage:   "static_projection",
-		Class:   RepairProjectionMismatch,
+		Class:   repair.ProjectionMismatch,
 		Field:   "static.pattern",
 		Message: "格局投影缺少裁断",
 	}, 1)
@@ -297,10 +299,10 @@ func TestBuildBaziCanonicalRepairFeedbackSkipsUnmatchedLearningHints(t *testing.
 }
 
 func TestRepairLearningHintsForCapsPerField(t *testing.T) {
-	hints := RepairLearningHintsFor(RepairFailure{
+	hints := RepairLearningHintsFor(repair.Failure{
 		Domain: "bazi",
 		Stage:  "static_projection",
-		Class:  RepairProjectionMismatch,
+		Class:  repair.ProjectionMismatch,
 		Field:  "static.tiaohou_anchor",
 	})
 	if len(hints) == 0 || len(hints) > maxRepairLearningHintsPerField {

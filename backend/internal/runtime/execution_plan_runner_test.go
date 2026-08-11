@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,10 +27,15 @@ func TestDomainStepsForRoute_DefaultBaziRouteHasPrimaryStep(t *testing.T) {
 type recordingRunner struct {
 	result specialists.Result
 	calls  *[]string
+	mu     *sync.Mutex
 }
 
 func (r recordingRunner) Run(_ context.Context, req specialists.Request) (specialists.Result, error) {
 	if r.calls != nil {
+		if r.mu != nil {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+		}
 		*r.calls = append(*r.calls, req.Route.PrimaryDomain)
 	}
 	return r.result, nil
@@ -71,12 +77,15 @@ func (r errorResultRunner) Run(context.Context, specialists.Request) (specialist
 func TestExecutor_RunExecutionPlan_DispatchesBoundedSpecialistRunnersForMultiDomain(t *testing.T) {
 	registry := specialists.NewRegistry()
 	var calls []string
+	var callsMu sync.Mutex
 	registry.Register(specialists.Config{Domain: "bazi", Name: "bazi_specialist"}, recordingRunner{
 		calls:  &calls,
+		mu:     &callsMu,
 		result: specialists.Result{Domain: "bazi", Summary: "八字结论"},
 	})
 	registry.Register(specialists.Config{Domain: "ziwei", Name: "ziwei_specialist"}, recordingRunner{
 		calls:  &calls,
+		mu:     &callsMu,
 		result: specialists.Result{Domain: "ziwei", Summary: "紫微补充"},
 	})
 
