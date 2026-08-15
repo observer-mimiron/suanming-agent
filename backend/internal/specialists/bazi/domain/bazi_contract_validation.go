@@ -454,16 +454,10 @@ func validateCharterConsistency(state baziCharterState) error {
 	if err := validateStaticTiaohouEvidenceWording(state); err != nil {
 		return err
 	}
-	if err := validateStaticAxisAgainstChartFacts(state); err != nil {
-		return err
-	}
 	if strings.TrimSpace(state.DynamicSynthesis.CurrentTrend) == "" {
 		return nil
 	}
 	if err := validateDynamicDecisionConsistency(state.DynamicSynthesis); err != nil {
-		return err
-	}
-	if err := validateCurrentDayunLineConsistency(state.DynamicSynthesis); err != nil {
 		return err
 	}
 	return nil
@@ -573,16 +567,6 @@ func firstTiaohouMissingEvidencePhrase(text string) string {
 		}
 	}
 	return ""
-}
-
-// validateCurrentDayunLineConsistency 约束当前大运总述与当前大运条目保持同线，
-// 避免同一步运同时被写成“承托主轴”和“偏压/压制主轴”的相反口径。
-func validateCurrentDayunLineConsistency(d baziDynamicSynthesis) error {
-	// Direction words are explanatory language, not chart facts. A mixed trend
-	// can legitimately describe the same luck pillar from multiple dimensions;
-	// record suspicious wording in soft audit instead of rejecting the report.
-	_ = d
-	return nil
 }
 
 // validateStaticAxisVerdictConsistency 校验轴线裁断字段之间的封顶关系。
@@ -718,13 +702,6 @@ func validateStaticDecisionConsistency(s baziStaticSynthesis) error {
 		!allowsFlourishByWordingCap(s.WordingCap, "positive_flourish") {
 		return projectionMismatchViolation("static.wording_cap", "static synthesis overstates wording beyond wording cap", nil)
 	}
-	return nil
-}
-
-// validateStaticAxisAgainstChartFacts leaves methodology disputes to model eval.
-// Runtime guards only reject structural field conflicts elsewhere in the graph.
-func validateStaticAxisAgainstChartFacts(state baziCharterState) error {
-	_ = state
 	return nil
 }
 

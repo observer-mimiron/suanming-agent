@@ -66,10 +66,11 @@ func NewClient(baseURL string) *Client {
 	return &Client{baseURL: baseURL, client: &http.Client{Timeout: 15 * time.Second}}
 }
 
-// Passage 是一条知识库检索结果，包含文本内容和来源标识。
+// Passage 是一条知识库检索结果；Content 供模型参考，Quote 是可选的完整短引文。
 type Passage struct {
 	Content string `json:"content"`
 	Source  string `json:"source"`
+	Quote   string `json:"quote,omitempty"`
 }
 
 // GraphNode 是知识库图谱中的一个页面节点。
@@ -141,6 +142,7 @@ func (c *Client) SearchKnowledge(query string, topK int) ([]Passage, error) {
 			Slug    string `json:"slug"`
 			Title   string `json:"title"`
 			Snippet string `json:"snippet"`
+			Quote   string `json:"quote"`
 		} `json:"results"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -156,6 +158,7 @@ func (c *Client) SearchKnowledge(query string, topK int) ([]Passage, error) {
 		passages = append(passages, Passage{
 			Content: snippet,
 			Source:  fmt.Sprintf("knowledge://%s (%s)", r.Slug, r.Title),
+			Quote:   strings.TrimSpace(r.Quote),
 		})
 	}
 	if len(passages) == 0 {

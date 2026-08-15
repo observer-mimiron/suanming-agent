@@ -461,7 +461,7 @@ func requiredTopicsForStaticAssertion(kind baziAssertionKind, requiredTopics []s
 
 // evidenceStatusForTopics returns withheld when any referenced authority topic
 // is missing, otherwise supported.
-func evidenceStatusForTopics(quality baziEvidenceQuality, topics []string) string {
+func evidenceStatusForTopics(quality EvidenceQuality, topics []string) string {
 	for _, topic := range topics {
 		if containsString(quality.MissingTopics, topic) || !containsString(quality.CoveredTopics, topic) {
 			return baziEvidenceWithheld

@@ -35,13 +35,13 @@ func (e *Executor) runBaziEvidenceStage(ctx context.Context, view *specialists.S
 		plan = normalizeBaziEvidencePlan(plan, chartFacts, analysisPlan)
 	}
 	bundle := e.runControlledBaziRetrieval(ctx, plan, baziEvidenceInitialQueryBudget, baziEvidenceCitationBudget)
-	quality := bazidomain.EvaluateEvidenceQuality(plan, bundle)
+	quality := bazidomain.EvaluateEvidenceBundleQuality(plan, bundle)
 	if shouldReflectOnBaziEvidence(plan, bundle) {
 		supplement := buildEvidenceSupplementPlan(plan, bundle)
 		remainingCitations := baziEvidenceCitationBudget - len(bundle.Citations)
 		if remainingCitations > 0 {
 			bundle = mergeEvidenceBundles(bundle, e.runControlledBaziRetrieval(ctx, supplement, baziEvidenceSupplementQueryBudget, remainingCitations))
-			quality = bazidomain.EvaluateEvidenceQuality(plan, bundle)
+			quality = bazidomain.EvaluateEvidenceBundleQuality(plan, bundle)
 		}
 	}
 	return plan, bundle, quality
@@ -324,7 +324,7 @@ func citationsFromKnowledgeResult(result any, packet baziQueryPacket) []baziCita
 	switch passages := rawPassages.(type) {
 	case []mcp.Passage:
 		for _, passage := range passages {
-			out = mergeCitations(out, citationFromPassage(passage.Source, passage.Content, packet))
+			out = mergeCitations(out, citationFromPassage(passage.Source, passage.Content, passage.Quote))
 		}
 	case []any:
 		for _, raw := range passages {
@@ -334,7 +334,8 @@ func citationsFromKnowledgeResult(result any, packet baziQueryPacket) []baziCita
 			}
 			source, _ := pm["source"].(string)
 			content, _ := pm["content"].(string)
-			out = mergeCitations(out, citationFromPassage(source, content, packet))
+			quote, _ := pm["quote"].(string)
+			out = mergeCitations(out, citationFromPassage(source, content, quote))
 		}
 	}
 
@@ -379,8 +380,8 @@ func filterPreferredCitations(items []baziCitation, preferredSources []string) [
 	return filtered
 }
 
-// citationFromPassage 将单条检索片段映射为可合并的古籍引用。
-func citationFromPassage(source, content string, packet baziQueryPacket) baziCitation {
+// citationFromPassage 将单条检索片段映射为可合并的古籍引用，优先使用知识库提供的完整短引文。
+func citationFromPassage(source, content, quote string) baziCitation {
 	if !isSubstantiveBaziPassage(source, content) {
 		return baziCitation{}
 	}
@@ -388,9 +389,10 @@ func citationFromPassage(source, content string, packet baziQueryPacket) baziCit
 	if classic == "" {
 		classic = source
 	}
+	quote = firstNonEmptyTrim(quote, content)
 	return baziCitation{
 		Classic: classic,
-		Quotes:  []string{strings.TrimSpace(content)},
+		Quotes:  []string{quote},
 	}
 }
 

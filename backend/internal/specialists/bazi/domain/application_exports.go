@@ -182,11 +182,6 @@ func ClaimRefAllowsAssertionKind(profile RuleProfile, ref string, kind Assertion
 	return claimRefAllowsAssertionKind(profile, ref, kind)
 }
 
-// EvaluateEvidenceQuality checks retrieval coverage for the active evidence plan.
-func EvaluateEvidenceQuality(plan EvidencePlan, bundle EvidenceBundle) EvidenceQuality {
-	return evaluateEvidenceBundleQuality(plan, bundle)
-}
-
 // EvidenceSupported is the accepted evidence status.
 const EvidenceSupported = baziEvidenceSupported
 

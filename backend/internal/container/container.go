@@ -141,7 +141,7 @@ func BuildContainer() *Container {
 	if flashModel == "" {
 		flashModel = cfg.LLMModel
 	}
-	flashClient := mustNewChatClient(cfg, llm.FactoryConfig{
+	flashClient := mustNewChatClient(llm.FactoryConfig{
 		APIKey:          cfg.LLMApiKey,
 		BaseURL:         cfg.LLMBaseURL,
 		Model:           flashModel,
@@ -154,15 +154,15 @@ func BuildContainer() *Container {
 
 	// 工具注册表
 	reg := tools.NewRegistry()
-	registerTool(reg, &baziCalc.CalcTool{})
-	registerTool(reg, &baziCalc.YongShenTool{})
-	registerTool(reg, &baziCalc.DayunAnalyzer{})
-	registerTool(reg, &baziCalc.BaziLiuNianTool{})
-	registerTool(reg, &qimenAdapter.Tool{})
-	registerTool(reg, &ziweiTools.ZiWeiCalcTool{})
-	registerTool(reg, &ziweiTools.ZiWeiLiuNianTool{})
-	registerTool(reg, tools.NewKnowledgeSearchTool(mcpClient))
-	registerTool(reg, tools.NewKnowledgeCatalogTool(mcpClient))
+	reg.Register(&baziCalc.CalcTool{})
+	reg.Register(&baziCalc.YongShenTool{})
+	reg.Register(&baziCalc.DayunAnalyzer{})
+	reg.Register(&baziCalc.BaziLiuNianTool{})
+	reg.Register(&qimenAdapter.Tool{})
+	reg.Register(&ziweiTools.ZiWeiCalcTool{})
+	reg.Register(&ziweiTools.ZiWeiLiuNianTool{})
+	reg.Register(tools.NewKnowledgeSearchTool(mcpClient))
+	reg.Register(tools.NewKnowledgeCatalogTool(mcpClient))
 
 	// 会话存储 + 锁
 	store := state.NewPersistentStore(sessionDir)
@@ -317,11 +317,7 @@ func BuildContainer() *Container {
 	}
 }
 
-func registerTool(reg *tools.Registry, tool tools.Tool) {
-	reg.RegisterWithContract(tool, tools.DefaultContractFor(tool.Name()))
-}
-
-func mustNewChatClient(_ *config.Config, factoryCfg llm.FactoryConfig) llm.Chat {
+func mustNewChatClient(factoryCfg llm.FactoryConfig) llm.Chat {
 	client, err := llm.NewChatClient(context.Background(), factoryCfg)
 	if err != nil {
 		panic(err)

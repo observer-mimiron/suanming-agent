@@ -29,6 +29,9 @@ export const RERANK_SNIPPET_CHARS = 800;
 /** Maximum characters of page body returned in retrieval snippets. */
 export const RETRIEVE_SNIPPET_CHARS = 320;
 
+/** Maximum characters allowed in a complete quotation returned for display. */
+export const RETRIEVE_QUOTE_CHARS = 160;
+
 export const RERANK_PROMPT = `You are a wiki search assistant. Given a user's question and a set of candidate wiki pages (with content snippets), re-rank them by relevance to the question.
 
 Judge each page on these criteria:
@@ -104,6 +107,45 @@ export function extractBestSnippet(
   return content.slice(bestStart, bestStart + maxChars);
 }
 
+/**
+ * Extract one complete, short sentence from the readable page body for a
+ * user-visible citation. Search snippets remain optimized for relevance and
+ * may be clipped, so they must not be presented as original text.
+ */
+export function extractDisplayQuote(
+  content: string,
+  queryTokens: string[],
+  maxChars: number = RETRIEVE_QUOTE_CHARS,
+): string {
+  const body = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("#") && !line.startsWith(">"))
+    .join(" ");
+  const candidates = body
+    .split(/(?<=[。！？!?；;])/u)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) =>
+      sentence.length >= 4
+      && sentence.length <= maxChars
+      && !sentence.includes("…")
+      && !sentence.includes("...")
+      && !/^[0-9一二三四五六七八九十百]+[、.．]\s*论/.test(sentence),
+    );
+  if (candidates.length === 0) return "";
+
+  const terms = queryTokens.map((token) => token.toLowerCase()).filter(Boolean);
+  return candidates
+    .map((sentence) => ({
+      sentence,
+      score: terms.reduce(
+        (total, term) => total + (sentence.toLowerCase().includes(term) ? 1 : 0),
+        0,
+      ),
+    }))
+    .sort((a, b) => b.score - a.score)[0].sentence;
+}
+
 // ---------------------------------------------------------------------------
 // Reciprocal Rank Fusion (RRF)
 // ---------------------------------------------------------------------------
@@ -153,6 +195,8 @@ export interface RetrievalPassage {
   title: string;
   summary: string;
   snippet: string;
+  /** Complete short quote when the source has a display-safe sentence. */
+  quote?: string;
   score: number;
 }
 
@@ -230,15 +274,17 @@ export async function retrievePassages(
     if (!entry) {
       continue;
     }
-    const page = await readWikiPage(slug);
+    const page = await readWikiPageWithFrontmatter(slug);
     const snippet = page
       ? extractBestSnippet(page.content, snippetTokens, RETRIEVE_SNIPPET_CHARS).replace(/\n+/g, " ").trim()
       : entry.summary;
+    const quote = page ? extractDisplayQuote(page.body, snippetTokens) : "";
     passages.push({
       slug,
       title: entry.title,
       summary: entry.summary,
       snippet: snippet || entry.summary,
+      ...(quote ? { quote } : {}),
       score: fusedSlugs.length - index,
     });
   }

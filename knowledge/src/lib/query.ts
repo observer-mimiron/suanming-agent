@@ -37,6 +37,7 @@ export type { CorpusStats };
 // Re-export search/ranking helpers from query-search.ts for backwards
 // compatibility — callers that import from "./query" continue to work.
 export {
+  extractDisplayQuote,
   extractBestSnippet,
   reciprocalRankFusion,
   searchIndex,

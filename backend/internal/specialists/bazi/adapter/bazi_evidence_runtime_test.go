@@ -65,11 +65,14 @@ func TestBuildEvidenceSupplementPlanUsesOneWidenedQuery(t *testing.T) {
 func TestCitationsFromKnowledgeResultRejectsBookLandingPages(t *testing.T) {
 	result := map[string]any{"passages": []mcp.Passage{
 		{Source: "knowledge://ref-bazi-qiongtong (穷通宝鉴)", Content: "穷通宝鉴 > 清代余春台"},
-		{Source: "knowledge://ref-bazi-qiongtong-s001 (五行总论)", Content: "丙火生于亥月，火气受制，取用须先察寒暖燥湿与全局通关。"},
+		{Source: "knowledge://ref-bazi-qiongtong-s001 (五行总论)", Content: "…丙火生于亥月，火气受制，取用须先察寒暖燥湿与全局通关，后文仍有补充。…", Quote: "丙火生于亥月，火气受制，取用须先察寒暖燥湿。"},
 	}}
 	citations := citationsFromKnowledgeResult(result, baziQueryPacket{PreferredSources: []string{"穷通宝鉴"}})
 	if len(citations) != 1 || citations[0].Classic != "穷通宝鉴" {
 		t.Fatalf("citations = %#v, want one substantive 穷通宝鉴 chapter", citations)
+	}
+	if got := citations[0].Quotes[0]; got != "丙火生于亥月，火气受制，取用须先察寒暖燥湿。" {
+		t.Fatalf("citation quote = %q", got)
 	}
 }
 

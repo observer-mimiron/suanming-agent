@@ -8,7 +8,7 @@ describe("runtime retrieval ranking", () => {
       "穷通宝鉴 丙火 亥月 调候",
       [
         { slug: "ref-bazi-qiongtong", title: "穷通宝鉴", summary: "书籍入口", snippet: "书籍入口", score: 9 },
-        { slug: "ref-bazi-qiongtong-s001", title: "五行总论", summary: "原文", snippet: "可引用原文", score: 8 },
+        { slug: "ref-bazi-qiongtong-s001", title: "五行总论", summary: "原文", snippet: "可引用原文", quote: "五行贵在折衷，归于中道。", score: 8 },
         { slug: "ref-bazi-ziping-s007", title: "论十干合而不合", summary: "原文", snippet: "可引用原文", score: 10 },
       ],
       [],
@@ -16,6 +16,7 @@ describe("runtime retrieval ranking", () => {
     );
 
     expect(results.map((result) => result.slug)).toEqual(["ref-bazi-qiongtong-s001"]);
+    expect(results[0].quote).toBe("五行贵在折衷，归于中道。");
   });
 
   it("recognizes only numbered bazi chapters as substantive", () => {

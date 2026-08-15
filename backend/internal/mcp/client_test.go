@@ -47,7 +47,7 @@ func TestSearchKnowledgeUsesRetrieveEndpoint(t *testing.T) {
 			t.Fatalf("limit = %q, want %q", limit, "3")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"slug":"ziping-geju","title":"子平真诠 论格局","snippet":"格局以月令为主"}]}`))
+		_, _ = w.Write([]byte(`{"results":[{"slug":"ziping-geju","title":"子平真诠 论格局","snippet":"格局以月令为主","quote":"格局以月令为主，先察喜忌。"}]}`))
 	}))
 	defer srv.Close()
 
@@ -67,6 +67,9 @@ func TestSearchKnowledgeUsesRetrieveEndpoint(t *testing.T) {
 	}
 	if passages[0].Source != "knowledge://ziping-geju (子平真诠 论格局)" {
 		t.Fatalf("source = %q", passages[0].Source)
+	}
+	if passages[0].Quote != "格局以月令为主，先察喜忌。" {
+		t.Fatalf("quote = %q", passages[0].Quote)
 	}
 }
 

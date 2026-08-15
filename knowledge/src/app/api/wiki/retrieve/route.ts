@@ -87,6 +87,7 @@ export function mergeRetrievalResults(
       title: result.title,
       summary: result.summary,
       snippet: result.snippet,
+      quote: ranked.get(result.slug)?.item.quote,
       score: result.score,
     };
     const score = 100 + contentExactScore(query, result);

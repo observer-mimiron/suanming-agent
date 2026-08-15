@@ -7,6 +7,7 @@ import {
     buildContext,
     buildCorpusStats,
     buildQuerySystemPrompt,
+    extractDisplayQuote,
     extractBestSnippet,
     extractCitedSlugs,
     HTML_FORMAT_INSTRUCTION,
@@ -640,6 +641,25 @@ describe("extractBestSnippet", () => {
     const content = "word ".repeat(500);
     const result = extractBestSnippet(content, ["word"], 200);
     expect(result.length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("extractDisplayQuote", () => {
+  it("returns a complete relevant sentence without headings or metadata", () => {
+    const content = [
+      "# 五行总论",
+      "> ⭐⭐⭐⭐⭐ | 清·余春台",
+      "五行者，本乎天地之间而不穷者也，故谓之行。",
+      "乙木生于亥月，先察寒暖燥湿，再论扶抑取用。",
+    ].join("\n");
+
+    expect(extractDisplayQuote(content, ["乙木", "亥月"])).toBe(
+      "乙木生于亥月，先察寒暖燥湿，再论扶抑取用。",
+    );
+  });
+
+  it("omits clipped or overlong text instead of fabricating a quotation", () => {
+    expect(extractDisplayQuote(`…${"甲".repeat(200)}。`, ["甲"])).toBe("");
   });
 });
 
