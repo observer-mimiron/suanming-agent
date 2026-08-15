@@ -55,3 +55,14 @@ func TestProjectCanonicalStaticSynthesisWithholdsUnknownTiaohouEffectiveness(t *
 		t.Fatalf("tiaohou anchor = %q, want %q", static.TiaohouAnchor, want)
 	}
 }
+
+func TestProjectCanonicalDynamicSynthesisUsesFactsOnlyForOmittedVerdicts(t *testing.T) {
+	state := baziCharterState{AnalysisPlan: baziAnalysisPlan{NeedDynamic: true}}
+	static := baziStaticSynthesis{}
+
+	dynamic := projectCanonicalDynamicSynthesis(state, baziCanonicalSynthesis{Source: "model"}, static)
+
+	if dynamic.Source != bazidomain.FactsOnlySource {
+		t.Fatalf("dynamic source = %q, want %q", dynamic.Source, bazidomain.FactsOnlySource)
+	}
+}

@@ -190,6 +190,13 @@ func projectCanonicalDynamicSynthesis(state baziCharterState, c baziCanonicalSyn
 		return baziDynamicSynthesis{}
 	}
 	facts := bazidomain.BuildFactsOnlyDynamicSynthesis(state.Input, static, "")
+	currentTrend := firstNonEmptyTrim(c.DayunOverview.Verdict, facts.CurrentTrend)
+	liunianFocus := firstNonEmptyTrim(c.Liunian.Verdict, facts.LiunianFocus)
+	// 两个结论同时精确匹配确定性 facts-only 模板时，丢弃模型附带的趋势字段。
+	// 否则会出现正文声明“只展示事实”，却仍由渲染器展示年性等动态判断。
+	if currentTrend == facts.CurrentTrend && liunianFocus == facts.LiunianFocus {
+		return facts
+	}
 	judgments := projectCanonicalDayunJudgments(state, c)
 	dayunPath := facts.DayunPath
 	if len(judgments) > 0 {
@@ -202,7 +209,7 @@ func projectCanonicalDynamicSynthesis(state baziCharterState, c baziCanonicalSyn
 	claimStrength := canonicalConfidence(firstNonEmptyTrim(c.DayunOverview.Confidence, c.Liunian.Confidence))
 	out := baziDynamicSynthesis{
 		Source:                   firstNonEmptyTrim(c.Source, "model"),
-		CurrentTrend:             firstNonEmptyTrim(c.DayunOverview.Verdict, facts.CurrentTrend),
+		CurrentTrend:             currentTrend,
 		CurrentPeriodRealization: c.CurrentPeriodRealization,
 		ClaimStrength:            claimStrength,
 		SupportLevel:             canonicalSupportLevel(claimStrength),
@@ -212,7 +219,7 @@ func projectCanonicalDynamicSynthesis(state baziCharterState, c baziCanonicalSyn
 		DayunPath:                dayunPath,
 		DayunJudgments:           judgments,
 		CurrentDayunIndex:        facts.CurrentDayunIndex,
-		LiunianFocus:             firstNonEmptyTrim(c.Liunian.Verdict, facts.LiunianFocus),
+		LiunianFocus:             liunianFocus,
 		WindowLevel:              canonicalWindowLevel(c.Liunian.Verdict),
 		TriggerSignals:           canonicalTriggerSignals(state, c),
 		KeyWindows:               []string{firstNonEmptyTrim(c.DayunOverview.Verdict, "本轮只作结构观察。")},
