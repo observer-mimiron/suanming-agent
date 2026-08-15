@@ -144,12 +144,14 @@ func acquireSessionLock(ctx context.Context, locker state.Locker, sessionID stri
 	}
 }
 
-// emitRuntimeError converts runtime failures into the public SSE error contract.
+// emitRuntimeError 将可展示的执行失败投影为普通对话文本。
+// 错误仍通过返回值和 trace 留给诊断，不能再以独立红色错误块打断对话。
 func emitRuntimeError(ctx context.Context, sink EventSink, err error, stage string) {
 	if sink == nil || err == nil {
 		return
 	}
-	sink.Emit(ctx, Event{Type: "error", Data: appRuntime.RuntimeFailureEventData(ctx, err, stage)})
+	data := appRuntime.RuntimeFailureEventData(ctx, err, stage)
+	sink.Emit(ctx, Event{Type: "text", Data: map[string]any{"content": data["message"]}})
 }
 
 // emitTracePanels emits the single frontend diagnostic contract.

@@ -102,7 +102,7 @@ func TestEmitTracePanels_SendsRunInspectionComponent(t *testing.T) {
 	}
 }
 
-func TestRun_EmitsErrorAndDoneOnRuntimeFailure(t *testing.T) {
+func TestRun_EmitsConversationPromptAndDoneOnRuntimeFailure(t *testing.T) {
 	exec, err := appRuntime.NewExecutor(tools.NewRegistry(), specialists.NewRegistry(), nil, nil, nil, appRuntime.ExecutorConfig{})
 	if err != nil {
 		t.Fatalf("NewExecutor() error = %v", err)
@@ -120,33 +120,30 @@ func TestRun_EmitsErrorAndDoneOnRuntimeFailure(t *testing.T) {
 		t.Fatal("Run() error = nil, want runtime failure")
 	}
 
-	var errorIndex, doneIndex = -1, -1
+	var textIndex, doneIndex = -1, -1
 	for i, evt := range sink.events {
 		switch evt.Type {
-		case "error":
-			errorIndex = i
+		case "text":
+			textIndex = i
 			data, ok := evt.Data.(map[string]any)
 			if !ok {
-				t.Fatalf("error event data = %T, want map", evt.Data)
+				t.Fatalf("text event data = %T, want map", evt.Data)
 			}
-			if got := data["code"]; got != "REQUIRED_ARTIFACT_UNAVAILABLE" {
-				t.Fatalf("error code = %v, want REQUIRED_ARTIFACT_UNAVAILABLE", got)
-			}
-			if got := data["message"]; got == "" {
-				t.Fatalf("error message must be user-visible, got %v", got)
+			if got := data["content"]; got != "本轮没有拿到必需的命盘或问事盘结果，无法继续解释。请稍后重试。" {
+				t.Fatalf("conversation prompt = %v, want artifact-missing prompt", got)
 			}
 		case "done":
 			doneIndex = i
 		}
 	}
-	if errorIndex < 0 {
-		t.Fatalf("events missing error: %+v", sink.events)
+	if textIndex < 0 {
+		t.Fatalf("events missing conversation prompt: %+v", sink.events)
 	}
 	if doneIndex < 0 {
 		t.Fatalf("events missing done: %+v", sink.events)
 	}
-	if errorIndex > doneIndex {
-		t.Fatalf("error event must be emitted before done, error=%d done=%d", errorIndex, doneIndex)
+	if textIndex > doneIndex {
+		t.Fatalf("conversation prompt must be emitted before done, text=%d done=%d", textIndex, doneIndex)
 	}
 }
 

@@ -24,12 +24,13 @@ type preflightResult struct {
 // preflight 在执行 agent 前做确定性硬判断，确保模型只能在批准边界内行动。
 //
 // 流程：
-//  1. sniff + 已有 guidance → 计算 guidance 下一步（不写 session）
-//  2. collect_profile 意图 → 根据资料完整度决定是否短路
-//  3. NeedsClarification → 短路返回澄清文本
-//  4. profile_requirement=full 但没有完整资料 → 短路
-//  5. bazi 主域无资料且无命盘 → 短路
-//  6. ziwei 主域无资料且无命盘 → 短路
+//  1. 已识别的八字/紫微出生资料先校验排盘工具支持范围
+//  2. sniff + 已有 guidance → 计算 guidance 下一步（不写 session）
+//  3. collect_profile 意图 → 根据资料完整度决定是否短路
+//  4. NeedsClarification → 短路返回澄清文本
+//  5. profile_requirement=full 但没有完整资料 → 短路
+//  6. bazi 主域无资料且无命盘 → 短路
+//  7. ziwei 主域无资料且无命盘 → 短路
 func preflight(st *state.SessionState, route policy.ApprovedRoute, message string, router intent.Router) preflightResult {
 	return preflightWithPlan(st, ExecutionPlan{Route: route}, message, router)
 }
@@ -53,6 +54,13 @@ func preflightWithPlan(st *state.SessionState, plan ExecutionPlan, message strin
 			ShortCircuit: true,
 			TurnType:     "clarification",
 			Text:         guidance.Render(guidance.Request{Boundary: guidance.BoundaryCollectGenderFromBirthTime}),
+		}
+	}
+	if needsBirthYearClarification(workingState.ActiveProfile(), route) {
+		return preflightResult{
+			ShortCircuit: true,
+			TurnType:     "clarification",
+			Text:         "目前仅支持 1900 至 2100 年的出生年份，请确认后重新输入。",
 		}
 	}
 
@@ -251,6 +259,20 @@ func needsGenderClarification(profile map[string]any, route policy.ApprovedRoute
 		return false
 	}
 	return state.NormalizeGender(profile["gender"]) == ""
+}
+
+// needsBirthYearClarification 在资料进入八字或紫微排盘前拦截工具不支持的年份。
+// 与工具的年份范围保持一致，避免工具失败后才向用户展示无关的命盘缺失提示。
+func needsBirthYearClarification(profile map[string]any, route policy.ApprovedRoute) bool {
+	if route.PrimaryDomain != "bazi" && route.PrimaryDomain != "ziwei" {
+		return false
+	}
+	rawYear, hasYear := profile["year"]
+	if !hasYear {
+		return false
+	}
+	year := toFloat(rawYear)
+	return year < 1900 || year > 2100
 }
 
 // shouldBypassBaziBirthClarification lets a complete BaZi birth-data turn

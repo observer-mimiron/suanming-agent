@@ -169,6 +169,27 @@ func TestPreflight_InvalidGenderExpressionPromptsBeforeBaziExecution(t *testing.
 	}
 }
 
+func TestPreflight_UnsupportedBirthYearPromptsBeforeChartExecution(t *testing.T) {
+	for _, domain := range []string{"bazi", "ziwei"} {
+		t.Run(domain, func(t *testing.T) {
+			st := state.NewSession("test-session")
+			route := routeWithHints(domain, "amend_profile", "none", "full")
+			route.Slots.Profile = map[string]any{
+				"birthplace": "北京", "year": 1895.0, "month": 12.0, "day": 1.0, "hour": 8.0, "gender": "女",
+			}
+
+			result := preflight(st, route, "1895年12月1日北京女", nil)
+			if !result.ShortCircuit || result.TurnType != "clarification" {
+				t.Fatalf("unsupported birth year should short circuit, got %+v", result)
+			}
+			const want = "目前仅支持 1900 至 2100 年的出生年份，请确认后重新输入。"
+			if result.Text != want {
+				t.Fatalf("prompt = %q, want %q", result.Text, want)
+			}
+		})
+	}
+}
+
 // TestPreflight_BaziWithoutProfileOrChartBlocks 验证八字主域无资料且无命盘时，preflight
 // 返回 ask_missing_profile（collect_profile/amend_profile 除外）。
 func TestPreflight_BaziWithoutProfileOrChartBlocks(t *testing.T) {
