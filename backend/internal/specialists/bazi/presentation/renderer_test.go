@@ -106,6 +106,27 @@ func TestPresentationFullReportPlacesOverviewFirstWithoutRepeat(t *testing.T) {
 	}
 }
 
+func TestValidateFinalWriterOutputRequiresOverviewTierAndBoundary(t *testing.T) {
+	plan := baziAnalysisPlan{WriterTemplate: "full"}
+	output := RenderFinalReply(FinalReplyInput{AnalysisPlan: AnalysisPlan{WriterTemplate: "full"}})
+	for _, tc := range []struct {
+		name    string
+		output  string
+		wantErr bool
+	}{
+		{name: "accepts current labels", output: output},
+		{name: "rejects missing tier", output: strings.Replace(output, "**格局评价**", "**其他评价**", 1), wantErr: true},
+		{name: "rejects missing boundary", output: strings.Replace(output, "**判断边界**", "**其他说明**", 1), wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateFinalWriterOutput(plan, baziCharterState{}, tc.output)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validateFinalWriterOutput() error = %v, wantErr %t", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestPresentationFullReportUsesCompactLifetimeEntries(t *testing.T) {
 	output := RenderFinalReply(FinalReplyInput{
 		AnalysisPlan: AnalysisPlan{NeedLifetimeDayun: true},

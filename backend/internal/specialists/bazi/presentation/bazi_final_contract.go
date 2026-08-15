@@ -54,8 +54,8 @@ func validateFinalWriterOutput(plan baziAnalysisPlan, state baziCharterState, ou
 		if err := validateOrderedHeadings(overviewSection, []string{"### 本命总断"}); err != nil {
 			return fmt.Errorf("full writer output must preserve 总览结论收束格式: %w", err)
 		}
-		if !strings.Contains(overviewSection, "**格局评价**") || !strings.Contains(overviewSection, "**主要限制**") {
-			return fmt.Errorf("full writer output must expose tier and limitation in 总览结论")
+		if !strings.Contains(overviewSection, "**格局评价**") || !strings.Contains(overviewSection, "**判断边界**") {
+			return fmt.Errorf("full writer output must expose tier and boundary in 总览结论")
 		}
 		nextHeading := "## 当前应期"
 		if plan.NeedLifetimeDayun {
