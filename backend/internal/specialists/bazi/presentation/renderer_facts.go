@@ -101,12 +101,12 @@ func lifetimePeriodStemTenGod(state FinalReplyInput, ref string) string {
 // 它不复用模型自由断语，避免已确定的运干或十神事实被不一致地重述。
 func lifetimePeriodEffectSummary(effect string) string {
 	return map[string]string{
-		"complete_pattern":  "此运对本命结构形成补全作用，具体兑现仍须结合流年观察。",
-		"support_use":       "此运对本命用神形成助力，具体力度仍以已计算关系为准。",
-		"carry_balance":     "此运以平衡承接为主，顺逆仍须结合原局限制观察。",
-		"damage_use":        "此运会削弱既有承接条件，宜以已计算关系保守观察。",
-		"break_pattern":     "此运对既有结构的扰动较大，不预设具体现实应事。",
-		"transform_pattern": "此运体现结构转化，是否成局仍须结合已声明事实判断。",
+		"complete_pattern":  "此运可补足本命结构。",
+		"support_use":       "此运有助于发挥本命用神。",
+		"carry_balance":     "此运侧重维持结构平衡。",
+		"damage_use":        "此运会削弱原有承接。",
+		"break_pattern":     "此运会扰动原有结构。",
+		"transform_pattern": "此运体现结构转化。",
 		"undetermined":      "本运仅保留已计算事实，不扩展趋势判断。",
 	}[strings.TrimSpace(effect)]
 }
@@ -211,6 +211,9 @@ func buildFactsOnlyDayunConclusion(state FinalReplyInput) string {
 // buildMinorDayunConclusion keeps child and adolescent readings on growth
 // cadence even when the dynamic model returns a full luck-cycle analysis.
 func buildMinorDayunConclusion(state FinalReplyInput) string {
+	if limitsFortuneProse(state) {
+		return buildDayunConclusion(state)
+	}
 	if state.DynamicSynthesis.FactsOnly {
 		return buildFactsOnlyDayunConclusion(state)
 	}
@@ -261,7 +264,7 @@ func buildMinorFactsOnlyDayunBullets(state FinalReplyInput) []string {
 // buildMinorDayunBullets caps child display to current and near-term periods.
 // It may show model wording already validated upstream, but never the full adult table.
 func buildMinorDayunBullets(state FinalReplyInput) []string {
-	if state.DynamicSynthesis.FactsOnly {
+	if state.DynamicSynthesis.FactsOnly || limitsFortuneProse(state) {
 		return buildMinorFactsOnlyDayunBullets(state)
 	}
 	periods := renderedDayunPeriods(state)

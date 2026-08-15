@@ -3,6 +3,8 @@ package presentation
 import (
 	"strings"
 	"testing"
+
+	bazidomain "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/domain"
 )
 
 func TestPresentationTiaohouConclusionPrefersAnchor(t *testing.T) {
@@ -71,6 +73,22 @@ func TestPresentationShowsReadableClassicalReferences(t *testing.T) {
 	}
 }
 
+func TestPresentationFiltersSeasonalReferenceConflictingWithDayMaster(t *testing.T) {
+	output := RenderFinalReply(FinalReplyInput{
+		Facts: ChartFacts{DayMaster: "丙"},
+		EvidenceBundle: EvidenceBundle{Citations: []Citation{
+			{Classic: "穷通宝鉴", Quotes: []string{"冬月之金，形寒性冷。"}},
+			{Classic: "子平真诠", Quotes: []string{"用神既定，则须观其成败救应。"}},
+		}},
+	})
+	if strings.Contains(output, "冬月之金") {
+		t.Fatalf("output kept conflicting seasonal quote: %s", output)
+	}
+	if !strings.Contains(output, "用神既定，则须观其成败救应。") {
+		t.Fatalf("output removed generic reference: %s", output)
+	}
+}
+
 func TestConciseDisplayTextKeepsCompleteClauseOverCap(t *testing.T) {
 	input := "流年子午冲时柱子水，增加变动与不稳定因素。"
 	if got := conciseDisplayText(input, 8); got != input {
@@ -102,9 +120,64 @@ func TestPresentationFullReportUsesCompactLifetimeEntries(t *testing.T) {
 		},
 	})
 
-	want := "- **庚子运（4-13岁）｜扶助用神**：庚为正官；此运对本命用神形成助力，具体力度仍以已计算关系为准。"
+	want := "- **庚子运（4-13岁）｜扶助用神**：庚为正官；此运有助于发挥本命用神。"
 	if !strings.Contains(output, want) {
 		t.Fatalf("full report missing compact lifetime entry %q: %s", want, output)
+	}
+}
+
+func TestBaziPresentationDayunPeriodsOmitsTimestampRange(t *testing.T) {
+	periods := baziPresentationDayunPeriods(map[string]any{
+		"dayun_analyzed": map[string]any{"dayun_analyzed": []any{map[string]any{
+			"ganZhi": "甲午", "startAge": 64, "endAge": 73,
+			"startAt": "2058-01-21 12:08:00", "endAtExclusive": "2068-01-21 12:08:00",
+		}}},
+	})
+	if len(periods) != 1 || periods[0].Label != "甲午运（64-73岁）" {
+		t.Fatalf("period labels = %#v", periods)
+	}
+}
+
+func TestBaziPresentationStaticCarriesTierStatus(t *testing.T) {
+	static := baziStaticSynthesis{TierAssessment: bazidomain.TierAssessment{Status: "provisional"}}
+	if got := baziPresentationStatic(static).TierStatus; got != "provisional" {
+		t.Fatalf("tier status = %q", got)
+	}
+}
+
+func TestPresentationProvisionalTierSuppressesFortuneProse(t *testing.T) {
+	output := RenderFinalReply(FinalReplyInput{
+		AnalysisPlan: AnalysisPlan{NeedLifetimeDayun: true},
+		Facts: ChartFacts{
+			LiunianGanZhi: "丙午", LiunianTenGod: "比肩",
+			DayunPeriods: []DayunPeriod{{Ref: "dayun[0]", Label: "庚寅运（24-33岁）", GanZhi: "庚寅", TenGod: "偏财"}},
+		},
+		StaticSynthesis: StaticSynthesis{TierStatus: "provisional", TierJudgment: "格局判断暂定"},
+		LifetimeSynthesis: LifetimeDayunSynthesis{
+			Status: "accepted", Summary: "结构兑现较顺", Trajectory: "smooth_realization",
+			PeriodClaims: []LifetimeDayunClaim{{PeriodRef: "dayun[0]", PeriodEffect: "support_use"}},
+		},
+		DynamicSynthesis: DynamicSynthesis{
+			CurrentTrend: "当前大运结构兑现较顺。", LiunianFocus: "吉中带险。", WindowLevel: "扰动年",
+		},
+	})
+	for _, forbidden := range []string{"结构兑现较顺", "吉中带险", "扰动年"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("provisional report leaked %q: %s", forbidden, output)
+		}
+	}
+	if !strings.Contains(output, "**流年干支**：丙午") {
+		t.Fatalf("provisional report lost calculated fact: %s", output)
+	}
+}
+
+func TestPresentationLimitationTextAvoidsTerminalPunctuationBeforeJoin(t *testing.T) {
+	output := buildPresentationLimitationText(FinalReplyInput{StaticSynthesis: StaticSynthesis{
+		CounterEvidence: "调候有效性尚待核验。",
+		TierBasis:       "清浊关系仍需继续核对。",
+	}})
+	if strings.Contains(output, "。；") {
+		t.Fatalf("limitation contains bad punctuation: %q", output)
 	}
 }
 

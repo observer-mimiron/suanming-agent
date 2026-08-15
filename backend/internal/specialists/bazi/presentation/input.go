@@ -40,7 +40,7 @@ type ChartFacts struct {
 	FireEffectivenessKnown bool
 }
 
-// DayunPeriod 是最终文本需要的大运目录项；日期和关系已在 Label 中完成稳定投影。
+// DayunPeriod 是最终文本需要的大运目录项；Label 只保留干支与起止年龄。
 type DayunPeriod struct {
 	Ref    string
 	Label  string
@@ -85,6 +85,7 @@ type StaticSynthesis struct {
 	StrengthBalance   string
 	Strength          StrengthJudgment
 	Usage             UsageLayers
+	TierStatus        string
 	TierJudgment      string
 	TierBasis         string
 	ReasoningSummary  string

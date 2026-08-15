@@ -100,12 +100,22 @@ func baziPresentationDayunPeriods(dayun map[string]any) []DayunPeriod {
 	for index, period := range periods {
 		out = append(out, DayunPeriod{
 			Ref:    fmt.Sprintf("dayun[%d]", index),
-			Label:  bazidomain.DayunPeriodDisplayLabel(period),
+			Label:  compactDayunPeriodLabel(bazidomain.DayunPeriodDisplayLabel(period)),
 			GanZhi: strings.TrimSpace(bazidomain.StringValue(period["ganZhi"])),
 			TenGod: strings.TrimSpace(bazidomain.StringValue(period["tenGod"])),
 		})
 	}
 	return out
+}
+
+// compactDayunPeriodLabel 在最终报告中隐藏精确交运时刻，保留用户阅读所需的起止年龄。
+func compactDayunPeriodLabel(label string) string {
+	label = strings.TrimSpace(label)
+	index := strings.Index(label, "；")
+	if index < 0 || !strings.Contains(label[:index], "（") || !strings.Contains(label[index:], "）") {
+		return label
+	}
+	return strings.TrimSpace(label[:index]) + "）"
 }
 
 // baziPresentationStatic copies only renderer-owned static slots.
@@ -129,6 +139,7 @@ func baziPresentationStatic(static baziStaticSynthesis) StaticSynthesis {
 			Fuyi:    static.Usage.Fuyi,
 			Tiaohou: static.Usage.Tiaohou,
 		},
+		TierStatus:        static.TierAssessment.Status,
 		TierJudgment:      static.TierJudgment,
 		TierBasis:         static.TierBasis,
 		ReasoningSummary:  static.ReasoningSummary,

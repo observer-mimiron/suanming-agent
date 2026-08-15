@@ -36,7 +36,16 @@ func joinOrDefault(items []string, fallback string) string {
 	if len(items) == 0 {
 		return cleanUserVisibleText(fallback)
 	}
-	return cleanUserVisibleText(strings.Join(items, "；"))
+	clauses := make([]string, 0, len(items))
+	for _, item := range items {
+		if item = strings.TrimRight(cleanUserVisibleText(item), "。；"); item != "" {
+			clauses = append(clauses, item)
+		}
+	}
+	if len(clauses) == 0 {
+		return cleanUserVisibleText(fallback)
+	}
+	return strings.Join(clauses, "；") + "。"
 }
 
 // conciseDisplayText trims verbose model-safe boundary prose into one readable

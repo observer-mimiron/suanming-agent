@@ -91,7 +91,7 @@ func renderPresentationFullTemplate(state FinalReplyInput) string {
 	writeBullets(&b, []string{
 		labeledBullet("判定依据", state.StaticSynthesis.TierBasis),
 	})
-	writeClassicalReferences(&b, state.EvidenceBundle.Citations)
+	writeClassicalReferences(&b, state)
 	writeHighlightBlock(&b, "断语所限", buildOverviewLimitationSummary(state))
 
 	if state.AnalysisPlan.NeedLifetimeDayun {
@@ -105,8 +105,8 @@ func renderPresentationFullTemplate(state FinalReplyInput) string {
 	if isMinorBaziSubject(state) {
 		writeConclusion(&b, buildMinorDayunConclusion(state))
 		writeBullets(&b, buildMinorDayunBullets(state))
-	} else if state.DynamicSynthesis.FactsOnly {
-		writeConclusion(&b, "当前大运仅保留可复算事实，暂不判断趋势。")
+	} else if state.DynamicSynthesis.FactsOnly || limitsFortuneProse(state) {
+		writeConclusion(&b, buildDayunConclusion(state))
 		writeBullets(&b, factsOnlyCurrentDayunBullets(state))
 	} else {
 		writeConclusion(&b, buildDayunConclusion(state))
@@ -116,8 +116,8 @@ func renderPresentationFullTemplate(state FinalReplyInput) string {
 	}
 
 	writeSubheading(&b, "流年应期")
-	if state.DynamicSynthesis.FactsOnly {
-		writeConclusion(&b, "流年只展示干支、十神和已计算关系，不展开现实应事。")
+	if state.DynamicSynthesis.FactsOnly || limitsFortuneProse(state) {
+		writeConclusion(&b, buildLiunianConclusion(state))
 		writeBullets(&b, buildLiunianFactBullets(state))
 	} else {
 		writeConclusion(&b, buildLiunianConclusion(state))
@@ -197,9 +197,13 @@ func renderPresentationTopicTemplate(state FinalReplyInput) string {
 
 func renderPresentationYearTemplate(state FinalReplyInput) string {
 	var b strings.Builder
-	if state.DynamicSynthesis.FactsOnly {
+	if state.DynamicSynthesis.FactsOnly || limitsFortuneProse(state) {
 		writeHeading(&b, "年度判断")
-		writeConclusion(&b, "受授权边界限制，本轮只展示可复算年度事实，不判断现实应事。")
+		conclusion := "受授权边界限制，本轮只展示可复算年度事实，不判断现实应事。"
+		if limitsFortuneProse(state) {
+			conclusion = "格局评价尚未确定，本轮只展示可复算年度事实。"
+		}
+		writeConclusion(&b, conclusion)
 		writeParagraphs(&b, []string{"原局参考：" + fallbackText(state.StaticSynthesis.MainAxis, "静态综合未提供主轴裁断。")})
 
 		writeHeading(&b, "作用机制")
