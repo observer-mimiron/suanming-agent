@@ -73,16 +73,19 @@ func TestPresentationShowsReadableClassicalReferences(t *testing.T) {
 	}
 }
 
-func TestPresentationFiltersSeasonalReferenceConflictingWithDayMaster(t *testing.T) {
+func TestPresentationFiltersClassicalReferencesConflictingWithChart(t *testing.T) {
 	output := RenderFinalReply(FinalReplyInput{
-		Facts: ChartFacts{DayMaster: "丙"},
+		Facts: ChartFacts{DayMaster: "丙", MonthCommand: "亥"},
 		EvidenceBundle: EvidenceBundle{Citations: []Citation{
 			{Classic: "穷通宝鉴", Quotes: []string{"冬月之金，形寒性冷。"}},
+			{Classic: "穷通宝鉴", Quotes: []string{"论丙火：三春丙火，秉象至威。"}},
 			{Classic: "子平真诠", Quotes: []string{"用神既定，则须观其成败救应。"}},
 		}},
 	})
-	if strings.Contains(output, "冬月之金") {
-		t.Fatalf("output kept conflicting seasonal quote: %s", output)
+	for _, unwanted := range []string{"冬月之金", "三春丙火"} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("output kept conflicting seasonal quote %q: %s", unwanted, output)
+		}
 	}
 	if !strings.Contains(output, "用神既定，则须观其成败救应。") {
 		t.Fatalf("output removed generic reference: %s", output)
@@ -173,7 +176,12 @@ func TestPresentationProvisionalTierSuppressesFortuneProse(t *testing.T) {
 			LiunianGanZhi: "丙午", LiunianTenGod: "比肩",
 			DayunPeriods: []DayunPeriod{{Ref: "dayun[0]", Label: "庚寅运（24-33岁）", GanZhi: "庚寅", TenGod: "偏财"}},
 		},
-		StaticSynthesis: StaticSynthesis{TierStatus: "provisional", TierJudgment: "格局判断暂定"},
+		StaticSynthesis: StaticSynthesis{
+			TierStatus:     "provisional",
+			TierJudgment:   "格局判断暂定",
+			MainAxis:       "以七杀格为主轴，食神制杀与杀印相生并见。",
+			PatternOutcome: "食神制杀条件不足，食神弱需印星转化。",
+		},
 		LifetimeSynthesis: LifetimeDayunSynthesis{
 			Status: "accepted", Summary: "结构兑现较顺", Trajectory: "smooth_realization",
 			PeriodClaims: []LifetimeDayunClaim{{PeriodRef: "dayun[0]", PeriodEffect: "support_use"}},
@@ -182,9 +190,18 @@ func TestPresentationProvisionalTierSuppressesFortuneProse(t *testing.T) {
 			CurrentTrend: "当前大运结构兑现较顺。", LiunianFocus: "吉中带险。", WindowLevel: "扰动年",
 		},
 	})
-	for _, forbidden := range []string{"结构兑现较顺", "吉中带险", "扰动年"} {
+	for _, forbidden := range []string{"结构兑现较顺", "吉中带险", "扰动年", "扶助用神", "有助于发挥本命用神", "食神弱需印星转化"} {
 		if strings.Contains(output, forbidden) {
 			t.Fatalf("provisional report leaked %q: %s", forbidden, output)
+		}
+	}
+	for _, want := range []string{
+		"**庚寅运（24-33岁）**：庚为偏财",
+		"**候选主轴**：以七杀格为主轴，食神制杀与杀印相生并见。",
+		"候选主轴仍须完成清浊、病药与救应等条件核验；当前独立证据未全，本轮不据此定局。",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("provisional report missing %q: %s", want, output)
 		}
 	}
 	if !strings.Contains(output, "**流年干支**：丙午") {

@@ -77,11 +77,13 @@ func renderPresentationFullTemplate(state FinalReplyInput) string {
 	})
 
 	writeHeading(&b, "格局视角")
-	writeConclusion(&b, withoutAxisEcho(state, state.StaticSynthesis.PatternOutcome, "格局取用与总览主轴一致，不再重复表述。"))
-	writeBullets(&b, []string{
+	writeConclusion(&b, buildPresentationPatternConclusion(state))
+	patternBullets := []string{
 		"**规则口径**：" + ruleProfileLabel(state),
+		labeledBullet("候选主轴", buildPresentationCandidateAxis(state)),
 		labeledBullet("依据", buildPresentationPatternEvidence(state)),
-	})
+	}
+	writeBullets(&b, patternBullets)
 
 	writeSubheading(&b, "格局评价")
 	writeBullets(&b, []string{

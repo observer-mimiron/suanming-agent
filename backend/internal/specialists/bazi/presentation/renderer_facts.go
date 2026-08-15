@@ -61,12 +61,17 @@ func buildLiunianFactBullets(state FinalReplyInput) []string {
 }
 
 // renderLifetimeDayunBullets 以紧凑条目展示每步大运，避免当前运覆盖全程判断。
+// 格局暂定时只展示大运标签和运干十神，不把效果枚举写成趋势判断。
 func renderLifetimeDayunBullets(state FinalReplyInput) []string {
 	if state.LifetimeSynthesis.Status != "accepted" {
 		return []string{"**状态**：全程运路未通过完整合同，未以事实目录冒充综合判断。"}
 	}
 	items := make([]string, 0, len(state.LifetimeSynthesis.PeriodClaims))
 	for _, claim := range state.LifetimeSynthesis.PeriodClaims {
+		if limitsFortuneProse(state) {
+			items = append(items, "**"+lifetimePeriodLabel(state, claim.PeriodRef)+"**："+lifetimePeriodStemTenGod(state, claim.PeriodRef))
+			continue
+		}
 		items = append(items, "**"+lifetimePeriodLabel(state, claim.PeriodRef)+"｜"+lifetimePeriodEffectLabel(claim.PeriodEffect)+"**："+lifetimePeriodStemTenGod(state, claim.PeriodRef)+"；"+lifetimePeriodEffectSummary(claim.PeriodEffect))
 	}
 	return items

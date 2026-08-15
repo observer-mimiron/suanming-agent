@@ -89,7 +89,7 @@ func writeClassicalReferences(b *strings.Builder, state FinalReplyInput) {
 			classic = "《" + classic + "》"
 		}
 		for _, quote := range filterNonEmpty(citation.Quotes) {
-			quote = classicalQuoteForDisplay(state.Facts.DayMaster, quote)
+			quote = classicalQuoteForDisplay(state.Facts.DayMaster, state.Facts.MonthCommand, quote)
 			if quote == "" {
 				continue
 			}
@@ -112,8 +112,8 @@ func writeClassicalReferences(b *strings.Builder, state FinalReplyInput) {
 	writeBullets(b, lines)
 }
 
-// classicalQuoteForDisplay 过滤元数据、章节标题、残句和与日主明确冲突的季令引文。
-func classicalQuoteForDisplay(dayMaster, raw string) string {
+// classicalQuoteForDisplay 过滤元数据、章节标题、残句和与命盘季节明确冲突的引文。
+func classicalQuoteForDisplay(dayMaster, monthCommand, raw string) string {
 	quote := strings.TrimSpace(raw)
 	if quote == "" || len([]rune(quote)) < 4 || len([]rune(quote)) > 160 {
 		return ""
@@ -129,29 +129,64 @@ func classicalQuoteForDisplay(dayMaster, raw string) string {
 	if classicalChapterHeadingPattern.MatchString(quote) {
 		return ""
 	}
-	if !seasonalQuoteMatchesDayMaster(dayMaster, quote) {
+	if !seasonalQuoteMatchesChart(dayMaster, monthCommand, quote) {
 		return ""
 	}
 	return quote
 }
 
-// seasonalQuoteMatchesDayMaster 只拦截直接写明五行且与日主冲突的冬月引文。
+// seasonalQuoteMatchesChart 只拦截日主五行或季节与命盘明确冲突的引文。
 // 这不是检索相关性判断，无法确定的通用取法仍保留展示。
-func seasonalQuoteMatchesDayMaster(dayMaster, quote string) bool {
+func seasonalQuoteMatchesChart(dayMaster, monthCommand, quote string) bool {
 	runes := []rune(strings.TrimSpace(dayMaster))
-	if len(runes) == 0 {
-		return true
-	}
-	element := map[rune]string{'甲': "木", '乙': "木", '丙': "火", '丁': "火", '戊': "土", '己': "土", '庚': "金", '辛': "金", '壬': "水", '癸': "水"}[runes[0]]
-	if element == "" {
-		return true
-	}
-	for _, candidate := range []string{"木", "火", "土", "金", "水"} {
-		if strings.Contains(quote, "冬月之"+candidate) {
-			return candidate == element
+	if len(runes) > 0 {
+		element := map[rune]string{'甲': "木", '乙': "木", '丙': "火", '丁': "火", '戊': "土", '己': "土", '庚': "金", '辛': "金", '壬': "水", '癸': "水"}[runes[0]]
+		for _, candidate := range []string{"木", "火", "土", "金", "水"} {
+			if element != "" && strings.Contains(quote, "冬月之"+candidate) && candidate != element {
+				return false
+			}
 		}
 	}
-	return true
+	return seasonalQuoteMatchesMonthCommand(monthCommand, quote)
+}
+
+// seasonalQuoteMatchesMonthCommand 只校验引文明确声明的四季与月令是否冲突。
+func seasonalQuoteMatchesMonthCommand(monthCommand, quote string) bool {
+	monthCommand = strings.TrimSpace(monthCommand)
+	if monthCommand == "" {
+		return true
+	}
+	requiredBranches := ""
+	switch {
+	case strings.Contains(quote, "三春") || strings.Contains(quote, "春月") || strings.Contains(quote, "孟春") || strings.Contains(quote, "仲春") || strings.Contains(quote, "季春"):
+		requiredBranches = "寅卯辰"
+	case strings.Contains(quote, "三夏") || strings.Contains(quote, "夏月") || strings.Contains(quote, "孟夏") || strings.Contains(quote, "仲夏") || strings.Contains(quote, "季夏"):
+		requiredBranches = "巳午未"
+	case strings.Contains(quote, "三秋") || strings.Contains(quote, "秋月") || strings.Contains(quote, "孟秋") || strings.Contains(quote, "仲秋") || strings.Contains(quote, "季秋"):
+		requiredBranches = "申酉戌"
+	case strings.Contains(quote, "三冬") || strings.Contains(quote, "冬月") || strings.Contains(quote, "孟冬") || strings.Contains(quote, "仲冬") || strings.Contains(quote, "季冬"):
+		requiredBranches = "亥子丑"
+	}
+	if requiredBranches == "" {
+		return true
+	}
+	return strings.ContainsAny(monthCommand, requiredBranches)
+}
+
+// buildPresentationPatternConclusion 将暂定主轴限制为候选观察，不把它写成已成立路线。
+func buildPresentationPatternConclusion(state FinalReplyInput) string {
+	if limitsFortuneProse(state) {
+		return "候选主轴仍须完成清浊、病药与救应等条件核验；当前独立证据未全，本轮不据此定局。"
+	}
+	return withoutAxisEcho(state, state.StaticSynthesis.PatternOutcome, "格局取用与总览主轴一致，不再重复表述。")
+}
+
+// buildPresentationCandidateAxis 在层次证据不足时，将已验收主轴明确标为候选。
+func buildPresentationCandidateAxis(state FinalReplyInput) string {
+	if !limitsFortuneProse(state) {
+		return ""
+	}
+	return firstDisplayText(conciseDisplayText(state.StaticSynthesis.MainAxis, 140), "本轮未形成可展示候选主轴。")
 }
 
 // buildUseGodSummary combines only strength and seasonal lenses. Pattern text
