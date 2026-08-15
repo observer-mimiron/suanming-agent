@@ -1,9 +1,13 @@
+# 本文件属于 eval runner 层，负责执行真实 /api/chat 回放并核验 SSE、trace 和回答合同。
+# 它只生成可追溯的机器报告，不负责生成命理结论或替代人工/模型质量判断。
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import pathlib
 import re
+import subprocess
 import sys
 import time
 import uuid
@@ -74,15 +78,46 @@ def parse_expected_any_values(value: Any) -> list[str]:
     return parse_csv_list([str(value)])
 
 
+def reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Reject duplicate object keys so an assertion cannot be silently replaced."""
+    payload: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ValueError(f"duplicate JSON key: {key}")
+        payload[key] = value
+    return payload
+
+
 def load_dataset(dataset_path: str) -> dict[str, Any]:
     path = pathlib.Path(dataset_path)
     if not path.exists():
         raise FileNotFoundError(f"dataset not found: {dataset_path}")
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_json_keys)
     cases = list(payload.get("cases") or [])
     if not cases:
         raise RuntimeError(f"dataset has no cases: {dataset_path}")
     return payload
+
+
+def repository_revision() -> str:
+    """Return the tested Git revision and mark uncommitted source as dirty."""
+    try:
+        revision = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    value = revision.stdout.strip() or "unknown"
+    return value + ("-dirty" if status.stdout.strip() else "")
 
 
 def invoke_chat(server_url: str, session_id: str, message: str, timeout_seconds: int) -> str:
@@ -517,6 +552,11 @@ def smoke_case(
             if allowed and str(actual) not in allowed:
                 raise RuntimeError(f"trace attribute mismatch for {key}: {actual!r} not in {allowed!r}")
 
+        for key in case.get("trace_attributes_must_be_absent") or []:
+            actual = get_trace_field(trace_detail, str(key))
+            if actual not in (None, ""):
+                raise RuntimeError(f"forbidden trace attribute {key}: {actual!r}")
+
         optional_trace_attribute_any = case.get("optional_trace_attribute_any") or {}
         for key, allowed_raw in optional_trace_attribute_any.items():
             allowed = parse_expected_any_values(allowed_raw)
@@ -596,6 +636,26 @@ def failure_class_counts(results: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def build_report(payload: dict[str, Any], args: argparse.Namespace, results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build a report with revision, dataset and endpoint metadata for auditability."""
+    passed = sum(1 for item in results if item["passed"])
+    failed = len(results) - passed
+    return {
+        "dataset": str(payload["name"]),
+        "dataset_version": str(payload.get("version") or "unknown"),
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "git_revision": repository_revision(),
+        "server_url": args.server_url,
+        "langfuse_url": args.langfuse_url,
+        "repeats": args.repeats,
+        "passed": passed,
+        "failed": failed,
+        "pass_rate": 0 if not results else passed / len(results),
+        "failure_classes": failure_class_counts(results),
+        "results": results,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a local eval dataset against /api/chat and Langfuse")
     parser.add_argument("--dataset-path", required=True)
@@ -640,18 +700,7 @@ def main() -> int:
                 result["repeat"] = repeat
                 results.append(result)
 
-    passed = sum(1 for item in results if item["passed"])
-    failed = sum(1 for item in results if not item["passed"])
-    total = passed + failed
-    summary = {
-        "dataset": str(payload["name"]),
-        "repeats": args.repeats,
-        "passed": passed,
-        "failed": failed,
-        "pass_rate": 0 if total == 0 else passed / total,
-        "failure_classes": failure_class_counts(results),
-        "results": results,
-    }
+    summary = build_report(payload, args, results)
 
     if args.report_path:
         report_path = pathlib.Path(args.report_path)

@@ -4,7 +4,7 @@ SHELL := /bin/bash
         langfuse-start langfuse-stop langfuse-status langfuse-restart \
         knowledge-start knowledge-stop knowledge-status knowledge-restart \
         backend-start backend-stop backend-restart \
-        regression eval-smoke eval-suite eval-bazi-quality eval-bazi-stability eval-bazi-answer-quality eval-repair cheap-gate-report \
+        regression eval-smoke eval-suite eval-bazi-quality eval-bazi-stability eval-bazi-answer-quality eval-bazi-review eval-repair cheap-gate-report \
         frontend-start frontend-stop frontend-status frontend-restart restart restart-core status \
         clean clean-logs clean-sessions
 
@@ -100,19 +100,28 @@ regression:
 	@bash eval/runner/run-agent-regression.sh
 
 eval-smoke:
-	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/runtime-smoke-v1.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001}
+	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/runtime-smoke-v2.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --include-response
 
 eval-suite:
 	@bash eval/runner/run-langfuse-eval-suite.sh --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001}
 
 eval-bazi-quality:
-	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-quality-v1.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-quality-v1.json --include-response
+	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-quality-v2.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-quality-v2.json --include-response
 
 eval-bazi-stability:
 	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-stability-v1.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-stability-v1.json --repeats 10
 
 eval-bazi-answer-quality:
-	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-answer-quality-v1.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-answer-quality-v1.json --include-response
+	@bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-answer-quality-v2.json --server-url http://localhost:8080 --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-answer-quality-v2.json --include-response
+
+eval-bazi-review:
+	@set +e; \
+	bash eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/bazi-quality-v2.json --server-url $${AGENT_REGRESSION_SERVER:-http://localhost:8080} --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-quality-v2.json --include-response; \
+	eval_status=$$?; \
+	python3 eval/runner/run_answer_quality_judge.py --mode current --dataset-path eval/datasets/bazi-quality-v2.json --current-report-path eval/reports/bazi-quality-v2.json --langfuse-url $${LANGFUSE_URL:-http://localhost:3001} --report-path eval/reports/bazi-answer-quality-judge-current.json --write-scores; \
+	judge_status=$$?; \
+	if [ $$eval_status -ne 0 ]; then exit $$eval_status; fi; \
+	exit $$judge_status
 
 eval-repair:
 	@go test ./backend/internal/runtime -run 'Test(ShouldRetryModelCallError|ModelCallRetryDecisionRetriesEmptyOutput|RepairHTTPStatusRetryable|RepairPolicy|RepairTraceAttrs|RepairFailureFromBaziContract|BaziRepair|BaziRecoveryDecisionStaticTiaohou|BaziCanonicalRepair)' -count=1

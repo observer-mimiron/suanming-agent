@@ -1,0 +1,92 @@
+{
+  "name": "bazi-quality-v2",
+  "version": "2",
+  "description": "八字核心质量合同：用儿童未交运与成人已交运两条代表性路径，分别验证年龄边界和动态裁定，不与 Repair 故障回归重复",
+  "cases": [
+    {
+      "id": "bazi-quality-child-before-first-dayun",
+      "timeout_seconds": 300,
+      "message": "2025年11月10日23点53分 男 上海",
+      "include_response": true,
+      "sse_must_not_emit_error": true,
+      "response_must_contain_all": [
+        "总览结论",
+        "主轴",
+        "强弱视角",
+        "调候视角",
+        "格局视角",
+        "格局评价",
+        "判断边界",
+        "全程运路",
+        "流年应期",
+        "当前应期",
+        "本命总断",
+        "当前阶段"
+      ],
+      "response_must_not_contain": [
+        "上游未提供",
+        "月令未透所以排除月令格局",
+        "婴幼儿疾病",
+        "事业突破",
+        "学业突破",
+        "财富增长",
+        "事业压力",
+        "婚姻",
+        "健康风险",
+        "承托与压力并见",
+        "压力面可见",
+        "结构承接可见",
+        "调候规则表尚未实现",
+        "规则表未实现",
+        "调候视角未完成"
+      ],
+      "expected_route_primary": "bazi",
+      "expected_task_intent_any": ["collect_profile", "interpret_chart", "amend_profile"],
+      "expected_turn_type_any": ["agent_reading"],
+      "required_observations": ["preflight", "sse_emit"],
+      "expected_trace_attributes": {
+        "bazi.static.contract_audit": "clean",
+        "bazi.static.source": "model",
+        "bazi.dynamic.contract_audit": "clean",
+        "bazi.dynamic.source": "facts_only_degraded",
+        "bazi.final.audit_result": "clean"
+      },
+      "trace_attributes_must_be_absent": ["bazi.final_writer.validation_err"]
+    },
+    {
+      "id": "bazi-quality-adult-active-dayun",
+      "timeout_seconds": 300,
+      "message": "1994年1月21日20点30分 女 南京",
+      "include_response": true,
+      "sse_must_not_emit_error": true,
+      "response_must_contain_all": [
+        "总览结论",
+        "全程运路",
+        "流年应期",
+        "格局评价",
+        "判断边界"
+      ],
+      "response_must_not_contain": [
+        "候选推演与事实或方法合同冲突",
+        "已停止展示不稳定内容",
+        "请稍后重试",
+        "dynamic_facts.",
+        "上游未提供",
+        "调候规则表尚未实现",
+        "规则表未实现"
+      ],
+      "expected_route_primary": "bazi",
+      "expected_task_intent_any": ["collect_profile", "interpret_chart", "amend_profile"],
+      "expected_turn_type_any": ["agent_reading"],
+      "required_observations": ["preflight", "sse_emit"],
+      "expected_trace_attributes": {
+        "bazi.static.contract_audit": "clean",
+        "bazi.static.source": "model",
+        "bazi.dynamic.contract_audit": "clean",
+        "bazi.dynamic.source": "model",
+        "bazi.final.audit_result": "clean"
+      },
+      "trace_attributes_must_be_absent": ["bazi.final_writer.validation_err"]
+    }
+  ]
+}

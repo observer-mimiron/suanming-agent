@@ -1,0 +1,33 @@
+{
+  "name": "runtime-smoke-v2",
+  "version": "2",
+  "description": "当前构建的 Langfuse smoke：验证 /api/chat、稳定报告结构、trace 和 done 收口",
+  "cases": [
+    {
+      "id": "runtime-smoke-bazi-main",
+      "message": "男，1990年5月20日巳时，北京，分析八字",
+      "include_response": true,
+      "sse_must_not_emit_error": true,
+      "response_must_contain_all": ["总览结论", "本命总断", "强弱视角", "调候视角", "格局视角", "格局评价", "判断边界", "当前应期"],
+      "response_must_not_contain": ["已停止展示不稳定内容", "请稍后重试", "上游未提供"],
+      "expected_route_primary": "bazi",
+      "expected_task_intent_any": ["collect_profile", "interpret_chart", "amend_profile"],
+      "expected_turn_type_any": ["agent_reading"],
+      "required_observations": ["preflight", "sse_emit"],
+      "expected_trace_attributes": {"bazi.final.audit_result": "clean"},
+      "trace_attributes_must_be_absent": ["bazi.final_writer.validation_err"]
+    },
+    {
+      "id": "runtime-smoke-bazi-followup-reuse",
+      "session_id": "eval-runtime-followup-v1",
+      "timeout_seconds": 240,
+      "setup_message": "男，1990年5月20日巳时，北京，分析八字",
+      "message": "我的财运怎么样",
+      "sse_must_not_emit_error": true,
+      "expected_route_primary": "bazi",
+      "expected_task_intent_any": ["fortune_followup", "interpret_chart"],
+      "expected_turn_type_any": ["agent_reading", "fortune_followup"],
+      "required_observations": ["preflight", "sse_emit"]
+    }
+  ]
+}

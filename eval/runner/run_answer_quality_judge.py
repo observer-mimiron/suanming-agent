@@ -1,6 +1,9 @@
+# 本文件属于 eval runner 层，负责校准并运行答案质量 Judge。
+# 它只评估用户可见的任务完成、普通事实、证据可见性和安全边界，不判定八字专业结论。
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import pathlib
@@ -103,7 +106,7 @@ def build_judge_prompt(case: dict[str, Any]) -> str:
 {{"answer_task_complete":true,"answer_factuality_pass":true,"answer_grounding_pass":true,"answer_scope_safe":true,"answer_failure_class":"none","reason":"不超过80字"}}
 
 用户输入：
-{case.get("input", "")}
+{case.get("input") or case.get("message", "")}
 
 待评回答：
 {output}
@@ -229,6 +232,35 @@ def write_judge_scores(langfuse_url: str, headers: dict[str, str], row: dict[str
     return {"written": written, "skipped_existing": skipped}
 
 
+def write_current_judge_scores(
+    langfuse_url: str, headers: dict[str, str], row: dict[str, Any], allow_duplicates: bool
+) -> dict[str, int]:
+    """Persist current-run judge labels without requiring human comparison fields."""
+    trace_id = str(row.get("trace_id") or "")
+    if not trace_id:
+        raise RuntimeError(f"{row.get('id', '')}: current report row has no trace_id")
+    names = list(JUDGE_SCORE_NAMES.values())
+    existing = set() if allow_duplicates else existing_score_names(langfuse_url, headers, trace_id, names)
+    written = 0
+    skipped = 0
+    comment = str(row.get("judge_reason") or "")
+    for field, score_name in JUDGE_SCORE_NAMES.items():
+        if score_name in existing:
+            skipped += 1
+            continue
+        write_score(
+            langfuse_url,
+            headers,
+            trace_id,
+            score_name,
+            score_api_value(row["judge_scores"][field], ANSWER_SCORE_CONFIG_TYPES[field]),
+            comment=comment,
+            data_type=ANSWER_SCORE_CONFIG_TYPES[field],
+        )
+        written += 1
+    return {"written": written, "skipped_existing": skipped}
+
+
 def run_calibration(args: argparse.Namespace) -> dict[str, Any]:
     """Run or dry-run the answer-quality judge calibration workflow."""
     annotation = json.loads(pathlib.Path(args.annotation_path).read_text(encoding="utf-8"))
@@ -274,9 +306,110 @@ def run_calibration(args: argparse.Namespace) -> dict[str, Any]:
     return summary
 
 
+def run_current_report(args: argparse.Namespace) -> dict[str, Any]:
+    """Judge the responses from one current online eval report and trace them."""
+    if not args.dataset_path or not args.current_report_path:
+        raise RuntimeError("current mode requires --dataset-path and --current-report-path")
+    dataset = json.loads(pathlib.Path(args.dataset_path).read_text(encoding="utf-8"))
+    report = json.loads(pathlib.Path(args.current_report_path).read_text(encoding="utf-8"))
+    cases = {str(case.get("id")): case for case in dataset.get("cases") or []}
+    wanted = set(args.case_id or [])
+    report_rows = report.get("results") or []
+    if wanted:
+        report_rows = [row for row in report_rows if str(row.get("id")) in wanted]
+    config = require_judge_config(env_with_shell_override()) if not args.dry_run else None
+    rows: list[dict[str, Any]] = []
+    for report_row in report_rows:
+        case_id = str(report_row.get("id") or "")
+        row: dict[str, Any] = {
+            "id": case_id,
+            "trace_id": str(report_row.get("trace_id") or ""),
+            "status": "dry_run" if args.dry_run else "ok",
+        }
+        case = cases.get(case_id, {})
+        output = str(report_row.get("response_text") or "")
+        if not output or not row["trace_id"]:
+            row.update(
+                {
+                    "status": "skipped",
+                    "error": "current report row lacks response_text or trace_id; rerun eval with --include-response",
+                }
+            )
+            rows.append(row)
+            continue
+        judge_case = {**case, "input": case.get("message", ""), "output": output}
+        if args.dry_run:
+            row["prompt_preview"] = build_judge_prompt(judge_case)[:600]
+            rows.append(row)
+            continue
+        try:
+            raw, usage = call_openai_compatible_judge(config, build_judge_prompt(judge_case), args.timeout_seconds)
+            judge_scores = validate_judge_scores(raw, case_id)
+            row.update(
+                {
+                    "judge_scores": judge_scores,
+                    "judge_reason": str(raw.get("reason") or ""),
+                    "judge_pass": all(
+                        judge_scores[field] is True
+                        for field in (
+                            "answer_task_complete",
+                            "answer_factuality_pass",
+                            "answer_grounding_pass",
+                            "answer_scope_safe",
+                        )
+                    )
+                    and judge_scores["answer_failure_class"] == "none",
+                    "usage": usage,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            row.update({"status": "error", "error": str(exc)})
+        rows.append(row)
+
+    write_results = []
+    if args.write_scores and not args.dry_run:
+        env_map = env_with_shell_override()
+        headers = langfuse_headers(env_map)
+        langfuse_url = args.langfuse_url or env_map.get("LANGFUSE_HOST") or env_map.get("LANGFUSE_BASE_URL") or "http://localhost:3001"
+        write_results = [
+            write_current_judge_scores(langfuse_url, headers, row, args.allow_duplicates)
+            for row in rows
+            if row.get("status") == "ok"
+        ]
+    judged = [row for row in rows if row.get("status") == "ok"]
+    return {
+        "mode": "current",
+        "dataset": dataset.get("name", ""),
+        "dataset_version": str(dataset.get("version") or "unknown"),
+        "source_report": str(args.current_report_path),
+        "source_report_generated_at": report.get("generated_at", ""),
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "judge_model": "" if args.dry_run else config["model"],
+        "dry_run": args.dry_run,
+        "rows": rows,
+        "metrics": {
+            "total": len(rows),
+            "judged": len(judged),
+            "judge_passed": sum(1 for row in judged if row.get("judge_pass")),
+            "judge_failed": sum(1 for row in judged if not row.get("judge_pass")),
+            "skipped": sum(1 for row in rows if row.get("status") == "skipped"),
+            "errors": sum(1 for row in rows if row.get("status") == "error"),
+        },
+        "langfuse_write": {
+            "written": sum(item["written"] for item in write_results),
+            "skipped_existing": sum(item["skipped_existing"] for item in write_results),
+        }
+        if args.write_scores and not args.dry_run
+        else None,
+    }
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Calibrate an OpenAI-compatible answer-quality judge against human labels")
+    parser = argparse.ArgumentParser(description="Calibrate or run an OpenAI-compatible answer-quality judge")
+    parser.add_argument("--mode", choices=("calibration", "current"), default="calibration")
     parser.add_argument("--annotation-path", default="eval/annotation/answer-quality-human-v1.json")
+    parser.add_argument("--dataset-path", default="")
+    parser.add_argument("--current-report-path", default="")
     parser.add_argument("--report-path", default="eval/reports/answer-quality-judge-v1.json")
     parser.add_argument("--langfuse-url", default="")
     parser.add_argument("--case-id", action="append", default=[])
@@ -286,7 +419,7 @@ def main() -> int:
     parser.add_argument("--write-scores", action="store_true")
     parser.add_argument("--allow-duplicates", action="store_true")
     args = parser.parse_args()
-    summary = run_calibration(args)
+    summary = run_current_report(args) if args.mode == "current" else run_calibration(args)
     if args.report_path:
         report_path = pathlib.Path(args.report_path)
         report_path.parent.mkdir(parents=True, exist_ok=True)

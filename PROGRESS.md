@@ -180,15 +180,15 @@
 - Batch 3 已验证：focused runtime 测试、`go test ./backend/internal/runtime -count=1`、授权环境下 `go test ./backend/... -count=1`、`go build ./backend/cmd/server/` 和 `git diff --check` 均通过；`make eval-smoke` 在授权环境 2/2 通过，评测器检查 SSE `done`，trace 为 `96bb5df8a7b3d321701f811646d722b5`、`e44cf23c596448ae5c336186a1576e53`。
 - 2026-08-14 本地真实八字冒烟复测：因 Docker daemon 未运行，Langfuse 评测入口不可用；改以同一 `/api/chat` 数据集首轮及同会话财运追问验证。两轮分别约 68 秒、43 秒，trace `trc_78e066a5e44d`、`trc_4f683cbdb5b2` 均为 `status=ok`、`bazi.contract.failure_class=clean`、最终 audit clean，SSE 均唯一 `text -> done` 且无 `error`。此前 120 秒超时和一次动态内部标识泄露拦截均未复现；该守卫与迁移前实现等价，仍按在线模型波动跟踪。
 - 本轮重启后 `make eval-bazi-quality` 已通过 1/1；trace `ca1c85b60f5e47ade382592730161765` 验证静态合同 clean、动态合同 clean、最终审计 clean，首步大运未交运时动态 source 为 `facts_only_degraded`。
-- 新增 `make eval-bazi-answer-quality`，使用 `bazi-answer-quality-v1` 的确定性质量检查拦截内部状态泄露、保守话术过密、未成年人越权和 facts-only 冒充完整解读；runner 可用 `--include-response` 在报告中保存抽取后的正文。
+- `make eval-bazi-answer-quality` 已切换到 `bazi-answer-quality-v2`，继续用确定性质量检查拦截内部状态泄露、保守话术过密、未成年人越权和 facts-only 冒充完整解读；runner 可用 `--include-response` 在报告中保存抽取后的正文。
 - Langfuse 评测体检入口：`python3 eval/runner/check_langfuse_setup.py`；本机 `eval_*` 与 `answer_*` ScoreConfig 类型已通过校验。
 - 本地 Langfuse v3 支持 `/api/public/llm-connections`，但当前 `LLM Connections` 数量为 0；Python `langfuse` SDK 未安装。
-- 答案质量 judge 入口：`python3 eval/runner/run_answer_quality_judge.py`；默认只写 JSON 报告，人工确认后才用 `--write-scores` 写 `judge_*` score。
+- 答案质量 Judge 保留历史人工样本校准模式，并新增当前报告模式：`make eval-bazi-review` 会回放 `bazi-quality-v2`，再读取同一报告的 `response_text`/`trace_id` 调用独立 Judge，并用 `--write-scores` 写回当前 trace 的 `judge_*` score；Judge 只评用户可见质量，不判八字专业结论。
 - 当前 `eval/reports/answer-quality-judge-v1.json` 显示 10 条有效、9 条 exact match；不要默认全量跑 judge，先用 `--limit 2` 或 `--case-id` 控制成本。
 
 ## 当前风险与待证实项
 
-- `bazi-quality-v1` 是运行时合同评测，不等于完整命理文本质量或用户满意度评测。
+- `bazi-quality-v2` 是运行时合同评测，不等于完整命理文本质量或用户满意度评测；当前回答 Judge 是独立质量告警层，也不替代人工专业复核。
 - 知识检索 trace 的 `hits=0` 需结合 `degrade_reason` 解读：`no_results` 才表示真实无命中，`timeout`/服务错误表示本轮未能确认结果；历史 10 秒边界的空结果不得再直接归因于知识材料缺失。成功检索命中后的来源层级线上样本仍待补证。
 - 1991 命例已在本轮真实 SSE 返回完整章节且无 `error`；此前 `natal_risk_status` 事实冲突已由 runtime 按官星透藏事实收束为 `withheld`。
 - 新鲜两轮 smoke 的首轮建盘 trace `trc_01a3138b8ca0` 因模型把静态首条 claim 标为 `candidate` 触发既定 `method_contract -> hard_error`；这不是本次追问 renderer 修复，仍需单独处理静态合同稳定性。

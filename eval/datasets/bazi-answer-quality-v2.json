@@ -1,0 +1,147 @@
+{
+  "name": "bazi-answer-quality-v2",
+  "version": "2",
+  "description": "八字答案质量回归：用少量真实输入拦截内部状态泄露、保守话术过密、未成年人越权和弱裁断字段拼接",
+  "cases": [
+    {
+      "id": "bazi-answer-quality-2025-shanghai-child-boundary",
+      "timeout_seconds": 300,
+      "message": "2025年11月10日23点53分 男 上海",
+      "include_response": true,
+      "response_must_contain_all": ["强弱", "调候", "大运"],
+      "response_must_not_contain": [
+        "事业突破",
+        "学业突破",
+        "财富增长",
+        "婚姻",
+        "健康风险",
+        "疾病",
+        "意外风险",
+        "官非"
+      ],
+      "response_quality_checks": {
+          "must_not_contain_any": [
+          "动态综合未通过",
+          "runtime",
+          "未启用运行时规则 profile",
+          "待profile裁断",
+          "规则profile裁断",
+          "调候规则未实现",
+          "规则表未实现",
+          "上游未提供",
+          "是非暗损",
+          "主变动与挑战"
+        ],
+        "max_phrase_occurrences": {
+          "待规则裁断": 2,
+          "仅作结构观察": 6,
+          "证据不足": 2
+        },
+        "max_total_phrase_occurrences": [
+          {
+            "label": "deferred wording",
+            "phrases": ["待规则裁断", "待profile裁断", "仅作结构观察", "不能据此断定", "证据不足"],
+            "max": 10
+          }
+        ],
+        "max_overview_conclusion_semicolons": 2,
+        "max_overview_conclusion_chars": 180,
+        "max_heading_occurrences_in_section": [
+          {
+            "section": "全程运路",
+            "heading_prefix": "### ",
+            "max": 0
+          }
+        ]
+      },
+      "expected_route_primary": "bazi",
+      "expected_task_intent_any": ["collect_profile", "interpret_chart", "amend_profile"],
+      "expected_turn_type_any": ["agent_reading"],
+      "required_observations": ["preflight", "sse_emit"],
+      "expected_trace_attribute_any": {
+        "bazi.final.audit_result": ["clean", "repaired: canonical_dynamic_projection_facts_only, contract_failure_class:domain_unauthorized, recovery_policy:dynamic_facts_only"]
+      }
+    },
+    {
+      "id": "bazi-answer-quality-1994-nanjing-professional-shape",
+      "timeout_seconds": 300,
+      "message": "1994年1月21日20点30分 女 南京",
+      "include_response": true,
+      "response_must_contain_all": ["强弱", "大运"],
+      "response_must_not_contain": [
+        "投资",
+        "财务建议",
+        "收入兑现",
+        "健康风险",
+        "疾病",
+        "官非"
+      ],
+      "response_quality_checks": {
+          "must_not_contain_any": [
+          "动态综合未通过",
+          "runtime",
+          "未启用运行时规则 profile",
+          "待profile裁断",
+          "规则profile裁断",
+          "调候规则未实现",
+          "规则表未实现",
+          "上游未提供"
+        ],
+        "max_phrase_occurrences": {
+          "待规则裁断": 2,
+          "仅作结构观察": 8,
+          "证据不足": 2
+        },
+        "max_total_phrase_occurrences": [
+          {
+            "label": "deferred wording",
+            "phrases": ["待规则裁断", "待profile裁断", "仅作结构观察", "不能据此断定", "证据不足"],
+            "max": 12
+          }
+        ],
+        "max_overview_conclusion_semicolons": 2,
+        "max_overview_conclusion_chars": 180
+      },
+      "expected_route_primary": "bazi",
+      "expected_task_intent_any": ["collect_profile", "interpret_chart", "amend_profile"],
+      "expected_turn_type_any": ["agent_reading"],
+      "required_observations": ["preflight", "sse_emit"],
+      "expected_trace_attributes": {
+        "bazi.final.audit_result": "clean"
+      }
+    },
+    {
+      "id": "bazi-answer-quality-1990-beijing-no-facts-only",
+      "timeout_seconds": 300,
+      "message": "男，1990年5月20日巳时，北京，分析八字",
+      "include_response": true,
+      "response_must_contain_all": ["强弱", "大运"],
+      "response_quality_checks": {
+          "must_not_contain_any": [
+          "动态综合未通过",
+          "runtime",
+          "模型综合未通过",
+          "本轮只展示可复算事实",
+          "不输出主轴",
+          "未启用运行时规则 profile",
+          "待profile裁断",
+          "规则profile裁断",
+          "上游未提供"
+        ],
+        "max_total_phrase_occurrences": [
+          {
+            "label": "deferred wording",
+            "phrases": ["待规则裁断", "待profile裁断", "仅作结构观察", "不能据此断定", "证据不足"],
+            "max": 12
+          }
+        ],
+        "max_overview_conclusion_semicolons": 2,
+        "max_overview_conclusion_chars": 180
+      },
+      "expected_route_primary": "bazi",
+      "expected_task_intent_any": ["collect_profile", "interpret_chart", "amend_profile"],
+      "expected_turn_type_any": ["agent_reading"],
+      "required_observations": ["preflight", "sse_emit"]
+    }
+  ]
+}

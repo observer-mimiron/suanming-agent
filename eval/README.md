@@ -1,6 +1,6 @@
 # Eval
 
-> 本目录验证运行时合同和最小回归，不宣称已经完成命理文本质量评测。
+> 本目录把确定性合同、当前回答 Judge 和人工抽查分开。Judge 只评用户可见质量，不裁断八字专业结论。
 
 ## 真相顺序
 
@@ -19,12 +19,12 @@ Langfuse 页面不是唯一验收信号；UI 没有显示正文，不等于运�
 | 能力 | 状态 | 说明 |
 |---|---|---|
 | Go 合同测试 | 已接入 | 覆盖路由、runtime、资产和大运确定性合同 |
-| 本地 smoke | 已接入 | 真实 `/api/chat`、SSE done、route/task/turn 与 observation 断言 |
+| 本地 smoke | 已接入 | 真实 `/api/chat`、SSE done、route/task/turn、正文结构与 observation 断言；默认使用 `runtime-smoke-v2` |
 | Langfuse trace/session/dataset/dataset run/score | 已验证 | 本地 WSL Docker 的 self-hosted v3 |
 | 双回合 follow-up 在线 smoke | 待最新报告确认 | 评测器已修复总预算和 setup trace 排除，需重新跑完整在线样本 |
-| 八字质量合同评测 | 已接入 | `bazi-quality-v1` 通过真实 `/api/chat`、SSE、Langfuse trace 与结构化响应/属性断言；仍需人工复核命理质量 |
+| 八字质量合同评测 | 已接入 | `bazi-quality-v2` 通过真实 `/api/chat`、SSE、Langfuse trace 与结构化响应/属性断言；不等于命理专业正确 |
 | Repair Harness 回归 | 已接入 | `runtime-repair-v1` 固化最近静态调候投影失败样本；`make eval-repair` 先跑本地 repair 合同测试再跑真实 `/api/chat` |
-| LLM Judge / 文本质量评测 | 未接入 | 运行时合同校验是代码门禁，不是离线 LLM-as-Judge；当前不能单独证明回答质量或用户满意度 |
+| LLM Judge / 文本质量评测 | 已接入但非默认门禁 | 历史人工样本用于校准；`make eval-bazi-review` 对本次 `bazi-quality-v2` 回放逐条评估并把 `judge_*` 分数写回当前 trace |
 | Experiments / Evals UI | 非主流程 | 当前 v3 部署不能作为稳定入口 |
 
 ## 常用命令
@@ -42,6 +42,9 @@ make eval-suite
 
 # 八字质量合同（真实请求，通常约数分钟）
 make eval-bazi-quality
+
+# 当前八字回答 Judge（先回放，再评本次报告；显式在线调用）
+make eval-bazi-review
 
 # 八字稳定性合同（同一输入重复 10 次）
 make eval-bazi-stability
@@ -70,9 +73,11 @@ make restart-core
 ```text
 eval/
   datasets/                         # 可执行案例合同
-    runtime-smoke-v1.json           # 首轮、follow-up、资产隔离 smoke
+    runtime-smoke-v1.json           # 历史首轮、follow-up、资产隔离 smoke
+    runtime-smoke-v2.json           # 当前 smoke：含正文和 final audit 合同
     retrieval-benchmark-v1.json     # 检索链路基准
-    bazi-quality-v1.json            # 八字候选裁定、年龄边界与运行时合同质量
+    bazi-quality-v1.json            # 历史八字候选裁定、年龄边界与运行时合同质量
+    bazi-quality-v2.json            # 当前八字候选裁定、年龄边界与 final audit 合同
     bazi-stability-v1.json          # 同一八字输入重复运行稳定性合同
     runtime-repair-v1.json          # Repair Harness 最近失败样本回归
   runner/
@@ -85,7 +90,9 @@ eval/
   reports/                          # 机器可读结果
 ```
 
-`make regression` 运行本地 Go 合同测试和一次 `runtime-smoke-v1`，报告写入 `/tmp/suanming-agent/runtime-smoke-report.json`；在线评测不运行全量数据集。suite、hosted dataset run 和 cheap gate 报告写入 `eval/reports/`。
+`make regression` 运行本地 Go 合同测试和一次当前构建的 `runtime-smoke-v2`，默认把服务启动在独立的 `127.0.0.1:18080`，报告写入 `/tmp/suanming-agent/runtime-smoke-report.json`；只有设置 `AGENT_REGRESSION_SERVER` 才复用外部服务。在线评测不运行全量数据集。每份报告带 `git_revision`、`dataset_version`、`generated_at`、服务地址、通过/失败数、失败分类和 trace id。suite、hosted dataset run 和 cheap gate 报告写入 `eval/reports/`。
+
+评测分三层：L1 是每次变更都跑的 Go/结构合同；L2 是显式执行的当前在线回放和独立 Judge；L3 是重大 prompt、renderer 或领域规则变更后的人工抽查。L2 Judge 失败是质量告警，不替代 L1 合同，也不证明命理专业结论。
 
 ## 数据集合同
 
@@ -121,12 +128,12 @@ python3 eval/runner/sync-langfuse-datasets.py \
   --langfuse-url http://localhost:3001
 
 python3 eval/runner/run-langfuse-experiment.py \
-  --dataset-path eval/datasets/runtime-smoke-v1.json \
+  --dataset-path eval/datasets/runtime-smoke-v2.json \
   --server-url http://localhost:8080 \
   --langfuse-url http://localhost:3001 \
-  --run-name runtime-smoke-v1-manual \
+  --run-name runtime-smoke-v2-manual \
   --write-scores \
-  --report-path eval/reports/runtime-smoke-v1-experiment.json
+  --report-path eval/reports/runtime-smoke-v2-experiment.json
 ```
 
 第二个脚本登记的是 dataset run item 和 score，不依赖当前不可作为主流程的 Experiments API。

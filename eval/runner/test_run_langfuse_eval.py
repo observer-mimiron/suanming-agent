@@ -2,6 +2,7 @@ import pathlib
 import json
 import signal
 import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -65,6 +66,34 @@ class EvalTimeoutTest(unittest.TestCase):
                 "repaired: canonical_dynamic_projection_facts_only, contract_failure_class:domain_unauthorized, recovery_policy:dynamic_facts_only",
             ],
         )
+
+    def test_duplicate_json_keys_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "duplicate.json"
+            path.write_text(
+                '{"name":"duplicate","cases":[{"id":"x","expected_trace_attributes":{},"expected_trace_attributes":{}}]}',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "duplicate JSON key: expected_trace_attributes"):
+                runner.load_dataset(str(path))
+
+    def test_report_contains_revision_dataset_and_endpoint_metadata(self):
+        args = SimpleNamespace(
+            server_url="http://127.0.0.1:18080",
+            langfuse_url="http://localhost:3001",
+            repeats=1,
+        )
+        with mock.patch.object(runner, "repository_revision", return_value="abc123"):
+            report = runner.build_report(
+                {"name": "smoke-v2", "version": "2"},
+                args,
+                [{"id": "one", "passed": True}],
+            )
+
+        self.assertEqual(report["git_revision"], "abc123")
+        self.assertEqual(report["dataset_version"], "2")
+        self.assertEqual(report["server_url"], "http://127.0.0.1:18080")
+        self.assertIn("generated_at", report)
 
     def test_trace_lookup_excludes_setup_turn_for_followup(self):
         payload = {
@@ -162,7 +191,7 @@ class EvalTimeoutTest(unittest.TestCase):
             mock.patch.object(runner, "invoke_chat", return_value=body),
             mock.patch.object(runner, "poll_trace_detail", return_value=("trace-1", trace)),
             mock.patch.object(runner.uuid, "uuid4", return_value=SimpleNamespace(hex="fixed")),
-            mock.patch.object(runner.time, "monotonic", side_effect=[100.0, 101.0, 102.0]),
+            mock.patch.object(runner.time, "monotonic", side_effect=[100.0, 101.0, 102.0, 103.0, 104.0]),
         ):
             with self.assertRaisesRegex(runner.SmokeCaseFailure, "forbidden SSE error event"):
                 runner.smoke_case(
@@ -307,6 +336,37 @@ class EvalTimeoutTest(unittest.TestCase):
                 write_scores=False,
             )
         self.assertEqual(result["trace_attributes"]["bazi.dynamic.source"], "facts_only_degraded")
+
+    def test_smoke_case_rejects_forbidden_trace_attribute(self):
+        trace = {
+            "metadata": {
+                "resourceAttributes": {"service.name": "suanming-agent"},
+                "attributes": {"bazi.final_writer.validation_err": "bad"},
+            },
+            "observations": [{"name": "preflight"}, {"name": "sse_emit"}],
+        }
+        with (
+            mock.patch.object(runner, "invoke_chat", return_value="event: done\n"),
+            mock.patch.object(runner, "poll_trace_detail", return_value=("trace-1", trace)),
+            mock.patch.object(runner, "get_trace_detail", return_value=trace),
+            mock.patch.object(runner.uuid, "uuid4", return_value=SimpleNamespace(hex="fixed")),
+            mock.patch.object(runner.time, "monotonic", side_effect=[100.0, 101.0, 102.0, 103.0, 104.0]),
+        ):
+            with self.assertRaisesRegex(runner.SmokeCaseFailure, "forbidden trace attribute"):
+                runner.smoke_case(
+                    case={
+                        "id": "forbidden-trace",
+                        "message": "分析八字",
+                        "trace_attributes_must_be_absent": ["bazi.final_writer.validation_err"],
+                    },
+                    server_url="http://example.test",
+                    langfuse_url="http://langfuse.test",
+                    headers={},
+                    timeout_seconds=120,
+                    poll_interval_seconds=1,
+                    max_polls=1,
+                    write_scores=False,
+                )
 
     def test_smoke_case_reports_optional_trace_attributes_without_requiring_them(self):
         trace = {
@@ -620,6 +680,61 @@ class EvalTimeoutTest(unittest.TestCase):
         self.assertEqual(config["base_url"], "https://api.deepseek.com")
         self.assertEqual(config["model"], "deepseek-v4-flash")
         self.assertEqual(config["source"], "backend_llm_deepseek_flash_fallback")
+
+    def test_answer_judge_current_mode_reads_response_from_online_report(self):
+        dataset = {"name": "bazi-quality-v2", "version": "2", "cases": [{"id": "case-1", "message": "分析八字"}]}
+        report = {
+            "dataset": "bazi-quality-v2",
+            "dataset_version": "2",
+            "generated_at": "2026-08-15T00:00:00+00:00",
+            "results": [{"id": "case-1", "trace_id": "trace-1", "response_text": "## 强弱视角"}],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset_path = pathlib.Path(tmp) / "dataset.json"
+            report_path = pathlib.Path(tmp) / "report.json"
+            dataset_path.write_text(json.dumps(dataset), encoding="utf-8")
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            summary = judge.run_current_report(
+                SimpleNamespace(
+                    dataset_path=str(dataset_path),
+                    current_report_path=str(report_path),
+                    case_id=[],
+                    dry_run=True,
+                    timeout_seconds=60,
+                    write_scores=False,
+                    allow_duplicates=False,
+                    langfuse_url="",
+                )
+            )
+
+        self.assertEqual(summary["mode"], "current")
+        self.assertEqual(summary["dataset_version"], "2")
+        self.assertEqual(summary["rows"][0]["status"], "dry_run")
+        self.assertIn("答案质量评测器", summary["rows"][0]["prompt_preview"])
+        self.assertIn("分析八字", judge.build_judge_prompt({"message": "分析八字", "output": "x"}))
+
+    def test_answer_judge_current_scores_write_to_trace_without_human_labels(self):
+        row = {
+            "id": "case-1",
+            "trace_id": "trace-1",
+            "judge_reason": "通过",
+            "judge_scores": {
+                "answer_task_complete": True,
+                "answer_factuality_pass": True,
+                "answer_grounding_pass": True,
+                "answer_scope_safe": True,
+                "answer_failure_class": "none",
+            },
+        }
+        with (
+            mock.patch.object(judge, "existing_score_names", return_value=set()),
+            mock.patch.object(judge, "write_score") as write,
+        ):
+            result = judge.write_current_judge_scores("http://langfuse.test", {}, row, allow_duplicates=False)
+
+        self.assertEqual(result, {"written": 5, "skipped_existing": 0})
+        self.assertEqual(write.call_count, 5)
+        self.assertEqual(write.call_args_list[0].args[3], "judge_answer_task_complete")
 
 
 if __name__ == "__main__":
