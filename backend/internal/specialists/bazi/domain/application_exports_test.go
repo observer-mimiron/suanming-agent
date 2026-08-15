@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestTierAssessmentJudgmentUsesStatusSpecificWording(t *testing.T) {
 	tests := []struct {
@@ -19,5 +22,42 @@ func TestTierAssessmentJudgmentUsesStatusSpecificWording(t *testing.T) {
 				t.Fatalf("TierAssessmentJudgment() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestTierAssessmentBasisExplainsProvisionalDimensions(t *testing.T) {
+	basis := TierAssessmentBasis(TierAssessment{
+		Status: "provisional",
+		Dimensions: TierDimensions{
+			QingZhuo: TierDimension{State: "missing"},
+			Disease:  TierDimension{State: "unresolved"},
+			Rescue:   TierDimension{State: "limited"},
+		},
+	})
+	for _, want := range []string{"清浊证据缺位", "病药关系未明", "救应条件受限"} {
+		if !strings.Contains(basis, want) {
+			t.Fatalf("TierAssessmentBasis() = %q, missing %q", basis, want)
+		}
+	}
+}
+
+func TestTierAssessmentBasisPrioritizesMissingBeforeMixed(t *testing.T) {
+	basis := TierAssessmentBasis(TierAssessment{
+		Status: "provisional",
+		Dimensions: TierDimensions{
+			YouQing:  TierDimension{State: "mixed"},
+			YouLi:    TierDimension{State: "limited"},
+			QingZhuo: TierDimension{State: "missing"},
+			Disease:  TierDimension{State: "unresolved"},
+			Rescue:   TierDimension{State: "limited"},
+		},
+	})
+	for _, want := range []string{"清浊证据缺位", "病药关系未明", "有力条件受限", "救应条件受限"} {
+		if !strings.Contains(basis, want) {
+			t.Fatalf("TierAssessmentBasis() = %q, missing %q", basis, want)
+		}
+	}
+	if strings.Contains(basis, "有情条件并见") {
+		t.Fatalf("TierAssessmentBasis() prioritized a mixed state: %q", basis)
 	}
 }

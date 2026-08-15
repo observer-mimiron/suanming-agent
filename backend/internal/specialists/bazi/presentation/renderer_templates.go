@@ -40,10 +40,12 @@ func renderPresentationFactsOnlyDegradedTemplate(state FinalReplyInput) string {
 
 // factsOnlyStrengthBullets 只展示确定性扶抑证据，保证降级答复不伪装为强弱裁断。
 
-// renderFullTemplate 按本命视角、全程运路、当前应期与末尾总览组织完整报告。
-// 总览放在证据之后作收束；每层仍只消费所属投影，不重判命理结论。
+// renderFullTemplate 先给出本命总览，再展开静态、全程和当前各自的已验收结论。
+// 每层仍只消费所属投影，不重判命理结论。
 func renderPresentationFullTemplate(state FinalReplyInput) string {
 	var b strings.Builder
+	writeFinalOverview(&b, state)
+
 	writeHeading(&b, "强弱视角")
 	writeConclusion(&b, buildStrengthConclusion(state))
 	strengthBullets := []string{}
@@ -95,7 +97,7 @@ func renderPresentationFullTemplate(state FinalReplyInput) string {
 	if state.AnalysisPlan.NeedLifetimeDayun {
 		writeHeading(&b, "全程运路")
 		writeConclusion(&b, withoutAxisEcho(state, buildLifetimeDayunConclusion(state), "全程运路只说明各运对本命结构的承接与变化。"))
-		writePresentationLifetimeDayunGroups(&b, state)
+		writeBullets(&b, renderLifetimeDayunBullets(state))
 	}
 
 	writeHeading(&b, "当前应期")
@@ -126,7 +128,6 @@ func renderPresentationFullTemplate(state FinalReplyInput) string {
 		})
 	}
 
-	writeFinalOverview(&b, state)
 	return strings.TrimSpace(b.String())
 }
 

@@ -60,10 +60,7 @@ func buildLiunianFactBullets(state FinalReplyInput) []string {
 	return items
 }
 
-// renderFullTemplate 按本命视角、全程运路、当前应期与末尾总览组织完整报告。
-// 总览放在证据之后作收束；每层仍只消费所属投影，不重判命理结论。
-
-// renderLifetimeDayunBullets keeps every period separate instead of letting current dynamic overwrite it.
+// renderLifetimeDayunBullets 以紧凑条目展示每步大运，避免当前运覆盖全程判断。
 func renderLifetimeDayunBullets(state FinalReplyInput) []string {
 	if state.LifetimeSynthesis.Status != "accepted" {
 		return []string{"**状态**：全程运路未通过完整合同，未以事实目录冒充综合判断。"}
@@ -73,25 +70,6 @@ func renderLifetimeDayunBullets(state FinalReplyInput) []string {
 		items = append(items, "**"+lifetimePeriodLabel(state, claim.PeriodRef)+"｜"+lifetimePeriodEffectLabel(claim.PeriodEffect)+"**："+lifetimePeriodStemTenGod(state, claim.PeriodRef)+"；"+lifetimePeriodEffectSummary(claim.PeriodEffect))
 	}
 	return items
-}
-
-// writeLifetimeDayunGroups keeps full coverage while listing periods in chronological order.
-
-// writeLifetimeDayunGroups keeps full coverage while listing periods in chronological order.
-func writePresentationLifetimeDayunGroups(b *strings.Builder, state FinalReplyInput) {
-	if state.LifetimeSynthesis.Status != "accepted" {
-		writeBullets(b, renderLifetimeDayunBullets(state))
-		return
-	}
-	for _, claim := range state.LifetimeSynthesis.PeriodClaims {
-		b.WriteString("\n**")
-		b.WriteString(lifetimePeriodLabel(state, claim.PeriodRef))
-		b.WriteString("**\n")
-		writeBullets(b, []string{
-			labeledBullet("定位", lifetimePeriodEffectLabel(claim.PeriodEffect)+"；"+lifetimePeriodStemTenGod(state, claim.PeriodRef)),
-			labeledBullet("说明", lifetimePeriodEffectSummary(claim.PeriodEffect)),
-		})
-	}
 }
 
 // lifetimePeriodStemTenGod 从工具结果展示运干十神，避免模型断语误标

@@ -41,3 +41,17 @@ func TestCanonicalTierTextDoesNotWithholdForMissingOptionalReferences(t *testing
 		t.Fatalf("tier text = (%q, %q, %t), want accepted model tier without retrieval cap", judgment, basis, withheld)
 	}
 }
+
+func TestProjectCanonicalStaticSynthesisWithholdsUnknownTiaohouEffectiveness(t *testing.T) {
+	static := projectCanonicalStaticSynthesis(
+		baziCharterState{Input: baziCharterInput{Yongshen: map[string]any{}}},
+		baziCanonicalSynthesis{Tiaohou: baziCanonicalUnit{
+			Verdict:  "时干透火但根气不足，调候之力有限，层次受此制约。",
+			Boundary: "调候先看月令与火的有效性。",
+		}},
+	)
+	want := "调候有效性尚待确认；当前只按月令寒暖燥湿需求与火的出现位置观察。"
+	if static.TiaohouAnchor != want {
+		t.Fatalf("tiaohou anchor = %q, want %q", static.TiaohouAnchor, want)
+	}
+}

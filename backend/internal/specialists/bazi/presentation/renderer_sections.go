@@ -11,8 +11,8 @@ import (
 
 var classicalChapterHeadingPattern = regexp.MustCompile(`^[0-9一二三四五六七八九十百]+[、.．]\s*论`)
 
-// writeFinalOverview 在报告末尾收束本命主轴、格局评价、限制、发挥方向与阶段走势。
-// 这些内容都来自已验证槽位，展示层不新增性格、事业或婚姻断语。
+// writeFinalOverview 在报告开头概括本命主轴、格局评价与限制。
+// 全程和当前阶段保留在各自章节展开，避免把同一结论重复成文。
 func writeFinalOverview(b *strings.Builder, state FinalReplyInput) {
 	writeHeading(b, "总览结论")
 
@@ -24,21 +24,6 @@ func writeFinalOverview(b *strings.Builder, state FinalReplyInput) {
 		labeledBullet("主要限制", buildSummaryRisks(state)),
 		labeledBullet("发挥取向", buildProfileActionDirection(state)),
 	})
-
-	if state.AnalysisPlan.NeedLifetimeDayun {
-		writeSubheading(b, "全程走势")
-		writeConclusion(b, withoutAxisEcho(state, buildLifetimeDayunConclusion(state), "全程走势只按各运对本命结构的承接与变化观察。"))
-	}
-
-	writeSubheading(b, "当前阶段")
-	switch {
-	case isMinorBaziSubject(state):
-		writeConclusion(b, buildMinorDayunConclusion(state))
-	case state.DynamicSynthesis.FactsOnly:
-		writeConclusion(b, "当前阶段仅保留可复算岁运事实，暂不判断趋势。")
-	default:
-		writeConclusion(b, buildDayunConclusion(state))
-	}
 }
 
 // buildCombinedAssessmentConclusion 只并列已接受的本命格局评价、全程和当前判断，三层互不改写。

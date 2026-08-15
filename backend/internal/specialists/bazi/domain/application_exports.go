@@ -4,6 +4,8 @@
 // 不读取会话，不调用模型、检索、repair、追踪或输出传输。
 package domain
 
+import "strings"
+
 // BuildFactsOnlyDynamicSynthesis builds the deterministic dynamic fallback.
 func BuildFactsOnlyDynamicSynthesis(input CharterInput, static StaticSynthesis, reason string) DynamicSynthesis {
 	return buildFactsOnlyDynamicSynthesis(input, static, reason)
@@ -73,9 +75,50 @@ func TierAssessmentBasis(assessment TierAssessment) string {
 		return "关键证据链尚未闭合，因此本轮只作结构观察。"
 	}
 	if assessment.Status == "provisional" {
-		return "格局评价依据已验收的结构与限制维度综合确定；当前命盘结构仍有保留，本轮结论暂定。"
+		reasons := provisionalTierReasons(assessment.Dimensions)
+		if len(reasons) == 0 {
+			return "格局评价依据已验收的结构与限制维度综合确定；尚有维度待继续核对，本轮结论暂定。"
+		}
+		return "格局评价依据已验收的结构与限制维度综合确定；" + strings.Join(reasons, "、") + "，本轮结论暂定。"
 	}
 	return "格局评价依据已验收的结构、证据与限制维度综合确定。"
+}
+
+// provisionalTierReasons 把已验收的维度状态投影为暂定原因，不重新评估格局等级。
+func provisionalTierReasons(dimensions TierDimensions) []string {
+	reasons := make([]string, 0, 4)
+	for _, states := range [][]string{{"missing", "unresolved"}, {"limited"}, {"mixed"}} {
+		for _, dimension := range baziTierDimensionEntries(dimensions) {
+			if len(reasons) == 4 {
+				return reasons
+			}
+			if !containsString(states, dimension.Value.State) {
+				continue
+			}
+			if reason := provisionalTierReason(dimension); reason != "" {
+				reasons = append(reasons, reason)
+			}
+		}
+	}
+	return reasons
+}
+
+// provisionalTierReason 只翻译现有状态，避免展示层用自然语言补造证据。
+func provisionalTierReason(dimension baziNamedTierDimension) string {
+	if dimension.Disease && dimension.Value.State == "unresolved" {
+		return "病药关系未明"
+	}
+	labels := map[string]map[string]string{
+		"main_axis":  {"missing": "主轴证据缺位", "limited": "主轴承接受限", "mixed": "主轴条件并见"},
+		"youqing":    {"missing": "有情条件缺位", "limited": "有情条件受限", "mixed": "有情条件并见"},
+		"youli":      {"missing": "有力条件缺位", "limited": "有力条件受限", "mixed": "有力条件并见"},
+		"qingzhuo":   {"missing": "清浊证据缺位", "limited": "清浊判断受限", "mixed": "清浊关系并见"},
+		"remedy":     {"missing": "用药条件缺位", "limited": "用药条件受限", "mixed": "用药条件并见"},
+		"rescue":     {"missing": "救应条件缺位", "limited": "救应条件受限", "mixed": "救应条件并见"},
+		"tiaohou":    {"missing": "调候条件待核", "limited": "调候条件受限", "mixed": "调候条件并见"},
+		"hezhizhang": {"missing": "何知章印证缺位", "limited": "何知章印证受限", "mixed": "何知章印证并见"},
+	}
+	return labels[dimension.Name][dimension.Value.State]
 }
 
 // ValidateStaticJudgment checks the static model DTO against deterministic facts.

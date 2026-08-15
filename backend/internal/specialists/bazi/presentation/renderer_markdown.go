@@ -55,11 +55,10 @@ func conciseDisplayText(text string, maxRunes int) string {
 	}
 	out := clauses[0]
 	if len([]rune(out)) < maxRunes/2 && len(clauses) > 1 {
-		out = strings.TrimRight(out, "。；") + "；" + clauses[1]
-	}
-	if maxRunes > 0 && len([]rune(out)) > maxRunes {
-		runes := []rune(out)
-		out = strings.TrimRight(string(runes[:maxRunes]), "，、；。 ") + "。"
+		candidate := strings.TrimRight(out, "。；") + "；" + clauses[1]
+		if len([]rune(candidate)) <= maxRunes {
+			out = candidate
+		}
 	}
 	if !strings.HasSuffix(out, "。") && !strings.HasSuffix(out, "！") && !strings.HasSuffix(out, "？") {
 		out += "。"

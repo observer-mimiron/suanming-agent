@@ -32,6 +32,7 @@ func validateFinalWriterOutput(plan baziAnalysisPlan, state baziCharterState, ou
 	switch plan.WriterTemplate {
 	case "full":
 		headings := []string{
+			"## 总览结论",
 			"## 强弱视角",
 			"## 调候视角",
 			"## 格局视角",
@@ -39,21 +40,18 @@ func validateFinalWriterOutput(plan baziAnalysisPlan, state baziCharterState, ou
 		if plan.NeedLifetimeDayun {
 			headings = append(headings, "## 全程运路")
 		}
-		headings = append(headings, "## 当前应期", "## 总览结论")
+		headings = append(headings, "## 当前应期")
 		if err := validateOrderedHeadings(output, headings); err != nil {
 			return err
 		}
 		if strings.Count(output, "**结论：") < 6 {
 			return fmt.Errorf("full writer output must expose bold conclusion lines")
 		}
-		overviewSection := sectionContent(output, "## 总览结论", "")
+		overviewSection := sectionContent(output, "## 总览结论", "## 强弱视角")
 		if overviewSection == "" {
 			return fmt.Errorf("full writer output missing 总览结论 section body")
 		}
-		if err := validateOrderedHeadings(overviewSection, []string{
-			"### 本命总断",
-			"### 当前阶段",
-		}); err != nil {
+		if err := validateOrderedHeadings(overviewSection, []string{"### 本命总断"}); err != nil {
 			return fmt.Errorf("full writer output must preserve 总览结论收束格式: %w", err)
 		}
 		if !strings.Contains(overviewSection, "**格局评价**") || !strings.Contains(overviewSection, "**主要限制**") {

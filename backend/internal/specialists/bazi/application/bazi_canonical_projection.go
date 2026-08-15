@@ -53,6 +53,9 @@ func projectCanonicalStaticSynthesis(state baziCharterState, c baziCanonicalSynt
 	axisConsistency := firstNonEmptyTrim(c.MainAxis.Boundary, c.Pattern.Boundary, "主轴边界以已覆盖证据为准。")
 	strengthBalance := firstNonEmptyTrim(c.Strength.Verdict, strengthEvidenceSummary(state.Input.Yongshen), "本轮未形成强弱裁断。")
 	tiaohouAnchor := firstNonEmptyTrim(c.Tiaohou.Verdict, "本轮只确认季节环境与调候边界。")
+	if !bazidomain.FactCapsuleForState(state).FireEffectivenessKnown {
+		tiaohouAnchor = "调候有效性尚待确认；当前只按月令寒暖燥湿需求与火的出现位置观察。"
+	}
 	tiaohouConstraint := firstNonEmptyTrim(c.Tiaohou.Boundary, "调候先后需以已覆盖规则材料为准。")
 	claimStrength := canonicalConfidence(c.MainAxis.Confidence)
 	static := baziStaticSynthesis{

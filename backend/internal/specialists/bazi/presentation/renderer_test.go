@@ -70,3 +70,60 @@ func TestPresentationShowsReadableClassicalReferences(t *testing.T) {
 		}
 	}
 }
+
+func TestConciseDisplayTextKeepsCompleteClauseOverCap(t *testing.T) {
+	input := "流年子午冲时柱子水，增加变动与不稳定因素。"
+	if got := conciseDisplayText(input, 8); got != input {
+		t.Fatalf("conciseDisplayText() = %q, want complete clause %q", got, input)
+	}
+}
+
+func TestPresentationFullReportPlacesOverviewFirstWithoutRepeat(t *testing.T) {
+	output := RenderFinalReply(FinalReplyInput{})
+	if !strings.HasPrefix(output, "## 总览结论") {
+		t.Fatalf("full report must start with overview: %s", output)
+	}
+	if count := strings.Count(output, "## 总览结论"); count != 1 {
+		t.Fatalf("overview count = %d, want 1: %s", count, output)
+	}
+}
+
+func TestPresentationFullReportUsesCompactLifetimeEntries(t *testing.T) {
+	output := RenderFinalReply(FinalReplyInput{
+		AnalysisPlan: AnalysisPlan{NeedLifetimeDayun: true},
+		Facts: ChartFacts{DayunPeriods: []DayunPeriod{{
+			Ref: "dayun[0]", Label: "庚子运（4-13岁）", GanZhi: "庚子", TenGod: "正官",
+		}}},
+		LifetimeSynthesis: LifetimeDayunSynthesis{
+			Status: "accepted",
+			PeriodClaims: []LifetimeDayunClaim{{
+				PeriodRef: "dayun[0]", PeriodEffect: "support_use",
+			}},
+		},
+	})
+
+	want := "- **庚子运（4-13岁）｜扶助用神**：庚为正官；此运对本命用神形成助力，具体力度仍以已计算关系为准。"
+	if !strings.Contains(output, want) {
+		t.Fatalf("full report missing compact lifetime entry %q: %s", want, output)
+	}
+}
+
+func TestPresentationFactsOnlyDynamicSuppressesTrendFields(t *testing.T) {
+	output := RenderFinalReply(FinalReplyInput{
+		Facts: ChartFacts{LiunianGanZhi: "丙午", LiunianTenGod: "伤官"},
+		DynamicSynthesis: DynamicSynthesis{
+			FactsOnly:      true,
+			WindowLevel:    "扰动年",
+			TriggerSignals: []string{"流年子午冲月柱子"},
+		},
+	})
+	currentSection := sectionContent(output, "## 当前应期", "")
+	for _, forbidden := range []string{"**年性**", "**依据**", "**限制**"} {
+		if strings.Contains(currentSection, forbidden) {
+			t.Fatalf("facts-only dynamic output leaked %q: %s", forbidden, currentSection)
+		}
+	}
+	if !strings.Contains(currentSection, "**流年干支**：丙午") {
+		t.Fatalf("facts-only dynamic output missing calculated fact: %s", currentSection)
+	}
+}
