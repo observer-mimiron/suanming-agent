@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/observer-mimiron/suanming-agent/internal/repair"
 )
 
 func TestChooseAction_DynamicWithoutCurrentPeriodUsesFactsOnly(t *testing.T) {
@@ -171,6 +173,63 @@ func TestRunStepLimitDegradesBeforeRender(t *testing.T) {
 	}
 	if strings.Join(calls, ",") != "bootstrap,recover_facts,render" {
 		t.Fatalf("callback order = %v, want bootstrap,recover_facts,render", calls)
+	}
+}
+
+func TestRunMaxBusinessStepsReachesFallbackRender(t *testing.T) {
+	var calls []string
+	evidenceAttempts := 0
+	deps := noOpDeps()
+	deps.Bootstrap = recordCallback(&calls, "bootstrap", nil)
+	deps.AnalysisPlan = recordCallback(&calls, "analysis_plan", func(state *State) {
+		state.AnalysisPlanned = true
+		state.EvidenceNeedsAction = true
+	})
+	deps.Evidence = recordCallback(&calls, "evidence_action", func(_ *State) {
+		evidenceAttempts++
+	})
+	deps.ValidateEvidence = recordCallback(&calls, "validate_evidence", func(state *State) {
+		state.EvidenceNeedsAction = false
+		state.EvidenceValidated = true
+	})
+	deps.Static = recordCallback(&calls, "static_judgment", func(state *State) {
+		state.StaticAttempted = true
+		state.StaticAccepted = true
+	})
+	deps.Lifetime = recordCallback(&calls, "lifetime_dayun_judgment", func(state *State) {
+		state.LifetimeAttempted = true
+		state.LifetimeAccepted = true
+	})
+	deps.Dynamic = recordCallback(&calls, "dynamic_judgment", func(state *State) {
+		state.DynamicAttempted = true
+		state.Failure = Failure{Class: "schema_error", Domain: "bazi"}
+		state.RepairFailure = repair.Failure{Class: repair.SchemaError}
+	})
+	deps.Repair = recordCallback(&calls, "repair", func(state *State) {
+		state.Failure = Failure{Class: "domain_unauthorized", Domain: "bazi"}
+		state.RepairFailure = repair.Failure{Class: repair.DomainUnauthorized, Fallback: "dynamic_facts_only"}
+	})
+	deps.ContractCheck = recordCallback(&calls, "contract_check", nil)
+	deps.RecoverFacts = recordCallback(&calls, "recover_facts", nil)
+	deps.Render = recordCallback(&calls, "render", func(state *State) {
+		state.Output = "facts-only"
+	})
+
+	result, err := Run(context.Background(), deps, &State{
+		ChartReady: true, NeedDynamic: true, NeedLifetimeDayun: true, CurrentPeriodReady: true, MaxRunSteps: 7,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Text != "facts-only" || result.TerminationReason != "graph_step_limit_degraded" {
+		t.Fatalf("result = %+v, want facts-only/graph_step_limit_degraded", result)
+	}
+	if evidenceAttempts != 1 {
+		t.Fatalf("evidence attempts = %d, want 1", evidenceAttempts)
+	}
+	want := []string{"bootstrap", "analysis_plan", "evidence_action", "validate_evidence", "static_judgment", "contract_check", "lifetime_dayun_judgment", "contract_check", "dynamic_judgment", "contract_check", "repair", "contract_check", "recover_facts", "render"}
+	if strings.Join(calls, ",") != strings.Join(want, ",") {
+		t.Fatalf("callback order = %v, want %v", calls, want)
 	}
 }
 

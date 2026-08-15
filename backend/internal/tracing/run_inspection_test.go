@@ -172,6 +172,34 @@ func TestBuildRunInspection_GeneratesDeterministicDiagnostics(t *testing.T) {
 	}
 }
 
+func TestBuildRunInspection_ReportsRetrievalTimeoutInsteadOfNoHits(t *testing.T) {
+	tr := &TurnTrace{
+		TraceID:   "trc_retrieval_timeout",
+		SessionID: "sess_retrieval_timeout",
+		StartedAt: time.Now(),
+		Status:    "ok",
+		Spans: []TraceSpan{{
+			SpanID: "spn_retrieval_timeout",
+			Name:   "knowledge_search",
+			Kind:   KindRetriever,
+			Status: "degraded",
+			Attributes: map[string]any{
+				"query":          "子平真诠 破格 败格",
+				"hits":           0,
+				"degrade_reason": "timeout",
+			},
+		}},
+	}
+
+	inspection := tr.BuildRunInspection()
+	if !hasDiagnostic(inspection.Diagnostics, "retrieval.service_timeout") {
+		t.Fatalf("missing retrieval timeout diagnostic: %+v", inspection.Diagnostics)
+	}
+	if hasDiagnostic(inspection.Diagnostics, "retrieval.no_hits") {
+		t.Fatalf("timeout must not be reported as no hits: %+v", inspection.Diagnostics)
+	}
+}
+
 func hasDiagnostic(items []RunDiagnostic, code string) bool {
 	for _, item := range items {
 		if item.Code == code {

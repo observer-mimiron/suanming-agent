@@ -1,7 +1,7 @@
-// Package runtime contains the manager-owned execution flow.
+// Package runtime 包含 Manager 拥有的执行主链。
 //
-// This file adapts manager-approved ExecutionPlan work into bounded ADK
-// specialist execution and validates required artifacts before dispatch.
+// 本文件把已批准计划适配为普通 ADK specialist 执行，并校验调度前资产；
+// 不负责八字角色选择、Graph 入口或最终答复合成。
 package runtime
 
 import (
@@ -23,50 +23,16 @@ type ADKSpecialistRunner struct {
 	Domain   string
 	Config   specialists.Config
 	Executor *Executor
-	// UseAuthorityGraph 让八字主域复用已有的结构化 authority-first 图；
-	// 混合域也必须走这条合同链，不能退回自由文本 worker。
-	UseAuthorityGraph bool
-}
-
-// specialistSessionView returns the smallest session view a domain worker needs.
-// Qimen is deliberately isolated from profile and conversation history because
-// its event chart is a Case fact, not a birth-chart reading.
-func specialistSessionView(st *state.SessionState, plan ExecutionPlan, domain string) *state.SessionState {
-	if st == nil || domain != "qimen" {
-		return st
-	}
-	view := state.NewSession(st.SessionID)
-	caseID := strings.TrimSpace(plan.TurnContext.CaseID)
-	view.ActiveFocus.CaseID = caseID
-	for _, item := range st.Cases {
-		if item.ID == caseID {
-			view.Cases = []state.Case{item}
-			break
-		}
-	}
-	if chart := st.QimenChartForCase(caseID); chart != nil {
-		// 通过 typed asset 投影盘面，避免直接写 legacy QimenResult 后被
-		// MigrateLegacyAssets 清空；视图仍不包含出生资料或历史对话。
-		view.StoreChartForOwner(state.AssetKindQimenCaseChart, state.AssetRef{Kind: "case", ID: caseID}, chart, "runtime-case-view")
-	}
-	return view
 }
 
 // Run builds the configured specialist agent, streams its ADK events to SSE,
-// stores tool results back into session state, and returns a normalized result.
+// invokes the runtime-provided tool-result writer, and returns a normalized result.
 func (r *ADKSpecialistRunner) Run(ctx context.Context, req specialists.Request) (specialists.Result, error) {
 	if r == nil || r.Executor == nil {
 		return specialists.Result{}, fmt.Errorf("adk specialist runner requires executor")
 	}
 	if req.Session == nil {
-		return specialists.Result{}, fmt.Errorf("adk specialist runner requires session state")
-	}
-	if r.UseAuthorityGraph {
-		finalText, err := r.Executor.runBaziAuthorityFirstGraph(ctx, eventSinkFromContext(ctx), req.Session, req.UserMessage)
-		if err != nil {
-			return specialists.Result{}, err
-		}
-		return specialists.Result{Domain: firstNonEmpty(r.Domain, "bazi"), Summary: finalText}, nil
+		return specialists.Result{}, fmt.Errorf("adk specialist runner requires session view")
 	}
 
 	sink := eventSinkFromContext(ctx)
@@ -93,7 +59,9 @@ func (r *ADKSpecialistRunner) Run(ctx context.Context, req specialists.Request) 
 	)
 
 	finalText, err := specialistEventBridge(ctx, sink, iter, func(toolName, resultJSON string) {
-		r.Executor.saveToolResult(req.Session, toolName, resultJSON)
+		if req.SaveToolResult != nil {
+			req.SaveToolResult(toolName, resultJSON)
+		}
 	}, r.Executor.reg.DisplayName, true)
 	if err != nil {
 		return specialists.Result{}, err

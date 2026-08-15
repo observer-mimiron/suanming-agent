@@ -11,7 +11,10 @@ import (
 	"testing"
 	"unsafe"
 
+	appRuntime "github.com/observer-mimiron/suanming-agent/internal/runtime"
 	"github.com/observer-mimiron/suanming-agent/internal/specialists"
+	"github.com/observer-mimiron/suanming-agent/internal/specialists/bazi"
+	baziAdapter "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/adapter"
 	"github.com/observer-mimiron/suanming-agent/internal/tools"
 )
 
@@ -85,13 +88,28 @@ func TestBuildContainer_WiresADKSupervisorEngine(t *testing.T) {
 	}
 }
 
-func TestBuildContainer_RegistersDirectSpecialistRunners(t *testing.T) {
+func TestBuildContainer_RegistersBaziCompositeAndOtherDirectRunners(t *testing.T) {
 	t.Setenv("LLM_API_KEY", "test-key")
 
 	c := BuildContainer()
 	registry := extractSpecialistRegistry(t, c)
 
-	for _, domain := range []string{"bazi", "qimen", "ziwei"} {
+	baziRunner, ok := registry.RunnerFor("bazi")
+	if !ok {
+		t.Fatal("expected bazi runner")
+	}
+	composite, ok := baziRunner.(*bazi.Runner)
+	if !ok {
+		t.Fatalf("expected bazi composite runner, got %T", baziRunner)
+	}
+	if _, ok := composite.Primary.(*baziAdapter.Runner); !ok {
+		t.Fatalf("expected bazi primary graph runner, got %T", composite.Primary)
+	}
+	if _, ok := composite.Support.(*appRuntime.ADKSpecialistRunner); !ok {
+		t.Fatalf("expected bazi support ADK runner, got %T", composite.Support)
+	}
+
+	for _, domain := range []string{"qimen", "ziwei"} {
 		runner, ok := registry.RunnerFor(domain)
 		if !ok {
 			t.Fatalf("expected non-nil specialist runner for %s", domain)

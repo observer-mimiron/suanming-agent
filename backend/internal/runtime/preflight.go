@@ -48,6 +48,13 @@ func preflightWithPlan(st *state.SessionState, plan ExecutionPlan, message strin
 		workingState = st.Clone()
 		workingState.MergeProfile(route.Slots.Profile)
 	}
+	if needsGenderClarification(workingState.ActiveProfile(), route) {
+		return preflightResult{
+			ShortCircuit: true,
+			TurnType:     "clarification",
+			Text:         guidance.Render(guidance.Request{Boundary: guidance.BoundaryCollectGenderFromBirthTime}),
+		}
+	}
 
 	// 1. sniff + guidance 判定（code-owned 路径）
 	if shouldHandleGuidance(st, route, message, router) {
@@ -119,7 +126,7 @@ func preflightWithPlan(st *state.SessionState, plan ExecutionPlan, message strin
 		if workingState.IsProfileComplete() {
 			return preflightResult{}
 		}
-		if _, hasGender := workingState.Profile["gender"]; !hasGender {
+		if state.NormalizeGender(workingState.ActiveProfile()["gender"]) == "" {
 			_, hasHour := workingState.Profile["hour"]
 			_, hasDay := workingState.Profile["day"]
 			if hasHour || hasDay {
@@ -229,6 +236,21 @@ func preflightWithPlan(st *state.SessionState, plan ExecutionPlan, message strin
 
 	// 8. 放行
 	return preflightResult{}
+}
+
+// needsGenderClarification 在资料进入八字或紫微排盘前拦截无法识别的性别表达。
+// 正常表达已由状态层归一；这里不猜测，直接走既有中文追问。
+func needsGenderClarification(profile map[string]any, route policy.ApprovedRoute) bool {
+	if route.PrimaryDomain != "bazi" && route.PrimaryDomain != "ziwei" {
+		return false
+	}
+	if _, hasDay := profile["day"]; !hasDay {
+		return false
+	}
+	if _, hasHour := profile["hour"]; !hasHour {
+		return false
+	}
+	return state.NormalizeGender(profile["gender"]) == ""
 }
 
 // shouldBypassBaziBirthClarification lets a complete BaZi birth-data turn

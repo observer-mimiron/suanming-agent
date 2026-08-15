@@ -30,13 +30,14 @@ Langfuse 页面不是唯一验收信号；UI 没有显示正文，不等于运�
 ## 常用命令
 
 ```bash
-# 官方最小回归：Go 合同测试 + runtime smoke
+# 默认回归：Go 合同测试 + runtime smoke（线上仅 smoke）
 make regression
 
 # 单个 smoke 数据集
 make eval-smoke
 
 # 全部本地数据集
+# 仅在明确需要全量回归时执行
 make eval-suite
 
 # 八字质量合同（真实请求，通常约数分钟）
@@ -84,7 +85,7 @@ eval/
   reports/                          # 机器可读结果
 ```
 
-`make regression` 的默认 runtime smoke 报告写入 `/tmp/suanming-agent/runtime-smoke-report.json`。suite、hosted dataset run 和 cheap gate 报告写入 `eval/reports/`。
+`make regression` 运行本地 Go 合同测试和一次 `runtime-smoke-v1`，报告写入 `/tmp/suanming-agent/runtime-smoke-report.json`；在线评测不运行全量数据集。suite、hosted dataset run 和 cheap gate 报告写入 `eval/reports/`。
 
 ## 数据集合同
 

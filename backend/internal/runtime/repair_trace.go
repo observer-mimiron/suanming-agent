@@ -70,3 +70,20 @@ func RepairFeedbackKeys(feedback map[string]any) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+// RepairLearningHintCount returns the number of bounded learning hints included in repair feedback.
+func RepairLearningHintCount(feedback map[string]any) int {
+	if len(feedback) == 0 {
+		return 0
+	}
+	switch hints := feedback["learning_hints"].(type) {
+	case []map[string]string:
+		return len(hints)
+	case []string:
+		return len(hints)
+	case []any:
+		return len(hints)
+	default:
+		return 0
+	}
+}

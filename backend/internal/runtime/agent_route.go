@@ -21,7 +21,8 @@ import (
 
 	"github.com/observer-mimiron/suanming-agent/internal/llm"
 	"github.com/observer-mimiron/suanming-agent/internal/specialists"
-	"github.com/observer-mimiron/suanming-agent/internal/state"
+	qimenapplication "github.com/observer-mimiron/suanming-agent/internal/specialists/qimen/application"
+	ziweiapplication "github.com/observer-mimiron/suanming-agent/internal/specialists/ziwei/application"
 	"github.com/observer-mimiron/suanming-agent/internal/tools"
 )
 
@@ -70,8 +71,8 @@ func noFStringGenModelInput(ctx context.Context, instruction string, input *adk.
 }
 
 // BuildSpecialist 从 Config 构建一个领域专家 ChatModelAgent。
-// 如果会话状态中已有出生资料或命盘结果，会被注入到 instruction 中。
-func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Config, st *state.SessionState) (adk.Agent, error) {
+// 如果会话投影中已有出生资料或命盘结果，会被注入到 instruction 中。
+func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Config, view *specialists.SessionView) (adk.Agent, error) {
 	adapters, err := BuildAdaptersFor(b.reg, cfg.ToolNames, b.flashChat)
 	if err != nil {
 		return nil, err
@@ -80,22 +81,22 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 	// 让 prompt 作者控制数据位置，避免 LLM 因长 instruction 注意力稀释而幻觉其他出生年份。
 	// 占位符不存在时兜底拼到 instruction 最前面。
 	var sessionCtx string
-	if cfg.InjectSessionContext && st != nil && (len(st.Profile) > 0 || st.HasBaziResult() || st.QimenResult != nil || st.HasZiWeiResult()) {
+	if cfg.InjectSessionContext && view != nil && (len(view.Profile) > 0 || len(view.BaziResult) > 0 || view.QimenResult != nil || len(view.ZiWeiResult) > 0) {
 		sessionCtx = "## 会话已有上下文\n\n以下资料已在当前会话中提供，**直接使用，无需再次索要或调用工具获取**：\n"
-		if len(st.Profile) > 0 {
-			sessionCtx += "\n### 出生资料\n" + buildProfileSection(st) + "\n"
+		if len(view.Profile) > 0 {
+			sessionCtx += "\n### 出生资料\n" + buildProfileSection(view) + "\n"
 		}
-		if st.HasBaziResult() {
+		if len(view.BaziResult) > 0 {
 			sessionCtx += "\n### 命盘结果（已就绪，严禁重新调用排盘/用神/大运工具）\n"
-			sessionCtx += b.buildBaziDataBlock(st)
+			sessionCtx += b.buildBaziDataBlock(view)
 		}
-		if st.QimenResult != nil {
+		if view.QimenResult != nil {
 			sessionCtx += "\n### 奇门遁甲盘结果（已就绪，严禁重新调用 qimen_dunjia 工具）\n"
-			sessionCtx += b.buildQimenDataBlock(st)
+			sessionCtx += qimenapplication.BuildDataBlock(view.QimenResult)
 		}
-		if st.HasZiWeiResult() {
+		if len(view.ZiWeiResult) > 0 {
 			sessionCtx += "\n### 紫微命盘结果（已就绪，严禁重新调用 ziwei_calc；ziwei_liunian 仅在用户明确询问非当前年份时调用）\n"
-			sessionCtx += b.buildZiWeiDataBlock(st)
+			sessionCtx += ziweiapplication.BuildDataBlock(view.ZiWeiResult)
 		}
 	}
 	const sessionCtxPlaceholder = "{{SESSION_CONTEXT}}"
@@ -141,6 +142,11 @@ func (b *AgentBuilder) BuildSpecialist(ctx context.Context, cfg specialists.Conf
 		GenModelInput:    noFStringGenModelInput,
 		ModelRetryConfig: llm.DefaultModelRetryConfig(),
 	})
+}
+
+// BuildEphemeralInnerAgent builds one non-streaming domain-internal agent from the shared runtime model and tools.
+func (b *AgentBuilder) BuildEphemeralInnerAgent(ctx context.Context, cfg specialists.Config, view *specialists.SessionView) (adk.Agent, error) {
+	return b.BuildSpecialist(ctx, cfg, view)
 }
 
 // buildSpecialistHandlers 返回 specialist agent 的中间件链。
@@ -353,8 +359,11 @@ func buildLiuNianBlock(sb *strings.Builder, ln map[string]interface{}) {
 	sb.WriteString("\n")
 }
 
-func (b *AgentBuilder) buildBaziDataBlock(st *state.SessionState) string {
-	br := st.BaziResult
+func (b *AgentBuilder) buildBaziDataBlock(view *specialists.SessionView) string {
+	if view == nil {
+		return ""
+	}
+	br := view.BaziResult
 	if br == nil {
 		return ""
 	}
@@ -533,148 +542,4 @@ func shenshaToneLabel(tone string) string {
 	default:
 		return "平"
 	}
-}
-
-// buildQimenDataBlock 从会话状态中的 QimenResult 构建简明奇门盘数据摘要。
-func (b *AgentBuilder) buildQimenDataBlock(st *state.SessionState) string {
-	qr := st.QimenResult
-	if qr == nil {
-		return ""
-	}
-
-	var sb strings.Builder
-
-	if value := stringValue(qr["case_id"]); value != "" {
-		sb.WriteString(fmt.Sprintf("**Case**：%s\n", value))
-	}
-	if value := stringValue(qr["purpose"]); value != "" {
-		sb.WriteString(fmt.Sprintf("**问事目的**：%s\n", value))
-	}
-	if owner, ok := qr["owner_ref"].(map[string]any); ok {
-		sb.WriteString(fmt.Sprintf("**资产归属**：%s/%s\n", stringValue(owner["kind"]), stringValue(owner["id"])))
-	}
-	if value := stringValue(qr["question_time"]); value != "" {
-		sb.WriteString(fmt.Sprintf("**提问时间**：%s\n", value))
-	}
-	if value := stringValue(qr["time_source"]); value != "" {
-		sb.WriteString(fmt.Sprintf("**起局时间来源**：%s\n", value))
-	}
-	if value := stringValue(qr["symbol_system"]); value != "" {
-		sb.WriteString(fmt.Sprintf("**符号体系**：%s\n", value))
-	}
-
-	if juText, ok := qr["ju_text"].(string); ok && juText != "" {
-		sb.WriteString(fmt.Sprintf("**局数**：%s\n", juText))
-	}
-	if dutyStar, ok := qr["value_star"].(string); ok && dutyStar != "" {
-		sb.WriteString(fmt.Sprintf("**值符星**：%s\n", dutyStar))
-	}
-	if dutyDoor, ok := qr["value_door"].(string); ok && dutyDoor != "" {
-		sb.WriteString(fmt.Sprintf("**值使门**：%s\n", dutyDoor))
-	}
-	if schema := stringValue(qr["pan_schema"]); schema != "" {
-		sb.WriteString(fmt.Sprintf("**盘式口径**：%s\n", schema))
-	}
-	if palace := stringValue(qr["duty_star_palace"]); palace != "" {
-		sb.WriteString(fmt.Sprintf("**值符宫**：%s\n", palace))
-	}
-	if palace := stringValue(qr["duty_door_palace"]); palace != "" {
-		sb.WriteString(fmt.Sprintf("**值使宫**：%s\n", palace))
-	}
-
-	// 九宫信息
-	if cells, ok := qr["cells"].([]interface{}); ok {
-		sb.WriteString("**九宫**：")
-		for _, p := range cells {
-			if pm, ok := p.(map[string]interface{}); ok {
-				sb.WriteString(fmt.Sprintf(" %v(%v星/%v门/%v神/天%v地%v)",
-					pm["palace"], pm["star"], pm["door"], pm["god"], pm["guest_gan"], pm["host_gan"]))
-			}
-		}
-		sb.WriteString("\n")
-	} else if cells, ok := qr["cells"].([]map[string]any); ok {
-		sb.WriteString("**九宫**：")
-		for _, pm := range cells {
-			sb.WriteString(fmt.Sprintf(" %v(%v星/%v门/%v神/天%v地%v)",
-				pm["palace"], pm["star"], pm["door"], pm["god"], pm["guest_gan"], pm["host_gan"]))
-		}
-		sb.WriteString("\n")
-	}
-
-	// 兜底 JSON
-	if sb.Len() == 0 {
-		if bj, err := json.Marshal(qr); err == nil {
-			sb.WriteString("<!-- 完整奇门盘 JSON（供推理引用）\n")
-			sb.WriteString(string(bj))
-			sb.WriteString("\n-->\n")
-		}
-	}
-
-	sb.WriteString("\n**⚠️ 奇门盘数据已就绪，直接引用解读，禁止调用 qimen_dunjia。**\n")
-	return sb.String()
-}
-
-// buildZiWeiDataBlock 从会话状态中的 ZiWeiResult 构建简明紫微命盘数据摘要。
-func (b *AgentBuilder) buildZiWeiDataBlock(st *state.SessionState) string {
-	zr := st.ZiWeiResult
-	if zr == nil {
-		return ""
-	}
-
-	var sb strings.Builder
-
-	// 命宫主星
-	if palaces, ok := zr["palaces"].([]interface{}); ok {
-		for _, p := range palaces {
-			if pm, ok := p.(map[string]interface{}); ok {
-				name, _ := pm["name"].(string)
-				if name == "命宫" || name == "身宫" {
-					var stars []string
-					if ms, ok := pm["major_stars"].([]interface{}); ok {
-						for _, s := range ms {
-							if sm, ok := s.(map[string]interface{}); ok {
-								if sn, ok := sm["name"].(string); ok {
-									stars = append(stars, sn)
-								}
-							}
-						}
-					}
-					sb.WriteString(fmt.Sprintf("**%s主星**：%s\n", name, strings.Join(stars, "、")))
-				}
-			}
-		}
-	}
-
-	// 四化
-	if fp, ok := zr["four_pillars"].(map[string]interface{}); ok {
-		if yp, ok := fp["年柱"].(string); ok && yp != "" {
-			sb.WriteString(fmt.Sprintf("**生年年柱**：%s\n", yp))
-		}
-	}
-
-	// 五行局
-	if wx, ok := zr["wuxing_ju"].(string); ok && wx != "" {
-		sb.WriteString(fmt.Sprintf("**五行局**：%s\n", wx))
-	}
-
-	// 流年
-	if liunian, ok := zr["liunian"].(map[string]interface{}); ok {
-		sb.WriteString("**流年数据**：")
-		if j, err := json.Marshal(liunian); err == nil {
-			sb.WriteString(string(j))
-		}
-		sb.WriteString("\n")
-	}
-
-	// 兜底 JSON
-	if sb.Len() == 0 {
-		if bj, err := json.Marshal(zr); err == nil {
-			sb.WriteString("<!-- 完整紫微命盘 JSON（供推理引用）\n")
-			sb.WriteString(string(bj))
-			sb.WriteString("\n-->\n")
-		}
-	}
-
-	sb.WriteString("\n**⚠️ 紫微命盘数据已就绪，直接引用解读，禁止调用 ziwei_calc/ziwei_liunian。**\n")
-	return sb.String()
 }

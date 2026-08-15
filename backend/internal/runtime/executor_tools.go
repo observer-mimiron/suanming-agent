@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tools"
 )
 
@@ -39,8 +40,8 @@ func buildToolParams(profile map[string]any) map[string]any {
 	month := toFloat(profile["month"])
 	day := toFloat(profile["day"])
 	hour := toFloat(profile["hour"])
-	gender, _ := profile["gender"].(string)
-	if year == 0 || month == 0 || day == 0 {
+	gender := state.NormalizeGender(profile["gender"])
+	if year == 0 || month == 0 || day == 0 || gender == "" {
 		return nil
 	}
 	params := map[string]any{"year": year, "month": month, "day": day, "hour": hour, "gender": gender}

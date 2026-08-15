@@ -76,6 +76,18 @@ func graphFailureFromError(domain, stage string, err error) graphFailure {
 			Message:      runtimeFailure.Message,
 		}
 	}
+	var specialistFailure *specialists.Failure
+	if errors.As(err, &specialistFailure) && specialistFailure != nil {
+		return graphFailure{
+			FailureClass: specialistFailure.Class,
+			FailureStage: firstFailureText(specialistFailure.Stage, stage),
+			FailureCode:  specialistFailure.Code,
+			Domain:       firstFailureText(specialistFailure.Domain, domain),
+			Retryable:    specialistFailure.Retryable,
+			Degraded:     specialistFailure.Degraded,
+			Message:      specialistFailure.Message,
+		}
+	}
 	return graphFailure{
 		FailureClass: failureClassInvariantFailure,
 		FailureStage: firstFailureText(stage, failureStageAgent),

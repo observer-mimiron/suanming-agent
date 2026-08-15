@@ -198,7 +198,7 @@
 **定义位置**：
 - [internal/specialists/bazi/specialist.go](../internal/specialists/bazi/specialist.go)
 - [internal/specialists/qimen/specialist.go](../internal/specialists/qimen/specialist.go)
-- [internal/specialists/ziwei/specialist.go](../internal/specialists/ziwei/specialist.go)
+- [internal/specialists/ziwei/adapter/config.go](../internal/specialists/ziwei/adapter/config.go)
 
 **工具限制**：Specialist 只挂载 `knowledge_catalog` 和 `knowledge_search`。排盘/用神/大运由 prefill 确定性执行。
 

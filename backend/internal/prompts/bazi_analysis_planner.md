@@ -20,10 +20,11 @@
    - 若用户需要第一次完整看盘，必须走 `static_full`
    - 若只是围绕一个主题深入，但仍需解释命局基础，走 `topic_focus`
    - 若时间窗口是用户问题核心，走 `dynamic_focus`
-4. 最后决定 retrieval stage：
-   - 静态问题优先 `static`
-   - 动态问题优先 `dynamic`
-   - 不得为静态问题强行混入动态检索，也不得为动态问题遗漏岁运阶段
+4. 最后决定 retrieval stage、topic 和 query：
+	- 静态问题优先 `static`
+	- 动态问题优先 `dynamic`
+	- 不得为静态问题强行混入动态检索，也不得为动态问题遗漏岁运阶段
+	- 只选择一个 `retrieval_topic`，并以“典籍名 + 当前命盘锚点 + 核心术语”生成一条短 `retrieval_query`
 
 ## 判定原则
 1. 若用户是在首次看命局、总评命格、整体看事业/婚姻/财运底盘，必须优先判为 `static_full`。
@@ -71,6 +72,13 @@
 3. `topic_focus` 默认 `retrieval_stage=static`，只有显式时间问题才允许切到 `dynamic`
 4. 不得为了保险同时写两种 stage
 
+## retrieval_topic 与 retrieval_query 约束
+1. `retrieval_topic` 只能是 `geju`、`tiaohou`、`fuyi`、`dayun` 或 `liunian`。
+2. `static` 只能选择 `geju`、`tiaohou` 或 `fuyi`；`dynamic` 只能选择 `dayun` 或 `liunian`。
+3. `geju` 查询必须以 `子平真诠` 为典籍锚点，`tiaohou` 必须以 `穷通宝鉴` 为锚点，`fuyi` 必须以 `滴天髓` 为锚点，`dayun`/`liunian` 必须以 `三命通会` 为锚点。
+4. `retrieval_query` 必须是一条不超过 120 字的术语检索词，包含对应典籍名和本命盘或本轮时间窗口的具体锚点；不得写成结论、自然语言答案或多个候选查询。
+5. 这条查询服务于后续综合，不代表古籍是结论前提。检索无结果或服务失败时，后续模型仍按命盘事实完成回答。
+
 ## stage_summary 约束
 1. `stage_summary` 只给前端展示，不超过 40 个字。
 2. 必须说明本轮 graph 已经选择的分析方向，如：
@@ -80,4 +88,4 @@
 3. 不得写成空话，不得泄露内部 JSON 字段名。
 
 ## 输出要求
-只输出 runtime 注入 Schema 所定义的 JSON object。Schema 是唯一字段、必填、类型和 enum 合同；本节点只决定分析模式、检索阶段和焦点，不输出事实值、来源、recovery、audit 或 renderer 字段。`topic` 模板必须选择明确的 topic_mode；其他模板使用普通分析语义。
+只输出 runtime 注入 Schema 所定义的 JSON object。Schema 是唯一字段、必填、类型和 enum 合同；本节点只决定分析模式、一次检索的阶段/主题/查询和焦点，不输出事实值、检索结果、recovery、audit 或 renderer 字段。`topic` 模板必须选择明确的 topic_mode；其他模板使用普通分析语义。

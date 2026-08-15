@@ -1,6 +1,6 @@
-// This file belongs to the manager-owned runtime layer.
-// It owns ExecutionPlan dispatch behavior for this package.
-// It owns execution contracts and Manager flow; specialists do not own final answers.
+// 本文件属于 Manager 所有的 runtime 层。
+// 本文件负责 ExecutionPlan 的 specialist 调度和角色化结果收集；
+// 不负责领域推理、最终答复或跨领域会话上下文的持久化。
 package runtime
 
 import (
@@ -130,13 +130,20 @@ func (e *Executor) dispatchExecutionSteps(ctx context.Context, sink EventSink, s
 	if len(steps) == 0 {
 		return nil, fmt.Errorf("execution plan requires at least one pending domain step")
 	}
-	if e.specialistRegistry == nil && !(shouldUseBaziCharterGraph(plan) && len(plan.Domains) == 1) {
+	if e.specialistRegistry == nil {
 		return nil, fmt.Errorf("execution plan requires specialist registry")
 	}
 
 	ctx = withEventSink(ctx, sink)
 	if err := validatePlanArtifacts(st, plan); err != nil {
 		return nil, err
+	}
+	sessionViews := make([]*specialists.SessionView, len(steps))
+	for i, step := range steps {
+		sessionViews[i] = specialistSessionView(st, plan, step.Domain)
+		if sessionViews[i] == nil {
+			return nil, fmt.Errorf("execution plan requires session view for %s", step.Domain)
+		}
 	}
 
 	outcomes := make([]executionStepOutcome, len(steps))
@@ -156,36 +163,30 @@ func (e *Executor) dispatchExecutionSteps(ctx context.Context, sink EventSink, s
 			}
 			defer func() { outcomes[idx] = outcome }()
 
-			var result specialists.Result
-			var runErr error
-			if e.shouldUseBaziAuthorityGraph(plan) && step.Domain == "bazi" {
-				result.Summary, runErr = e.runBaziAuthorityFirstGraph(runCtx, sink, st, message)
-				result.Domain = "bazi"
-			} else {
-				runner, ok := e.specialistRegistry.RunnerFor(step.Domain)
-				if !ok {
-					outcome.Err = fmt.Errorf("no specialist runner registered for %s", step.Domain)
-					outcome.Status = executionStepStatusFailed
-					if step.Role == executionStepRoleSupport {
-						outcome.Status = executionStepStatusDegraded
-					}
-					return
+			runner, ok := e.specialistRegistry.RunnerFor(step.Domain)
+			if !ok {
+				outcome.Err = fmt.Errorf("no specialist runner registered for %s", step.Domain)
+				outcome.Status = executionStepStatusFailed
+				if step.Role == executionStepRoleSupport {
+					outcome.Status = executionStepStatusDegraded
 				}
-
-				route := plan.Route
-				// 每个 worker 仍接收自己的领域视角；最终主次只由 outcome.Role 表达，
-				// 避免把 specialist 请求里的 route 投影误当成合成合同。
-				route.PrimaryDomain = step.Domain
-				route.SecondaryDomains = secondaryDomainsForExecutionSteps(steps, step.Domain)
-				result, runErr = runner.Run(runCtx, specialists.Request{
-					SessionID:      st.SessionID,
-					UserMessage:    message,
-					Route:          route,
-					ManagerContext: st.ManagerContext,
-					DomainContext:  *domainContextFor(st, step.Domain),
-					Session:        specialistSessionView(st, plan, step.Domain),
-				})
+				return
 			}
+
+			route := plan.Route
+			// 每个 worker 仍接收自己的领域视角；最终主次只由 outcome.Role 表达，
+			// 避免把 specialist 请求里的 route 投影误当成合成合同。
+			route.PrimaryDomain = step.Domain
+			route.SecondaryDomains = secondaryDomainsForExecutionSteps(steps, step.Domain)
+			result, runErr := runner.Run(runCtx, specialists.Request{
+				UserMessage: message,
+				Route:       route,
+				Role:        step.Role,
+				Session:     sessionViews[idx],
+				SaveToolResult: func(toolName, resultJSON string) {
+					e.saveToolResult(st, toolName, resultJSON)
+				},
+			})
 			if runErr != nil {
 				outcome.Err = runErr
 				if step.Role == executionStepRoleSupport {

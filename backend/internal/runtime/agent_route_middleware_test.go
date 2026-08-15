@@ -11,6 +11,7 @@ import (
 
 	"github.com/cloudwego/eino/adk/middlewares/reduction"
 	"github.com/cloudwego/eino/schema"
+	"github.com/observer-mimiron/suanming-agent/internal/specialists"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 )
 
@@ -158,7 +159,7 @@ func TestBuildBaziDataBlock_InjectsStructuredShenshaContext(t *testing.T) {
 		},
 	}
 
-	block := b.buildBaziDataBlock(st)
+	block := b.buildBaziDataBlock(&specialists.SessionView{BaziResult: st.BaziResult})
 	if !strings.Contains(block, "主要神煞") {
 		t.Fatalf("expected 主要神煞 section, got: %s", block)
 	}

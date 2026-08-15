@@ -15,6 +15,7 @@ import (
 
 	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/policy"
+	"github.com/observer-mimiron/suanming-agent/internal/specialists"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
@@ -94,22 +95,29 @@ func (e *Executor) saveToolResult(st *state.SessionState, toolName, resultJSON s
 }
 
 // buildSessionValues 构造 specialist prompt 所需的当前会话数据快照。
-func (e *Executor) buildSessionValues(st *state.SessionState, route policy.ApprovedRoute) map[string]any {
+func (e *Executor) buildSessionValues(view *specialists.SessionView, route policy.ApprovedRoute) map[string]any {
+	profile := map[string]any{}
+	if view != nil && view.Profile != nil {
+		profile = view.Profile
+	}
 	vals := map[string]any{
-		"profile": st.ActiveProfile(),
+		"profile": profile,
 		"domain":  route.PrimaryDomain,
 	}
-	if st.BaziResult != nil {
-		vals["bazi_result"] = st.BaziResult
-		if bj, err := json.Marshal(st.BaziResult); err == nil {
+	if view == nil {
+		return vals
+	}
+	if view.BaziResult != nil {
+		vals["bazi_result"] = view.BaziResult
+		if bj, err := json.Marshal(view.BaziResult); err == nil {
 			vals["bazi_json"] = string(bj)
 		}
 	}
-	if st.QimenResult != nil {
-		vals["qimen_result"] = st.QimenResult
+	if view.QimenResult != nil {
+		vals["qimen_result"] = view.QimenResult
 	}
-	if st.ZiWeiResult != nil {
-		vals["ziwei_result"] = st.ZiWeiResult
+	if view.ZiWeiResult != nil {
+		vals["ziwei_result"] = view.ZiWeiResult
 	}
 	return vals
 }
@@ -180,27 +188,30 @@ func guidanceDirectiveKind(st *state.SessionState) string {
 	return st.Guidance.DirectiveKind
 }
 
-// buildConversationMessages 从会话状态构建完整的输入消息列表。
+// buildConversationMessages 从 specialist 会话读投影构建完整的输入消息列表。
 // 若 RunningSummary 非空（对话超 30 轮后产生），作为 SystemMessage 注入消息列表开头，
 // 让 supervisor 能看到早期对话的摘要，避免上下文断裂。
-func (e *Executor) buildConversationMessages(st *state.SessionState, currentMessage string) []*schema.Message {
+func (e *Executor) buildConversationMessages(view *specialists.SessionView, currentMessage string) []*schema.Message {
+	if view == nil {
+		return []*schema.Message{schema.UserMessage(currentMessage)}
+	}
 	limit := e.historyLimit
 	if limit <= 0 {
-		limit = len(st.RecentTurns)
+		limit = len(view.RecentTurns)
 	}
 
 	msgs := make([]*schema.Message, 0, limit+2)
 
-	if st.RunningSummary != "" {
-		msgs = append(msgs, schema.SystemMessage("## 之前对话摘要（早期对话的压缩，供参考）\n\n"+st.RunningSummary))
+	if view.RunningSummary != "" {
+		msgs = append(msgs, schema.SystemMessage("## 之前对话摘要（早期对话的压缩，供参考）\n\n"+view.RunningSummary))
 	}
 
 	start := 0
-	if len(st.RecentTurns) > limit {
-		start = len(st.RecentTurns) - limit
+	if len(view.RecentTurns) > limit {
+		start = len(view.RecentTurns) - limit
 	}
-	for i := start; i < len(st.RecentTurns); i++ {
-		t := st.RecentTurns[i]
+	for i := start; i < len(view.RecentTurns); i++ {
+		t := view.RecentTurns[i]
 		if t.Role == "user" {
 			msgs = append(msgs, schema.UserMessage(t.Content))
 		} else {

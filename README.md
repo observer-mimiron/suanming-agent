@@ -36,13 +36,15 @@
 ## 工程实现重点
 
 - **统一 runtime 主链**
-  八字、奇门、紫微三类咨询统一走 manager-owned runtime 主链。
+  八字、奇门、紫微三类咨询统一走 manager-owned runtime 主链；领域执行统一经过 `specialists.Runner`。
 - **Manager 统一收口**
   `Manager` 是 runtime 内唯一 conversation owner，specialist 只负责领域执行。
 - **artifact-driven prefill**
   命盘准备按 `RequiredArtifacts` 确定性执行，减少跨域追问时的运行时歧义。
+- **领域单入口与八字组合 Runner**
+  Manager 负责会话、跨领域协调和最终答复；八字、奇门、紫微互相独立。八字组合 Runner 的 `primary` 走 Bazi Graph，`support` 走 ADK runner，共享模型、工具、RAG、追踪和事件能力由 runtime adapter 提供。
 - **authority-first 八字主链**
-  纯八字单域场景已收口为“分析模式判定 -> 证据规划 -> 受控检索 -> 静态/动态综合 -> 程序 renderer 成文”。
+  纯八字单域场景在统一 Runner 入口内收口为“分析模式判定 -> 证据规划 -> 受控检索 -> 静态/动态综合 -> 程序 renderer 成文”。八字 Graph、模型/检索、schema、合同和展示实现位于 `backend/internal/specialists/bazi/`；runtime 只保留 Graph Runner 和通用执行适配。
 - **前端展示运行时证据**
   页面会同时展示命盘卡片、知识依据、处理过程和最终回答。
 - **内置正式回归入口**
@@ -128,9 +130,9 @@ flowchart TD
     AR --> M["Manager<br/>conversation owner"]
     M --> EP["ExecutionPlan<br/>route / domains / required artifacts"]
     EP --> PF["Prefill<br/>deterministic chart preparation"]
-    PF -->|纯八字单域| BG["Authority-First Bazi Graph"]
-    PF -->|其他路径| SR["specialist runner(s)"]
-    SR --> SP["bazi / qimen / ziwei specialists"]
+    PF --> SR["specialists.Runner"]
+    SR -->|bazi primary| BG["Bazi composite Runner -> Bazi Graph"]
+    SR -->|bazi support / qimen / ziwei| SP["ADK specialist runners"]
     SP --> TK["tools / MCP / knowledge_search"]
     BG --> MC["manager compose"]
     SP --> MC
@@ -166,8 +168,8 @@ flowchart TD
 3. `Manager` 基于完整 `SessionState` 生成 `ExecutionPlan`
 4. `Prefill` 按 `RequiredArtifacts` 先补齐命盘和领域前置结果
 5. 进入领域执行：
-   - 纯八字单域走 authority-first inner graph
-   - 其他路径走 `specialist runner(s)` 调度 `bazi / qimen / ziwei`
+   - 所有领域统一经 `Registry.RunnerFor -> Request{Role, SessionView} -> Runner.Run`
+   - 八字组合 Runner 按 `primary`/`support` 选择 Bazi Graph 或 ADK runner
 6. specialist 返回结构化结果，由 `manager compose` 统一收口
 7. `final guard` 做最后验收
 8. `ExecutionSnapshot` 和 trace digest 同步写入调试投影，供前端恢复与 execution tree 展示
@@ -333,17 +335,14 @@ cd web && npm run build
 make regression
 ```
 
-它当前会覆盖两类门禁：
-
-- Go runtime / supervisor / policy 合同测试
-- `eval/datasets/runtime-smoke-v1.json` 对真实 `/api/chat` 的最小 smoke
+它会运行本地 Go 合同测试；对真实 `/api/chat` 的在线评测默认只执行 `eval/datasets/runtime-smoke-v1.json`，全量 suite 仅在明确需要时执行。Langfuse/Docker 不可用时，仍可直接回放 `/api/chat` 并检查本地 TurnTrace，但不能把它当作 Langfuse dataset run/score 证据。
 
 ### 评测与可观测性栈
 
 ```mermaid
 flowchart LR
     GT["Go tests"] --> RG["make regression"]
-    DS["eval/datasets/*.json"] --> RG
+    DS["runtime-smoke-v1.json"] --> RG
     RG --> RP["eval/reports/*.json"]
     RG --> API["/api/chat"]
     API --> TT["TurnTrace / ProcessDigest / DebugTraceDigest"]
@@ -361,6 +360,8 @@ flowchart LR
 - **第三层：Langfuse 观测与 dataset runs**
   用于补充 traces、sessions、scores 和 hosted datasets 视角。
 
+2026-08-14 的真实八字冒烟复测已通过：首轮建盘和同会话财运追问的本地 trace 分别为 `trc_78e066a5e44d`、`trc_4f683cbdb5b2`，均为 `status=ok`，SSE 唯一 `text -> done` 且无 `error`。本次因 Docker daemon 未运行未执行 Langfuse dataset runner，平台 trace/score 仍待补验。
+
 当前正式 truth layer 包括：
 
 - Go 合同测试
@@ -374,11 +375,11 @@ flowchart LR
 - `go test ./backend/...`
   后端合同测试和包级测试
 - `make regression`
-  当前官方主回归入口，负责自启动 / 自清理后端并执行最小 smoke
+  当前官方默认入口，负责 Go 合同测试和最小 online smoke；不跑全量 online suite
 - `make eval-smoke`
   运行单个本地 smoke 数据集
 - `make eval-suite`
-  运行整个本地 suite
+  显式运行整个本地 suite
 - `eval/runner/sync-langfuse-datasets.py`
   同步本地数据集到 Langfuse hosted datasets
 - `eval/runner/run-langfuse-experiment.py`

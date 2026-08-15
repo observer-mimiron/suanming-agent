@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# 评测入口负责本地 Go 合同测试，并执行一次 runtime smoke。
+# 不运行全量在线数据集，避免普通改动隐式触发额外模型调用。
+# 本脚本不定义评测断言，断言仍由 runtime-smoke 数据集和 runner 负责。
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
@@ -55,8 +58,8 @@ if ! curl -fsS "$server_url/api/health" >/dev/null 2>&1; then
   fi
 fi
 
+report_path="${AGENT_REGRESSION_REPORT:-$run_dir/runtime-smoke-report.json}"
 go test ./backend/internal/runtime -run 'ExecutionPlan|Manager|GuardFinalAnswer|Prefill|RuntimeFailure' -v
 go test ./backend/internal/state ./backend/internal/tools/bazi -run 'SessionAssets|ExportsDeterministicDayunContract|FindCurrentDayunAt' -v
 go test ./backend/internal/supervisor ./backend/internal/policy -v
-report_path="${AGENT_REGRESSION_REPORT:-$run_dir/runtime-smoke-report.json}"
 ./eval/runner/run-langfuse-eval.sh --dataset-path eval/datasets/runtime-smoke-v1.json --server-url "$server_url" --langfuse-url "$langfuse_url" --report-path "$report_path"

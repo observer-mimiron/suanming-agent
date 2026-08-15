@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	baziSpecialist "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi"
-	qimenSpecialist "github.com/observer-mimiron/suanming-agent/internal/specialists/qimen"
-	ziweiSpecialist "github.com/observer-mimiron/suanming-agent/internal/specialists/ziwei"
+	qimenSpecialist "github.com/observer-mimiron/suanming-agent/internal/specialists/qimen/adapter"
+	ziweiSpecialist "github.com/observer-mimiron/suanming-agent/internal/specialists/ziwei/adapter"
 )
 
 func TestSpecialistToolNamesExcludeDeterministicChartTools(t *testing.T) {

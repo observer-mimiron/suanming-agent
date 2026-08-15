@@ -11,6 +11,7 @@ import (
 
 	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/intent"
+	qimenapplication "github.com/observer-mimiron/suanming-agent/internal/specialists/qimen/application"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tools"
 	bazitool "github.com/observer-mimiron/suanming-agent/internal/tools/bazi"
@@ -187,8 +188,8 @@ func TestSpecialistSessionView_QimenContainsOnlyCaseChartContext(t *testing.T) {
 	if view == nil {
 		t.Fatal("specialistSessionView returned nil")
 	}
-	if len(view.Profile) != 0 || len(view.ProfileRevisions) != 0 || len(view.RecentTurns) != 0 || view.RunningSummary != "" {
-		t.Fatalf("qimen view leaked profile/history: profile=%v revisions=%d turns=%d summary=%q", view.Profile, len(view.ProfileRevisions), len(view.RecentTurns), view.RunningSummary)
+	if len(view.Profile) != 0 || len(view.RecentTurns) != 0 || view.RunningSummary != "" {
+		t.Fatalf("qimen view leaked profile/history: profile=%v turns=%d summary=%q", view.Profile, len(view.RecentTurns), view.RunningSummary)
 	}
 	if view.BaziResult != nil || view.ZiWeiResult != nil {
 		t.Fatalf("qimen view leaked natal charts: bazi=%v ziwei=%v", view.BaziResult, view.ZiWeiResult)
@@ -197,7 +198,7 @@ func TestSpecialistSessionView_QimenContainsOnlyCaseChartContext(t *testing.T) {
 		t.Fatalf("qimen case_id = %v, want %s", got, item.ID)
 	}
 
-	block := (&AgentBuilder{}).buildQimenDataBlock(view)
+	block := qimenapplication.BuildDataBlock(view.QimenResult)
 	for _, want := range []string{"Case", "event_question", item.ID, questionTime, "question_time", "rotating_8", "eight_gate_eight_god"} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("qimen data block missing %q: %s", want, block)
@@ -230,6 +231,15 @@ func TestBuildToolParams_UsesBirthplaceLongitudeForTrueSolarTime(t *testing.T) {
 	})
 	if got := params["longitude"]; got != 121.4737 {
 		t.Fatalf("longitude = %v, want Shanghai longitude 121.4737", got)
+	}
+}
+
+func TestBuildToolParamsNormalizesGenderExpression(t *testing.T) {
+	params := buildToolParams(map[string]any{
+		"year": 2025.0, "month": 11.0, "day": 10.0, "hour": 23.0, "gender": "男性",
+	})
+	if got := params["gender"]; got != "男" {
+		t.Fatalf("gender = %q, want 男", got)
 	}
 }
 

@@ -1,7 +1,7 @@
-// Package runtime contains the manager-owned execution flow.
+// Package runtime 包含 Manager 所有的执行主链。
 //
-// This file owns Manager decisions: route reconciliation, execution plan
-// construction, follow-up policy, and final cross-specialist composition.
+// 本文件负责路由协调、ExecutionPlan 构建、追问策略和跨 specialist 合成；
+// 不负责领域规则、传输层输出或 specialist 内部推理。
 package runtime
 
 import (
@@ -398,18 +398,6 @@ func waitingOnForTurnType(turnType string) string {
 		return "user_reply"
 	default:
 		return ""
-	}
-}
-
-// domainContextFor returns the state namespace owned by a runtime domain.
-func domainContextFor(st *state.SessionState, domain string) *state.DomainContext {
-	switch domain {
-	case "qimen":
-		return &st.DomainContexts.Qimen
-	case "ziwei":
-		return &st.DomainContexts.ZiWei
-	default:
-		return &st.DomainContexts.Bazi
 	}
 }
 

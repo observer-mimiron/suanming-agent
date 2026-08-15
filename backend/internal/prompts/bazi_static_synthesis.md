@@ -20,9 +20,9 @@
 
 ## 四个 claim
 
-`claims` 的位置固定为：`main_axis`、`strength`、`tiaohou`、`pattern_usage`。
+`claims` 的每一项必须带 `slot`，四项各出现且只出现一次：`main_axis`、`strength`、`tiaohou`、`pattern_usage`。数组顺序不限，runtime 按 `slot` 对齐，不能省略或重复。
 
-每条都必须给出：`verdict`、`status`、`fact_refs`、`evidence_topics`。`claim_refs` 只有非空时才输出；空数组直接省略字段。
+每条都必须给出：`slot`、`verdict`、`status`、`fact_refs`、`evidence_topics`。`claim_refs` 只有非空时才输出；空数组直接省略字段。
 `verdict` 是面向用户的一句短裁断，4-80 字，只说明该槽位的判断，不复述事实清单、边界、层次或现实应事。`status` 只能是 `established`、`candidate`、`limited`、`withheld`。不要输出 `confidence` 或额外中文字段；runtime 会根据确定性事实生成置信度和边界。
 
 - 强弱要同时说明月令、通根位置和层级、同类透干、印星生扶、食伤泄身、财官耗克，以及 support / pressure 的合并结果。
@@ -53,8 +53,8 @@
 - 除 `disease` 外，每个维度的 `state` 只能是 `missing`、`limited`、`mixed`、`usable`、`strong`。
 - `disease.state` 只能是 `unresolved`、`light`、`moderate`、`heavy`、`critical`。
 - 每个维度必须给出 `state` 和 `evidence_topics`；有事实或规则 ID 时再带对应引用数组，空数组直接省略。每个非 withheld 维度至少引用一项事实、规则或证据主题。何知章只作正反印证入口，不是加减分表。
-- `status=rated`：清浊、病药、救应、破格风险、何知章五项独立证据都已覆盖；`level` 为 1-9。
-- `status=provisional`：核心命盘和主轴已能建立，但独立主证尚有缺口或裁断仍有保留；仍必须给出 `level`，且只能为 3-6。不得因缺一项材料自动写“无等级”。
+- `status=rated`：核心命盘事实、主轴和九级维度已能支持本轮评价；`level` 为 1-9。检索命中可作为古籍参照，检索超时、空结果或未覆盖主题不得单独降低本状态。
+- `status=provisional`：核心命盘和主轴已能建立，但命盘结构本身仍有未解决的限制或裁断保留；仍必须给出 `level`，且只能为 3-6。不得因检索缺一项材料自动进入此状态。
 - `status=withheld`：仅当核心命盘事实或静态主轴无法建立；`level` 必须为 0。
 - 不得因“印星根气不足”、单一旺衰分数、月令未透或火存在，单独把层次压低或抬高。
 

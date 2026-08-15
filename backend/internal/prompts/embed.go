@@ -21,6 +21,9 @@ var BaziMethodologyCharterInstruction string
 //go:embed bazi_analysis_planner.md
 var BaziAnalysisPlannerInstruction string
 
+//go:embed bazi_evidence_planner.md
+var BaziEvidencePlannerInstruction string
+
 //go:embed bazi_static_synthesis.md
 var BaziStaticSynthesisInstruction string
 
@@ -29,9 +32,6 @@ var BaziDynamicSynthesisInstruction string
 
 //go:embed bazi_lifetime_dayun_synthesis.md
 var BaziLifetimeDayunSynthesisInstruction string
-
-//go:embed bazi_evidence_planner.md
-var BaziEvidencePlannerInstruction string
 
 //go:embed qimen.md
 var QimenInstruction string

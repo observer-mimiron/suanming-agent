@@ -301,15 +301,38 @@ func buildRunDiagnostics(t *TurnTrace, spans []RunSpan) []RunDiagnostic {
 			b.add(guardBlockedDiagnostic(span.SpanID, evidenceFromAttrs(span.Attributes, "guardrail_result")))
 		}
 		if span.Category == "retriever" && attrInt(span.Attributes, "hits") == 0 {
-			b.add(RunDiagnostic{
-				Severity:   "warn",
-				Stage:      "retrieval",
-				Code:       "retrieval.no_hits",
-				Title:      "知识检索没有命中结果。",
-				Evidence:   evidenceFromAttrs(span.Attributes, "query", "hits"),
-				NextAction: "检查检索关键词、知识库服务和必需主题覆盖。",
-				SpanID:     span.SpanID,
-			})
+			switch attrString(span.Attributes, "degrade_reason") {
+			case "timeout":
+				b.add(RunDiagnostic{
+					Severity:   "warn",
+					Stage:      "retrieval",
+					Code:       "retrieval.service_timeout",
+					Title:      "知识检索服务超时，未能确认是否有命中资料。",
+					Evidence:   evidenceFromAttrs(span.Attributes, "query", "hits", "degrade_reason"),
+					NextAction: "检查知识库服务响应时间和检索负载，再判断主题覆盖是否确实不足。",
+					SpanID:     span.SpanID,
+				})
+			case "http_error", "parse_error", "service_error":
+				b.add(RunDiagnostic{
+					Severity:   "warn",
+					Stage:      "retrieval",
+					Code:       "retrieval.service_error",
+					Title:      "知识检索服务异常，未能确认是否有命中资料。",
+					Evidence:   evidenceFromAttrs(span.Attributes, "query", "hits", "degrade_reason"),
+					NextAction: "检查知识库服务状态和返回格式，再判断主题覆盖是否确实不足。",
+					SpanID:     span.SpanID,
+				})
+			default:
+				b.add(RunDiagnostic{
+					Severity:   "warn",
+					Stage:      "retrieval",
+					Code:       "retrieval.no_hits",
+					Title:      "知识检索没有命中结果。",
+					Evidence:   evidenceFromAttrs(span.Attributes, "query", "hits", "degrade_reason"),
+					NextAction: "检查检索关键词、知识库服务和必需主题覆盖。",
+					SpanID:     span.SpanID,
+				})
+			}
 		}
 	}
 	return b.items

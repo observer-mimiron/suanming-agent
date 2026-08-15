@@ -123,7 +123,8 @@ func (s *SessionState) MissingFields() []string {
 	profile := s.ActiveProfile()
 	var missing []string
 	for _, f := range requiredFields {
-		if _, ok := profile[f]; !ok {
+		value, ok := profile[f]
+		if !ok || (f == "gender" && NormalizeGender(value) == "") {
 			missing = append(missing, f)
 		}
 	}

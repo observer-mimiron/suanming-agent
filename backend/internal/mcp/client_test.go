@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // TestGetGraphContract 验证 GetGraph 返回 nodes 和 edges 的契约。
@@ -66,5 +67,22 @@ func TestSearchKnowledgeUsesRetrieveEndpoint(t *testing.T) {
 	}
 	if passages[0].Source != "knowledge://ziping-geju (子平真诠 论格局)" {
 		t.Fatalf("source = %q", passages[0].Source)
+	}
+}
+
+func TestSearchFailureKind_ClassifiesTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	c.client.Timeout = 10 * time.Millisecond
+	_, err := c.SearchKnowledge("子平真诠 破格", 3)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if got := SearchFailureKind(err); got != SearchFailureTimeout {
+		t.Fatalf("failure kind = %q, want %q", got, SearchFailureTimeout)
 	}
 }

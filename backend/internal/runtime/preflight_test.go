@@ -139,6 +139,36 @@ func TestPreflight_BaziCompleteBirthInputIgnoresGenericClarification(t *testing.
 	}
 }
 
+func TestPreflight_NormalizesGenderExpressionBeforeBaziExecution(t *testing.T) {
+	st := state.NewSession("test-session")
+	route := routeWithHints("bazi", "amend_profile", "none", "full")
+	route.Slots.Profile = map[string]any{
+		"birthplace": "南京", "year": 1994.0, "month": 1.0, "day": 21.0, "hour": 20.0, "gender": "male",
+	}
+
+	result := preflight(st, route, "1994年1月21日20点 male 南京", nil)
+	if result.ShortCircuit {
+		t.Fatalf("recognized gender expression should execute, got %q", result.Text)
+	}
+}
+
+func TestPreflight_InvalidGenderExpressionPromptsBeforeBaziExecution(t *testing.T) {
+	st := state.NewSession("test-session")
+	route := routeWithHints("bazi", "amend_profile", "none", "full")
+	route.Slots.Profile = map[string]any{
+		"birthplace": "南京", "year": 1994.0, "month": 1.0, "day": 21.0, "hour": 20.0, "gender": "未知",
+	}
+
+	result := preflight(st, route, "1994年1月21日20点 未知 南京", nil)
+	if !result.ShortCircuit || result.TurnType != "clarification" {
+		t.Fatalf("invalid gender should short circuit, got %+v", result)
+	}
+	want := guidance.Render(guidance.Request{Boundary: guidance.BoundaryCollectGenderFromBirthTime})
+	if result.Text != want {
+		t.Fatalf("prompt = %q, want %q", result.Text, want)
+	}
+}
+
 // TestPreflight_BaziWithoutProfileOrChartBlocks 验证八字主域无资料且无命盘时，preflight
 // 返回 ask_missing_profile（collect_profile/amend_profile 除外）。
 func TestPreflight_BaziWithoutProfileOrChartBlocks(t *testing.T) {

@@ -95,7 +95,7 @@ langfuse-status:
 
 langfuse-restart: langfuse-stop langfuse-start
 
-# ===== 评测 / 回归 =====
+# ===== 评测 / 回归（线上默认只跑冒烟；全量套件须显式执行） =====
 regression:
 	@bash eval/runner/run-agent-regression.sh
 

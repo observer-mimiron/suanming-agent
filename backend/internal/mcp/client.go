@@ -3,9 +3,12 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,10 +21,49 @@ type Client struct {
 	client  *http.Client
 }
 
+const (
+	// SearchFailureTimeout 表示知识库请求超过客户端等待上限。
+	SearchFailureTimeout = "timeout"
+	// SearchFailureHTTP 表示知识库返回了非成功 HTTP 状态。
+	SearchFailureHTTP = "http_error"
+	// SearchFailureParse 表示知识库成功响应无法按检索合同解析。
+	SearchFailureParse = "parse_error"
+	// SearchFailureService 表示未被进一步识别的知识库服务故障。
+	SearchFailureService = "service_error"
+)
+
+type searchFailure struct {
+	kind string
+	err  error
+}
+
+// Error 返回底层知识库故障文本。
+func (e *searchFailure) Error() string { return e.err.Error() }
+
+// Unwrap 暴露底层错误，保留标准库的超时和网络错误判断能力。
+func (e *searchFailure) Unwrap() error { return e.err }
+
+// SearchFailureKind 将知识库检索错误归类为可安全记录的失败原因。
+func SearchFailureKind(err error) string {
+	var classified *searchFailure
+	if errors.As(err, &classified) {
+		return classified.kind
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return SearchFailureTimeout
+	}
+	var networkErr net.Error
+	if errors.As(err, &networkErr) && networkErr.Timeout() {
+		return SearchFailureTimeout
+	}
+	return SearchFailureService
+}
+
 // NewClient 创建一个 MCP 客户端，连接到指定 baseURL 的知识库服务。
 func NewClient(baseURL string) *Client {
 	ensureLogDir()
-	return &Client{baseURL: baseURL, client: &http.Client{Timeout: 10 * time.Second}}
+	// 个别古籍 hybrid 检索已接近十秒；留出余量避免把慢响应误作空结果。
+	return &Client{baseURL: baseURL, client: &http.Client{Timeout: 15 * time.Second}}
 }
 
 // Passage 是一条知识库检索结果，包含文本内容和来源标识。
@@ -91,7 +133,7 @@ func (c *Client) SearchKnowledge(query string, topK int) ([]Passage, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("knowledge search returned %d", resp.StatusCode)
+		return nil, &searchFailure{kind: SearchFailureHTTP, err: fmt.Errorf("knowledge search returned %d", resp.StatusCode)}
 	}
 
 	var result struct {
@@ -102,7 +144,7 @@ func (c *Client) SearchKnowledge(query string, topK int) ([]Passage, error) {
 		} `json:"results"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("knowledge parse: %w", err)
+		return nil, &searchFailure{kind: SearchFailureParse, err: fmt.Errorf("knowledge parse: %w", err)}
 	}
 
 	var passages []Passage

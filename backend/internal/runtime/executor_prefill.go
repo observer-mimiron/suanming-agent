@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/observer-mimiron/suanming-agent/internal/contracts"
+	qimenapplication "github.com/observer-mimiron/suanming-agent/internal/specialists/qimen/application"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
@@ -48,13 +48,13 @@ func (e *Executor) prefillQimen(ctx context.Context, sink EventSink, st *state.S
 	if st == nil || caseID == "" || !ok {
 		return false
 	}
-	if chart := st.QimenChartForCase(caseID); qimenChartMatchesTurn(chart, plan.TurnContext) {
+	if chart := st.QimenChartForCase(caseID); qimenapplication.MatchesStoredCaseChart(chart, plan.TurnContext) {
 		vals["qimen_result"] = chart
 		return true
 	}
 
 	// 奇门主链是问事盘：即使会话已有出生资料，也按本轮问课时刻起局。
-	params := qimenQuestionTimeParams(questionTime)
+	params := qimenapplication.QuestionTimeParams(questionTime)
 	if result := e.callTool(ctx, "qimen_dunjia", params); result != nil {
 		if questionTimeValue := questionTime.Format(time.RFC3339); stringValue(result["question_time"]) != questionTimeValue {
 			result["question_time"] = questionTimeValue
@@ -74,32 +74,6 @@ func (e *Executor) prefillQimen(ctx context.Context, sink EventSink, st *state.S
 		return true
 	}
 	return false
-}
-
-// qimenChartMatchesTurn accepts only a chart whose runtime metadata binds it to
-// the current Case and question time; legacy payloads without metadata are stale.
-func qimenChartMatchesTurn(chart map[string]any, turn contracts.TurnContext) bool {
-	if len(chart) == 0 || stringValue(chart["case_id"]) != strings.TrimSpace(turn.CaseID) {
-		return false
-	}
-	owner, ok := chart["owner_ref"].(map[string]any)
-	if !ok || stringValue(owner["kind"]) != "case" || stringValue(owner["id"]) != strings.TrimSpace(turn.CaseID) {
-		return false
-	}
-	if stringValue(chart["purpose"]) != "event_question" || stringValue(chart["time_source"]) != "question_time" {
-		return false
-	}
-	return stringValue(chart["question_time"]) == strings.TrimSpace(turn.QuestionTime) &&
-		stringValue(chart["pan_schema"]) == "rotating_8" &&
-		stringValue(chart["symbol_system"]) == "eight_gate_eight_god"
-}
-
-// qimenQuestionTimeParams builds the minimal deterministic params for a Qi Men
-// event chart; birth profile fields must not leak into this question-time chart.
-func qimenQuestionTimeParams(questionTime time.Time) map[string]any {
-	return map[string]any{
-		"question_time": questionTime.Format(time.RFC3339),
-	}
 }
 
 // prefillZiWei 确定性执行紫微斗数排盘，结果注入 vals 和 session state。

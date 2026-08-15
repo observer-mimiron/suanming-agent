@@ -10,9 +10,9 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
+	qimenAdapter "github.com/observer-mimiron/suanming-agent/internal/specialists/qimen/adapter"
 	"github.com/observer-mimiron/suanming-agent/internal/tools"
 	baziCalc "github.com/observer-mimiron/suanming-agent/internal/tools/bazi"
-	qimenTools "github.com/observer-mimiron/suanming-agent/internal/tools/qimen"
 )
 
 func TestBuildAdaptersFor_SkipsUnregisteredTools(t *testing.T) {
@@ -49,7 +49,7 @@ func TestBuildAdaptersFor_BaziDomainList(t *testing.T) {
 
 func TestBuildAdaptersFor_QimenDomainList(t *testing.T) {
 	reg := tools.NewRegistry()
-	reg.Register(&qimenTools.Tool{})
+	reg.Register(&qimenAdapter.Tool{})
 	reg.Register(tools.NewKnowledgeSearchTool(nil))
 
 	qimenNames := []string{"qimen_dunjia", "knowledge_search"}
@@ -64,7 +64,7 @@ func TestBuildAdaptersFor_QimenDomainList(t *testing.T) {
 
 func TestQimenAdapter_ExposesQuestionTimeOnly(t *testing.T) {
 	reg := tools.NewRegistry()
-	reg.Register(&qimenTools.Tool{})
+	reg.Register(&qimenAdapter.Tool{})
 
 	adapter, err := newQimenAdapter(reg)
 	if err != nil {

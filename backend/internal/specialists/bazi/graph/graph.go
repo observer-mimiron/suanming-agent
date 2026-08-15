@@ -1,8 +1,7 @@
-// Package graph contains the bounded BaZi domain graph.
+// Package graph 包含八字领域拥有的有界执行图。
 //
-// It owns the single-turn state machine, action selection and graph topology.
-// Runtime only adapts model, retrieval, trace and SSE capabilities; it does not
-// select the next BaZi action or retain graph-local state.
+// 本包负责单轮状态机、动作选择和图拓扑；
+// runtime 只适配模型、检索、追踪和 SSE 能力，不选择八字下一步或持有图内状态。
 package graph
 
 import (
@@ -15,8 +14,13 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/repair"
 )
 
-// MaxRunSteps bounds one BaZi graph invocation, including every decide_next pass.
-const MaxRunSteps = 24
+const (
+	// MaxRunSteps 限制业务状态机的一轮决策次数，防止补证、修复或降级无限循环。
+	MaxRunSteps = 24
+	// maxFrameworkRunSteps 限制框架节点访问次数。一次业务决策最多经过决定、动作和合同校验三个节点，
+	// 因而不能复用 MaxRunSteps；否则合法的补证和降级路径会在终态渲染前被框架截断。
+	maxFrameworkRunSteps = MaxRunSteps*3 + 2
+)
 
 // Action is the closed set of BaZi graph transitions.
 type Action string
@@ -201,7 +205,7 @@ func Compile(ctx context.Context, deps Deps) (compose.Runnable[*State, *State], 
 			return nil, fmt.Errorf("edge %s->%s: %w", edge[0], edge[1], err)
 		}
 	}
-	return g.Compile(ctx, compose.WithNodeTriggerMode(compose.AnyPredecessor), compose.WithMaxRunSteps(MaxRunSteps), compose.WithGraphName("bazi_deterministic"))
+	return g.Compile(ctx, compose.WithNodeTriggerMode(compose.AnyPredecessor), compose.WithMaxRunSteps(maxFrameworkRunSteps), compose.WithGraphName("bazi_deterministic"))
 }
 
 // Run invokes one bounded BaZi graph with a fresh in-memory state.

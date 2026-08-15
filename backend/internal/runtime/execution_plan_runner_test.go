@@ -27,6 +27,7 @@ func TestDomainStepsForRoute_DefaultBaziRouteHasPrimaryStep(t *testing.T) {
 type recordingRunner struct {
 	result specialists.Result
 	calls  *[]string
+	roles  *[]string
 	mu     *sync.Mutex
 }
 
@@ -37,6 +38,13 @@ func (r recordingRunner) Run(_ context.Context, req specialists.Request) (specia
 			defer r.mu.Unlock()
 		}
 		*r.calls = append(*r.calls, req.Route.PrimaryDomain)
+	}
+	if r.roles != nil {
+		if r.mu != nil {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+		}
+		*r.roles = append(*r.roles, req.Role)
 	}
 	return r.result, nil
 }
@@ -253,8 +261,12 @@ func TestExecutor_RunExecutionPlan_ProvidesSharedEventSinkWithoutLegacyDeps(t *t
 
 func TestExecutor_RunExecutionPlan_UsesDomainStepRolesAndDegradesSupport(t *testing.T) {
 	registry := specialists.NewRegistry()
+	var roles []string
+	var rolesMu sync.Mutex
 	registry.Register(specialists.Config{Domain: "bazi", Name: "bazi_specialist"}, recordingRunner{
 		result: specialists.Result{Domain: "bazi", Summary: "八字主线"},
+		roles:  &roles,
+		mu:     &rolesMu,
 	})
 	registry.Register(specialists.Config{Domain: "ziwei", Name: "ziwei_specialist"}, errorResultRunner{
 		err: errors.New("ziwei unavailable"),
@@ -290,6 +302,9 @@ func TestExecutor_RunExecutionPlan_UsesDomainStepRolesAndDegradesSupport(t *test
 	}
 	if degraded, _ := result.DomainContextPatch["support_degraded"].(bool); !degraded {
 		t.Fatal("support_degraded = false, want true")
+	}
+	if len(roles) != 1 || roles[0] != specialists.RolePrimary {
+		t.Fatalf("runner roles = %#v, want only primary", roles)
 	}
 }
 

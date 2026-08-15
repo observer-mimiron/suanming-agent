@@ -20,14 +20,14 @@ import (
 	appRuntime "github.com/observer-mimiron/suanming-agent/internal/runtime"
 	"github.com/observer-mimiron/suanming-agent/internal/specialists"
 	"github.com/observer-mimiron/suanming-agent/internal/specialists/bazi"
-	qimenSp "github.com/observer-mimiron/suanming-agent/internal/specialists/qimen"
-	"github.com/observer-mimiron/suanming-agent/internal/specialists/ziwei"
+	baziAdapter "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/adapter"
+	qimenAdapter "github.com/observer-mimiron/suanming-agent/internal/specialists/qimen/adapter"
+	ziweiAdapter "github.com/observer-mimiron/suanming-agent/internal/specialists/ziwei/adapter"
+	ziweiTools "github.com/observer-mimiron/suanming-agent/internal/specialists/ziwei/adapter"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/supervisor"
 	"github.com/observer-mimiron/suanming-agent/internal/tools"
 	baziCalc "github.com/observer-mimiron/suanming-agent/internal/tools/bazi"
-	qimenTools "github.com/observer-mimiron/suanming-agent/internal/tools/qimen"
-	ziweiTools "github.com/observer-mimiron/suanming-agent/internal/tools/ziwei"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
 
@@ -158,7 +158,7 @@ func BuildContainer() *Container {
 	registerTool(reg, &baziCalc.YongShenTool{})
 	registerTool(reg, &baziCalc.DayunAnalyzer{})
 	registerTool(reg, &baziCalc.BaziLiuNianTool{})
-	registerTool(reg, &qimenTools.Tool{})
+	registerTool(reg, &qimenAdapter.Tool{})
 	registerTool(reg, &ziweiTools.ZiWeiCalcTool{})
 	registerTool(reg, &ziweiTools.ZiWeiLiuNianTool{})
 	registerTool(reg, tools.NewKnowledgeSearchTool(mcpClient))
@@ -232,20 +232,29 @@ func BuildContainer() *Container {
 	if err != nil {
 		panic(err)
 	}
-	sr.Register(bazi.GetConfig(), &appRuntime.ADKSpecialistRunner{
-		Domain:            "bazi",
-		Config:            bazi.GetConfig(),
-		Executor:          executor,
-		UseAuthorityGraph: true,
+	runtimeServices := executor.SpecialistServices()
+	sr.Register(bazi.GetConfig(), &bazi.Runner{
+		Primary: &baziAdapter.Runner{Port: baziAdapter.RuntimePort{
+			Builder:  runtimeServices.Builder,
+			Registry: runtimeServices.Registry,
+			Sink: func(ctx context.Context, event baziAdapter.Event) error {
+				return runtimeServices.Emit(ctx, event.Type, event.Data)
+			},
+		}},
+		Support: &appRuntime.ADKSpecialistRunner{
+			Domain:   "bazi",
+			Config:   bazi.GetConfig(),
+			Executor: executor,
+		},
 	})
-	sr.Register(qimenSp.GetConfig(), &appRuntime.ADKSpecialistRunner{
+	sr.Register(qimenAdapter.GetConfig(), &appRuntime.ADKSpecialistRunner{
 		Domain:   "qimen",
-		Config:   qimenSp.GetConfig(),
+		Config:   qimenAdapter.GetConfig(),
 		Executor: executor,
 	})
-	sr.Register(ziwei.GetConfig(), &appRuntime.ADKSpecialistRunner{
+	sr.Register(ziweiAdapter.GetConfig(), &appRuntime.ADKSpecialistRunner{
 		Domain:   "ziwei",
-		Config:   ziwei.GetConfig(),
+		Config:   ziweiAdapter.GetConfig(),
 		Executor: executor,
 	})
 

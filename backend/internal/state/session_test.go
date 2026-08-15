@@ -19,6 +19,25 @@ func TestSessionState(t *testing.T) {
 	}
 }
 
+func TestMergeProfileNormalizesGenderExpressions(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{input: "男命", want: "男"},
+		{input: "男性", want: "男"},
+		{input: "male", want: "男"},
+		{input: "女命", want: "女"},
+		{input: "female", want: "女"},
+	} {
+		s := NewSession("gender-" + tc.input)
+		s.MergeProfile(map[string]any{"gender": tc.input})
+		if got := s.ActiveProfile()["gender"]; got != tc.want {
+			t.Fatalf("gender %q normalized to %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
 func TestClone_PreservesRoutingSnapshot(t *testing.T) {
 	s := NewSession("test-clone")
 	s.Routing = RoutingSnapshot{

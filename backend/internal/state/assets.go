@@ -172,6 +172,7 @@ func (s *SessionState) MergeProfile(patch map[string]any) bool {
 	if s == nil || len(patch) == 0 {
 		return false
 	}
+	patch = normalizeProfilePatch(patch)
 	s.MigrateLegacyAssets()
 	subject := s.ActiveSubject()
 	current, hasCurrent := s.activeProfile()
@@ -212,6 +213,33 @@ func (s *SessionState) MergeProfile(patch map[string]any) bool {
 	s.ActiveFocus.ExcludedAssetRefs = nil
 	s.syncLegacyActiveProjection()
 	return true
+}
+
+// NormalizeGender 将用户常见性别表达归一为排盘合同使用的“男”或“女”。
+// 无法确认时返回空字符串，让上层提前追问而不是猜测。
+func NormalizeGender(value any) string {
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "男", "男性", "男命", "男生", "male", "man", "m":
+		return "男"
+	case "女", "女性", "女命", "女生", "female", "woman", "f":
+		return "女"
+	default:
+		return ""
+	}
+}
+
+// normalizeProfilePatch 仅归一资料合同中有固定枚举的字段，保留其余用户资料原样。
+func normalizeProfilePatch(patch map[string]any) map[string]any {
+	if _, exists := patch["gender"]; !exists {
+		return patch
+	}
+	normalized := cloneMap(patch)
+	normalized["gender"] = NormalizeGender(patch["gender"])
+	return normalized
 }
 
 // ActiveProfile returns a copy of the active birth-data revision for read-only

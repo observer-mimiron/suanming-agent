@@ -269,9 +269,7 @@ func aggregateNode(ctx context.Context, in string) (string, error) {
 	// TimeScope 是本轮唯一的动态展示授权；没有明确时间范围时，静态追问
 	// 不应被 Prefill 缺口说明打断。
 	result.DomainContextPatch[dynamicFactsNoticeRequiredKey] = strings.TrimSpace(oc.GS.Plan.Route.Slots.TimeScope) != ""
-	if !(shouldUseBaziCharterGraph(oc.GS.Plan) && len(oc.GS.Plan.Domains) == 1) {
-		result.Summary = oc.RT.Executor.manager.ComposeFinalReply(oc.Init.UserMsg, result)
-	}
+	result.Summary = oc.RT.Executor.manager.ComposeFinalReply(oc.Init.UserMsg, result)
 	oc.GS.AggregatedResult = result
 	oc.GS.RawFinalText = result.NormalizedSummary()
 	if result.Domain == "" {

@@ -38,6 +38,7 @@ func (t *KnowledgeSearchTool) Description() string {
 
 func (t *KnowledgeSearchTool) Label() string { return "知识检索" }
 
+// Execute 检索命理资料；服务故障以降级载荷返回，避免中断上层的保守结论。
 func (t *KnowledgeSearchTool) Execute(_ context.Context, params map[string]any) (any, error) {
 	query, ok := params["query"].(string)
 	if !ok || query == "" {
@@ -49,7 +50,12 @@ func (t *KnowledgeSearchTool) Execute(_ context.Context, params map[string]any) 
 	}
 	passages, err := t.client.Search(query, topK)
 	if err != nil {
-		return map[string]any{"passages": []mcp.Passage{}, "fallback": true}, nil
+		// 空结果和服务失败必须分开，否则上层会把超时误判为资料缺失。
+		return map[string]any{
+			"passages":       []mcp.Passage{},
+			"fallback":       true,
+			"degrade_reason": mcp.SearchFailureKind(err),
+		}, nil
 	}
 	return map[string]any{"passages": passages}, nil
 }

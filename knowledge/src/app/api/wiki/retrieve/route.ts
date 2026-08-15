@@ -1,22 +1,9 @@
-import { NextResponse } from "next/server";
-import { getPrincipal } from "@/lib/auth";
-import { getErrorMessage } from "@/lib/errors";
-import {
-  retrievePassages,
-  type RetrievalPassage,
-} from "@/lib/query-search";
-import {
-  resolveScopeSlugs,
-  searchWikiContent,
-  type ContentSearchResult,
-  type SearchScope,
-} from "@/lib/search";
-import {
-  isAgentScopedType,
-  isArtifactType,
-  listReadableWikiPages,
-  withPageCache,
-} from "@/lib/wiki";
+import {NextResponse} from "next/server";
+import {getPrincipal} from "@/lib/auth";
+import {getErrorMessage} from "@/lib/errors";
+import {type RetrievalPassage, retrievePassages,} from "@/lib/query-search";
+import {type ContentSearchResult, resolveScopeSlugs, type SearchScope, searchWikiContent,} from "@/lib/search";
+import {isAgentScopedType, isArtifactType, listReadableWikiPages, withPageCache,} from "@/lib/wiki";
 
 /**
  * GET /api/wiki/retrieve?q=search+terms&limit=3&scope=agent:yoyo
@@ -56,9 +43,16 @@ export async function GET(req: Request) {
       : readable.filter(
           (entry) => !isAgentScopedType(entry.type) && !isArtifactType(entry.type),
         );
+    const sourcePrefixes = requestedBaziSourcePrefixes(q);
+    const retrievalEntries = sourcePrefixes.length === 0
+      ? entries
+      : entries.filter((entry) => sourcePrefixes.some((prefix) => entry.slug.startsWith(`${prefix}-s`)));
 
+    // 先扩展候选池，再按章节优先级截断。若只取 limit 个候选，书籍首页会在
+    // 排序前挤掉实际章节，运行时便只能拿到没有原文价值的目录摘要。
+    const candidateLimit = Math.max(12, limit * 4);
     const retrieveResults = await withPageCache(() =>
-      retrievePassages(q, entries, limit),
+      retrievePassages(q, retrievalEntries, candidateLimit),
     );
     const contentScope: SearchScope | undefined = scopeSlugs
       ? { agentId: "scope", slugs: scopeSlugs }
@@ -77,7 +71,7 @@ export async function GET(req: Request) {
   }
 }
 
-function mergeRetrievalResults(
+export function mergeRetrievalResults(
   query: string,
   retrieveResults: RetrievalPassage[],
   contentResults: ContentSearchResult[],
@@ -85,7 +79,7 @@ function mergeRetrievalResults(
 ): RetrievalPassage[] {
   const ranked = new Map<string, { item: RetrievalPassage; score: number }>();
   for (const result of retrieveResults) {
-    ranked.set(result.slug, { item: result, score: result.score });
+    ranked.set(result.slug, { item: result, score: result.score + sourceHintScore(query, result.slug) });
   }
   for (const result of contentResults) {
     const item: RetrievalPassage = {
@@ -101,10 +95,27 @@ function mergeRetrievalResults(
       ranked.set(result.slug, { item, score });
     }
   }
-  return Array.from(ranked.values())
+  const sorted = Array.from(ranked.values())
     .sort((a, b) => b.score - a.score || a.item.title.localeCompare(b.item.title))
+    .map((entry) => entry.item);
+  const sourcePrefixes = requestedBaziSourcePrefixes(query);
+  const substantive = sourcePrefixes.length > 0
+    ? sorted.filter((item) => isRequestedBaziChapter(item.slug, sourcePrefixes))
+    : sorted;
+  return substantive
     .slice(0, limit)
-    .map((entry, index) => ({ ...entry.item, score: limit - index }));
+    .map((entry, index) => ({ ...entry, score: limit - index }));
+}
+
+// isSubstantiveBaziChapter 只接受按古籍章节导入的页面；书名页、分卷页和知识库
+// 导航页没有可直接引用的原文，不能作为运行时的命理证据。
+export function isSubstantiveBaziChapter(slug: string): boolean {
+  return /^ref-bazi-[a-z]+-s\d{3}$/.test(slug);
+}
+
+function isRequestedBaziChapter(slug: string, sourcePrefixes: string[]): boolean {
+  return isSubstantiveBaziChapter(slug)
+    && sourcePrefixes.some((prefix) => slug.startsWith(`${prefix}-s`));
 }
 
 function contentExactScore(query: string, result: ContentSearchResult): number {
@@ -124,18 +135,25 @@ function contentExactScore(query: string, result: ContentSearchResult): number {
 }
 
 function sourceHintScore(query: string, slug: string): number {
-  const sourceHints = [
-    { term: "穷通宝鉴", slugPrefix: "ref-bazi-qiongtong" },
-    { term: "子平真诠", slugPrefix: "ref-bazi-ziping" },
-    { term: "渊海子平", slugPrefix: "ref-bazi-yuanhai" },
-    { term: "滴天髓", slugPrefix: "ref-bazi-ditiansui" },
-    { term: "三命通会", slugPrefix: "ref-bazi-sanming" },
-    { term: "格局论命", slugPrefix: "ref-bazi-gelulunming" },
-  ];
-  for (const hint of sourceHints) {
+  for (const hint of BAZI_SOURCE_HINTS) {
     if (query.includes(hint.term) && slug.startsWith(hint.slugPrefix)) {
-      return 80;
+      return isSubstantiveBaziChapter(slug) ? 120 : -80;
     }
   }
   return 0;
+}
+
+const BAZI_SOURCE_HINTS = [
+  { term: "穷通宝鉴", slugPrefix: "ref-bazi-qiongtong" },
+  { term: "子平真诠", slugPrefix: "ref-bazi-ziping" },
+  { term: "渊海子平", slugPrefix: "ref-bazi-yuanhai" },
+  { term: "滴天髓", slugPrefix: "ref-bazi-ditiansui" },
+  { term: "三命通会", slugPrefix: "ref-bazi-sanming" },
+  { term: "格局论命", slugPrefix: "ref-bazi-gelulunming" },
+];
+
+function requestedBaziSourcePrefixes(query: string): string[] {
+  return BAZI_SOURCE_HINTS
+    .filter((hint) => query.includes(hint.term))
+    .map((hint) => hint.slugPrefix);
 }
