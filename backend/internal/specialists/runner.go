@@ -6,8 +6,6 @@ package specialists
 import (
 	"context"
 	"strings"
-
-	"github.com/observer-mimiron/suanming-agent/internal/policy"
 )
 
 // SessionTurn 是 specialist 构建对话消息所需的只读消息投影。
@@ -29,11 +27,11 @@ type SessionView struct {
 }
 
 // Request 是 runtime 调用 specialist runner 时传入的最小执行上下文。
-// 它只携带当前 runner 实际需要的问题、路由、只读会话投影和可选回写回调，
+// 它只携带当前 runner 实际需要的问题、领域、只读会话投影和可选回写回调，
 // 不传播完整 SessionState、Manager 或其他领域的持久化上下文。
 type Request struct {
 	UserMessage    string
-	Route          policy.ApprovedRoute
+	Domain         string
 	Role           string
 	Session        *SessionView
 	SaveToolResult func(toolName, resultJSON string)

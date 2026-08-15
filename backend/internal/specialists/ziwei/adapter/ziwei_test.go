@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/6tail/lunar-go/calendar"
-	bazitool "github.com/observer-mimiron/suanming-agent/internal/tools/bazi"
+	solartime "github.com/observer-mimiron/suanming-agent/internal/calendar"
 )
 
 // referenceCase holds iztro-generated expected values for a test case.
@@ -489,8 +489,8 @@ func TestZiWeiCalc_TrueSolarTimeCrossesMidnightInShanghai(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	data := result.(map[string]any)
-	if got := data["solar_time_version"]; got != bazitool.TrueSolarTimeVersion {
-		t.Fatalf("solar_time_version=%v, want %s", got, bazitool.TrueSolarTimeVersion)
+	if got := data["solar_time_version"]; got != solartime.TrueSolarTimeVersion {
+		t.Fatalf("solar_time_version=%v, want %s", got, solartime.TrueSolarTimeVersion)
 	}
 	if got := data["birthday"]; got != "2025-11-11 00:15:00" {
 		t.Fatalf("birthday=%v, want 2025-11-11 00:15:00", got)

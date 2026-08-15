@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/6tail/lunar-go/calendar"
+	solartime "github.com/observer-mimiron/suanming-agent/internal/calendar"
 )
 
 // YongShenTool 提供八字受力、月令与十神位置事实。
@@ -41,7 +42,7 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 	}
 	if lng, hasLng := params["longitude"].(float64); hasLng && lng >= -180 && lng <= 180 {
 		corrected := time.Date(y, time.Month(m), d, h, minute, 0, 0, time.UTC).
-			Add(time.Duration(TrueSolarOffsetMinutes(y, m, d, lng)) * time.Minute)
+			Add(time.Duration(solartime.TrueSolarOffsetMinutes(y, m, d, lng)) * time.Minute)
 		correctedYear, correctedMonth, correctedDay := corrected.Date()
 		y, m, d = correctedYear, int(correctedMonth), correctedDay
 		h, minute, _ = corrected.Clock()

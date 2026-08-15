@@ -173,14 +173,9 @@ func (e *Executor) dispatchExecutionSteps(ctx context.Context, sink EventSink, s
 				return
 			}
 
-			route := plan.Route
-			// 每个 worker 仍接收自己的领域视角；最终主次只由 outcome.Role 表达，
-			// 避免把 specialist 请求里的 route 投影误当成合成合同。
-			route.PrimaryDomain = step.Domain
-			route.SecondaryDomains = secondaryDomainsForExecutionSteps(steps, step.Domain)
 			result, runErr := runner.Run(runCtx, specialists.Request{
 				UserMessage: message,
-				Route:       route,
+				Domain:      step.Domain,
 				Role:        step.Role,
 				Session:     sessionViews[idx],
 				SaveToolResult: func(toolName, resultJSON string) {

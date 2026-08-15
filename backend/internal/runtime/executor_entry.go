@@ -91,7 +91,7 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 	e.syncExecutionRoute(ctx, st, route, plan)
 
 	// 构造本轮 specialist 运行所需的 SessionValues。
-	vals := e.buildSessionValues(sessionViewFromState(st), route)
+	vals := e.buildSessionValues(sessionViewFromState(st), route.PrimaryDomain)
 
 	// 注入 init + runtime + result 到 ctx
 	// Graph state（PreflightResult/Route）由 WithGenLocalState 管理，节点 Lambda 用 ProcessState 读写

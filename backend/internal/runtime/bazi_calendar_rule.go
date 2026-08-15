@@ -4,7 +4,10 @@
 // 不负责排盘算法、ExecutionPlan 路由、Graph 编排或用户可见答复。
 package runtime
 
-import bazitool "github.com/observer-mimiron/suanming-agent/internal/tools/bazi"
+import (
+	solartime "github.com/observer-mimiron/suanming-agent/internal/calendar"
+	bazitool "github.com/observer-mimiron/suanming-agent/internal/tools/bazi"
+)
 
 // currentBaziCalendarRule 返回缓存八字盘资产必须使用的历法版本。
 func currentBaziCalendarRule() string {
@@ -25,10 +28,10 @@ func isCurrentZiWeiSolarTime(result map[string]any) bool {
 	if len(result) == 0 {
 		return false
 	}
-	return stringValue(result["solar_time_version"]) == bazitool.TrueSolarTimeVersion
+	return stringValue(result["solar_time_version"]) == solartime.TrueSolarTimeVersion
 }
 
 // ziWeiMethodVersion 返回紫微资产持久化时使用的兼容版本。
 func ziWeiMethodVersion() string {
-	return "ziwei-" + bazitool.TrueSolarTimeVersion
+	return "ziwei-" + solartime.TrueSolarTimeVersion
 }

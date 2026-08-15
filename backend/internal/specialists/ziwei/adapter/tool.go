@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/6tail/lunar-go/calendar"
-	bazitool "github.com/observer-mimiron/suanming-agent/internal/tools/bazi"
+	solartime "github.com/observer-mimiron/suanming-agent/internal/calendar"
 )
 
 // ZiWeiCalcTool 紫微斗数排盘工具。根据出生年月日时和性别，排布紫微斗数十二宫命盘，
@@ -53,7 +53,7 @@ func (t *ZiWeiCalcTool) Execute(_ context.Context, params map[string]any) (any, 
 	}
 
 	result := chart.ToMap()
-	result["solar_time_version"] = bazitool.TrueSolarTimeVersion
+	result["solar_time_version"] = solartime.TrueSolarTimeVersion
 	result["birthday"] = solar.ToYmdHms()
 	return result, nil
 }
@@ -65,7 +65,7 @@ func correctedBirthSolar(year, month, day, hour int, params map[string]any) (*ca
 	}
 	instant := time.Date(year, time.Month(month), day, hour, minute, 0, 0, time.UTC)
 	if longitude, ok := params["longitude"].(float64); ok && longitude >= -180 && longitude <= 180 {
-		instant = instant.Add(time.Duration(bazitool.TrueSolarOffsetMinutes(year, month, day, longitude)) * time.Minute)
+		instant = instant.Add(time.Duration(solartime.TrueSolarOffsetMinutes(year, month, day, longitude)) * time.Minute)
 	}
 	solar := calendar.NewSolar(instant.Year(), int(instant.Month()), instant.Day(), instant.Hour(), instant.Minute(), 0)
 	return solar, TimeToIndex(instant.Hour())

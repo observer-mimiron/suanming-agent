@@ -11,7 +11,7 @@
 - `orchestration` Graph 是外层单轮 bounded loop 的 owner：它持有下一动作、Prefill/dispatch 预算、primary/support outcome、降级和终止状态；不持有 Session、Executor 或 SSE sink。
 - `specialist runner(s)` 是受限领域 worker，可在 `ExecutionPlan` 边界内使用 ADK 工具调用；程序控制状态、工具、资产校验和输出边界。
 
-本轮领域单入口冻结：Manager 是唯一会话、跨领域协调和最终答复 owner；八字、奇门、紫微是独立业务领域，不直接调用。`specialists.Runner` 是 runtime 调用领域的唯一入口。八字只有一个组合 Runner，`primary` 委托 `specialists/bazi/adapter.Runner`，`support` 委托 `runtime.ADKSpecialistRunner`；共享 LLM、工具、RAG、追踪和事件能力由 runtime 的 `SpecialistServices` 投影提供，领域不得导入 runtime。`backend/internal/tools/runner.go` 保持独立且不修改。
+本轮领域单入口冻结：Manager 是唯一会话、跨领域协调和最终答复 owner；八字、奇门、紫微是独立业务领域，不直接调用。`specialists.Runner` 是 runtime 调用领域的唯一入口；其 `Request` 只携带当前领域、只读会话投影和可选工具结果回写，不携带 `ApprovedRoute` 或完整会话。八字只有一个组合 Runner，`primary` 委托 `specialists/bazi/adapter.Runner`，`support` 委托 `runtime.ADKSpecialistRunner`；共享 LLM、工具、RAG、追踪和事件能力由 runtime 的 `SpecialistServices` 投影提供，领域不得导入 runtime。`backend/internal/tools/runner.go` 保持独立且不修改。
 
 该迁移的 RB2-RB4 和最终收口已完成：八字 Graph、模型、检索、schema、合同和展示实现归属 `specialists/bazi`；runtime 仅保留共享执行能力投影和跨领域资产门禁，不持有八字专用 runner。
 
@@ -97,15 +97,15 @@ flowchart LR
 
 - `supervisor` 不得反向依赖 `runtime`，尤其不得依赖 runtime 的模型调用、模型 transport 或 retry 决策。
 - 模型 client、能力归一、transport timeout/retry 和相关错误合同已收敛到 `backend/internal/llm/`；Batch 2 已完成模型调用级 retry owner 迁移。
-- `specialist` 不得依赖 `Manager`、Session owner、SSE bridge 或 final compose；`runtime` 只能通过 bounded runner 消费领域结果。
+- `specialist` 不得依赖 `Manager`、路由策略、Session owner、SSE bridge 或 final compose；`runtime` 只能通过 bounded runner 消费领域结果。
 - `final guard`、SSE bridge、trace 和 repair 不得反向决定路由、资产选择或领域语义；`ExecutionPlan` 不得依赖具体模型实现。
 - `backend/internal/specialists/bazi/graph` 继续保持不依赖 `internal/runtime`；domain DTO 不依赖 runtime。任何新反向 import 都是迁移阻塞，不通过增加 adapter 绕过。
 - `backend/internal/specialists/qimen/domain` 只允许保留 typed 盘面和纯符号合同；工具参数、`qimen-go`、Session、trace、SSE 和 map payload 适配留在外层。
 - `backend/internal/specialists/qimen/application` 可承载不接触 runtime/SessionState 的问事合同和 prompt projection；它只能接收窄 DTO/旧 payload，不得拥有模型、工具、Session 写回或传输副作用。
-- `backend/internal/specialists/qimen/adapter` 负责 `qimen-go` 排盘、工具参数校验、旧 map payload 恢复和 specialist 静态配置；工具实现不得直接依赖 runtime/state/Session/trace/SSE/LLM/MCP。其公共 `specialists.Config` 合同仍存在 `specialists -> policy -> state` 间接依赖，后续契约批次单独审查。
+- `backend/internal/specialists/qimen/adapter` 负责 `qimen-go` 排盘、工具参数校验、旧 map payload 恢复和 specialist 静态配置；工具实现不得直接依赖 runtime/state/Session/trace/SSE/LLM/MCP。
 - `backend/internal/specialists/ziwei/application` 可承载不接触 runtime/SessionState 的 prompt projection；它只能接收窄 map payload，不得拥有模型、工具、Session 写回或传输副作用。
 - `backend/internal/specialists/ziwei/domain` 只承载不依赖历法库的星曜值对象、常量、五行局/宫名/起紫微、年时定位和十二神排布规则、索引结果、索引辅助和主星排布；不得依赖 `lunar-go`、工具参数、旧 map payload、runtime/state/Session、模型、MCP、trace 或 SSE。
-- `backend/internal/specialists/ziwei/adapter` 负责 specialist 静态配置、`lunar-go` 绑定的历法/宫位/月日定位、完整紫微排盘/流年工具和旧 map payload 恢复；算法工具不得直接依赖 runtime/state/Session/trace/SSE/LLM/MCP。其公共 `specialists.Config` 合同的 `specialists -> policy -> state` 间接依赖作为后续契约审查项保留。
+- `backend/internal/specialists/ziwei/adapter` 负责 specialist 静态配置、`lunar-go` 绑定的历法/宫位/月日定位、完整紫微排盘/流年工具和旧 map payload 恢复；算法工具不得直接依赖 runtime/state/Session/trace/SSE/LLM/MCP。真太阳时偏移和版本由中性 `internal/calendar` 提供，不依赖八字工具包。
 
 ### 当前结构清单
 
@@ -113,6 +113,7 @@ flowchart LR
 |---|---|
 | **[KNOWN]** `internal/supervisor/` | route、fallback、ADK；代表 `approved_route.go`、`cheap_gate.go`、`client.go`、`adk_engine.go`、`decision_contract.go` |
 | **[KNOWN]** `internal/runtime/` | Manager、ExecutionPlan、Graph、Executor、Prefill、事件、观测及大量 Bazi 合同/适配文件；`artifact_calendar_rules.go` 是资产兼容门禁，runtime 结构过载是当前已确认的结构事实 |
+| **[KNOWN]** `internal/calendar/` | 跨领域真太阳时版本和日期/经度分钟偏移；不含具体排盘工具或业务裁断 |
 | **[KNOWN]** `internal/llm/` | 已有模型 factory、chat、embedding，并负责模型调用级 retry owner |
 | **[KNOWN]** `internal/repair/` | failure class、policy、budget 和 attempt 合同 |
 | **[KNOWN]** `internal/specialists/bazi/domain/` | 事实 DTO、授权范围、引用目录 |

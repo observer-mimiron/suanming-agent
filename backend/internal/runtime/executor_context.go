@@ -95,14 +95,14 @@ func (e *Executor) saveToolResult(st *state.SessionState, toolName, resultJSON s
 }
 
 // buildSessionValues 构造 specialist prompt 所需的当前会话数据快照。
-func (e *Executor) buildSessionValues(view *specialists.SessionView, route policy.ApprovedRoute) map[string]any {
+func (e *Executor) buildSessionValues(view *specialists.SessionView, domain string) map[string]any {
 	profile := map[string]any{}
 	if view != nil && view.Profile != nil {
 		profile = view.Profile
 	}
 	vals := map[string]any{
 		"profile": profile,
-		"domain":  route.PrimaryDomain,
+		"domain":  domain,
 	}
 	if view == nil {
 		return vals

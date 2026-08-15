@@ -5,10 +5,10 @@ package bazi
 import (
 	"context"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/6tail/lunar-go/calendar"
+	solartime "github.com/observer-mimiron/suanming-agent/internal/calendar"
 )
 
 // CalcTool 八字排盘核心工具。根据出生年月日时和性别，计算四柱八字，包含十神、纳音、旬空、
@@ -56,7 +56,7 @@ func (t *CalcTool) Execute(_ context.Context, params map[string]any) (any, error
 	}
 	if lng, hasLng := params["longitude"].(float64); hasLng && lng >= -180 && lng <= 180 {
 		corrected := time.Date(y, time.Month(m), d, h, minute, 0, 0, time.UTC).
-			Add(time.Duration(TrueSolarOffsetMinutes(y, m, d, lng)) * time.Minute)
+			Add(time.Duration(solartime.TrueSolarOffsetMinutes(y, m, d, lng)) * time.Minute)
 		correctedYear, correctedMonth, correctedDay := corrected.Date()
 		y, m, d = correctedYear, int(correctedMonth), correctedDay
 		h, minute, _ = corrected.Clock()
@@ -202,18 +202,6 @@ func (t *CalcTool) Execute(_ context.Context, params map[string]any) (any, error
 		"lunarDate":       fmt.Sprintf("%s年%s月%s日", lunar.GetYearInGanZhi(), lunar.GetMonthInGanZhi(), ec.GetDay()),
 		"shensha_summary": shenshaSummary,
 	}, nil
-}
-
-// TrueSolarOffsetMinutes returns the total minute offset from China Standard
-// Time to apparent solar time for a date and longitude.
-func TrueSolarOffsetMinutes(year, month, day int, longitude float64) int {
-	// NOAA 的均时差近似式以分钟返回“视太阳时 - 平太阳时”。日期粒度下
-	// 误差远小于当前排盘输入的分钟精度，且避免为单一排盘工具引入外部天文依赖。
-	dayOfYear := time.Date(year, time.Month(month), day, 12, 0, 0, 0, time.UTC).YearDay()
-	gamma := 2 * math.Pi / 365 * (float64(dayOfYear) - 1)
-	equationOfTime := 229.18 * (0.000075 + 0.001868*math.Cos(gamma) - 0.032077*math.Sin(gamma) - 0.014615*math.Cos(2*gamma) - 0.040849*math.Sin(2*gamma))
-	longitudeCorrection := (longitude - 120.0) * 4
-	return int(math.Round(longitudeCorrection + equationOfTime))
 }
 
 func dayunPhase(index int) string {

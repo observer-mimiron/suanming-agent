@@ -41,7 +41,7 @@ func (r *ADKSpecialistRunner) Run(ctx context.Context, req specialists.Request) 
 		return specialists.Result{}, fmt.Errorf("build specialist %s: %w", r.Config.Name, err)
 	}
 
-	domain := firstNonEmpty(r.Domain, r.Config.Domain, req.Route.PrimaryDomain, "bazi")
+	domain := firstNonEmpty(r.Domain, r.Config.Domain, req.Domain, "bazi")
 	ctx = tracing.WithEinoCallbackSpan(ctx, tracing.EinoCallbackSpanConfig{
 		Name: "adk_specialist_agent",
 		Kind: tracing.KindChain,
@@ -55,7 +55,7 @@ func (r *ADKSpecialistRunner) Run(ctx context.Context, req specialists.Request) 
 	iter := runner.Run(
 		ctx,
 		r.Executor.buildConversationMessages(req.Session, req.UserMessage),
-		adk.WithSessionValues(r.Executor.buildSessionValues(req.Session, req.Route)),
+		adk.WithSessionValues(r.Executor.buildSessionValues(req.Session, domain)),
 	)
 
 	finalText, err := specialistEventBridge(ctx, sink, iter, func(toolName, resultJSON string) {

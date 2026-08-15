@@ -1,4 +1,4 @@
-// Package graph 包含八字领域拥有的有界执行图。
+// Package domain 包含八字领域的不变事实和合同。
 //
 // 本文件负责 Graph 内可序列化的 repair 失败状态；
 // 不持有 runtime Executor、会话、模型、检索或 SSE sink。

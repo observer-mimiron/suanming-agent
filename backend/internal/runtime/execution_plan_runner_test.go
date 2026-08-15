@@ -37,7 +37,7 @@ func (r recordingRunner) Run(_ context.Context, req specialists.Request) (specia
 			r.mu.Lock()
 			defer r.mu.Unlock()
 		}
-		*r.calls = append(*r.calls, req.Route.PrimaryDomain)
+		*r.calls = append(*r.calls, req.Domain)
 	}
 	if r.roles != nil {
 		if r.mu != nil {
@@ -71,7 +71,7 @@ func (sinkAwareRunner) Run(ctx context.Context, req specialists.Request) (specia
 	if eventSinkFromContext(ctx) == nil {
 		return specialists.Result{}, context.Canceled
 	}
-	return specialists.Result{Domain: req.Route.PrimaryDomain, Summary: req.Route.PrimaryDomain + "-summary"}, nil
+	return specialists.Result{Domain: req.Domain, Summary: req.Domain + "-summary"}, nil
 }
 
 type errorResultRunner struct {

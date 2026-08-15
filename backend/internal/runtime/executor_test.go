@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
+	solartime "github.com/observer-mimiron/suanming-agent/internal/calendar"
 	"github.com/observer-mimiron/suanming-agent/internal/contracts"
 	"github.com/observer-mimiron/suanming-agent/internal/intent"
 	qimenapplication "github.com/observer-mimiron/suanming-agent/internal/specialists/qimen/application"
 	"github.com/observer-mimiron/suanming-agent/internal/state"
 	"github.com/observer-mimiron/suanming-agent/internal/tools"
-	bazitool "github.com/observer-mimiron/suanming-agent/internal/tools/bazi"
 )
 
 func TestExecutor_RouterField(t *testing.T) {
@@ -247,7 +247,7 @@ func TestIsCurrentZiWeiSolarTimeRequiresVersion(t *testing.T) {
 	if isCurrentZiWeiSolarTime(map[string]any{"solar_time_version": "legacy"}) {
 		t.Fatal("legacy ziwei chart must be recalculated")
 	}
-	if !isCurrentZiWeiSolarTime(map[string]any{"solar_time_version": bazitool.TrueSolarTimeVersion}) {
+	if !isCurrentZiWeiSolarTime(map[string]any{"solar_time_version": solartime.TrueSolarTimeVersion}) {
 		t.Fatal("current true-solar ziwei chart should be reusable")
 	}
 }
