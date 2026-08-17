@@ -25,18 +25,18 @@ func TestClassifyViolationDynamicPresentationReferenceViolation(t *testing.T) {
 			policy:    RecoveryPolicyDynamicFactsOnly,
 		},
 		{
-			name:      "dynamic method failure without reference evidence stays hard error",
+			name:      "dynamic method failure without reference evidence retries",
 			stage:     "dynamic_synthesis",
 			violation: ValidationViolation{Code: ViolationMethodContract, Field: "dynamic.limitations[1]"},
 			class:     ContractFailureMethodContract,
-			policy:    RecoveryPolicyHardError,
+			policy:    RecoveryPolicyRetryOnly,
 		},
 		{
-			name:      "static presentation reference violation stays hard error",
+			name:      "static presentation reference violation retries",
 			stage:     "static_synthesis",
 			violation: ValidationViolation{Code: ViolationMethodContract, Field: "static.limitations[1]", AllowedRefs: []string{"tier_assessment"}},
 			class:     ContractFailureMethodContract,
-			policy:    RecoveryPolicyHardError,
+			policy:    RecoveryPolicyRetryOnly,
 		},
 	}
 

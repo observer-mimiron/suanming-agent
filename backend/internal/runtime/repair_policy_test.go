@@ -3,6 +3,7 @@ package runtime
 import (
 	"testing"
 
+	"github.com/observer-mimiron/suanming-agent/internal/llm"
 	"github.com/observer-mimiron/suanming-agent/internal/repair"
 )
 
@@ -13,6 +14,10 @@ func TestRepairPolicyEnforcesBusinessBudget(t *testing.T) {
 		t.Fatalf("first action = %q, want repair_node", decision.Action)
 	}
 	state := repair.RecordAttempt(repair.NewState(), repair.Attempt{Domain: failure.Domain, Stage: failure.Stage, Class: failure.Class, Field: failure.Field, Action: repair.ActionRepairNode})
+	if decision := policy.Decide(failure, state); decision.Action != repair.ActionRepairNode || decision.Exhausted {
+		t.Fatalf("second attempt = %+v, want another repair", decision)
+	}
+	state = repair.RecordAttempt(state, repair.Attempt{Domain: failure.Domain, Stage: failure.Stage, Class: failure.Class, Field: failure.Field, Action: repair.ActionRepairNode})
 	if decision := policy.Decide(failure, state); decision.Action != repair.ActionFallback || !decision.Exhausted {
 		t.Fatalf("exhausted decision = %+v, want fallback", decision)
 	}
@@ -32,35 +37,15 @@ func TestRepairPolicyEnforcesWholeTurnBudget(t *testing.T) {
 	}
 }
 
-func TestRepairPolicyRejectsFactConflictAndMethodContract(t *testing.T) {
-	for _, class := range []repair.Class{repair.FactConflict, repair.MethodContract} {
-		decision := repair.DefaultPolicy().Decide(repair.Failure{Class: class}, repair.NewState())
-		if decision.Action != repair.ActionHardError || decision.Repairable || decision.Retryable {
-			t.Fatalf("%s decision = %+v, want hard error", class, decision)
-		}
-	}
-}
-
 func TestRepairHTTPStatusRetryable(t *testing.T) {
 	for _, status := range []int{400, 401, 402} {
-		if repair.HTTPStatusRetryable(status) || repair.ClassForHTTPStatus(status) != repair.TransportFatal {
+		if llm.HTTPStatusRetryable(status) {
 			t.Fatalf("status %d should be fatal and non-retryable", status)
 		}
 	}
 	for _, status := range []int{408, 429, 500, 503} {
-		if !repair.HTTPStatusRetryable(status) || repair.ClassForHTTPStatus(status) != repair.TransportTransient {
+		if !llm.HTTPStatusRetryable(status) {
 			t.Fatalf("status %d should be transient and retryable", status)
 		}
-	}
-}
-
-func TestRepairTraceAttrsProjectsOnlySafeFields(t *testing.T) {
-	attrs := RepairTraceAttrs(RepairTraceEvent{Failure: repair.Failure{Domain: "bazi", Stage: "static", Class: repair.ProjectionMismatch, Field: "axis"}, Feedback: map[string]any{"reason": "private", "allowed_fix": []string{"x"}}})
-	if _, leaked := attrs["reason"]; leaked {
-		t.Fatal("trace attrs leaked feedback value")
-	}
-	keys, ok := attrs["repair.feedback_keys"].([]string)
-	if !ok || len(keys) != 2 || keys[0] != "allowed_fix" || keys[1] != "reason" {
-		t.Fatalf("feedback keys = %#v", attrs["repair.feedback_keys"])
 	}
 }

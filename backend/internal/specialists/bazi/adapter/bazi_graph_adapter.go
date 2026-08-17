@@ -90,7 +90,7 @@ func applyBaziGraphControl(in *baziInternalGraphState, graphState *bazigraph.Sta
 	in.RepairAction = graphState.RepairAction
 	in.Failure = graphFailureFromBaziGraph(graphState.Failure)
 	in.FailureStage = graphState.Failure.Stage
-	in.RepairFailure = repairFailureStateFromRuntime(graphState.RepairFailure)
+	in.RepairFailure = graphState.RepairFailure
 }
 
 // projectBaziGraphControl copies only graph control facts out of the runtime
@@ -117,7 +117,7 @@ func projectBaziGraphControl(graphState *bazigraph.State, in *baziInternalGraphS
 	graphState.Failure = baziGraphFailureFromRuntime(in.Failure)
 	graphState.RecoveryPolicy = in.RecoveryPolicy
 	graphState.RepairState = in.RepairState
-	graphState.RepairFailure = in.RepairFailure.Runtime()
+	graphState.RepairFailure = in.RepairFailure
 	graphState.RepairAction = in.RepairAction
 	graphState.EvidenceAttempts = in.EvidenceAttempts
 	graphState.TransportAttempts = in.TransportAttempts

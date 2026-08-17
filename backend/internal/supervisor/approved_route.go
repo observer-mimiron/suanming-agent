@@ -22,6 +22,7 @@ var (
 	explicitBirthClockPattern = regexp.MustCompile(`(?:^|[^0-9])([01]?\d|2[0-3])\s*(?:点|时|:|：)\s*([0-5]?\d)\s*分?`)
 	explicitBirthDatePattern  = regexp.MustCompile(`(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?`)
 	explicitBirthplacePattern = regexp.MustCompile(`[男女]\s*([一-龥]{2,8})\s*$`)
+	bareNumericReplyPattern   = regexp.MustCompile(`^[0-9]+$`)
 )
 
 // Approve 是 supervisor 的外部入口：决策 → 策略应用 → 规范化，返回可直接执行的路由。
@@ -75,6 +76,7 @@ func (c *Client) Approve(ctx context.Context, msg string, st *state.SessionState
 // 依赖完整会话连续性的 task reinterpretation（如 collect_profile → amend_profile /
 // fortune_followup）已经下沉到 manager 侧，由 runtime conversation owner 统一处理。
 func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *state.SessionState, route policy.ApprovedRoute) policy.ApprovedRoute {
+	normalizeBareNumericReply(msg, st, &route)
 	c.applyExplicitMethodPreference(ctx, msg, &route)
 	applyConsultationContract(msg, st, &route)
 	if intent.ContainsBirthInfo(msg) {
@@ -92,6 +94,37 @@ func (c *Client) normalizeApprovedRoute(ctx context.Context, msg string, st *sta
 	}
 
 	return route
+}
+
+// normalizeBareNumericReply 防止独立选项数字被路由模型误判成新的术数方法。
+func normalizeBareNumericReply(msg string, st *state.SessionState, route *policy.ApprovedRoute) {
+	if route == nil || st == nil || !bareNumericReplyPattern.MatchString(strings.TrimSpace(msg)) {
+		return
+	}
+	if st.HasBaziResult() {
+		route.PrimaryDomain = "bazi"
+		route.SecondaryDomains = removeDomain(removeDomain(route.SecondaryDomains, "ziwei"), "bazi")
+		route.TaskIntent = "fortune_followup"
+		route.NeedsClarification = false
+		route.ClarificationQuestion = ""
+		route.PolicyHints.CanReuseCachedResult = true
+		route.PolicyHints.CanReuseSessionProfile = true
+		return
+	}
+	if st.HasZiWeiResult() {
+		route.PrimaryDomain = "ziwei"
+		route.SecondaryDomains = removeDomain(removeDomain(route.SecondaryDomains, "bazi"), "ziwei")
+		route.TaskIntent = "fortune_followup"
+		route.NeedsClarification = false
+		route.ClarificationQuestion = ""
+		route.PolicyHints.CanReuseCachedResult = true
+		route.PolicyHints.CanReuseSessionProfile = true
+		return
+	}
+	route.PrimaryDomain = "bazi"
+	route.TaskIntent = "collect_profile"
+	route.NeedsClarification = true
+	route.ClarificationQuestion = "请先说明您想看八字、紫微，还是具体事件，我再继续。"
 }
 
 // normalizeExplicitBirthClock 用用户原文补齐模型遗漏的出生时分。

@@ -49,6 +49,9 @@ func RecoveryPolicyForFailure(stage, class string) string {
 		return RecoveryPolicyRetryOnly
 	case ContractFailureSchemaError:
 		return RecoveryPolicyRetryOnly
+	case ContractFailureMethodContract:
+		// 方法合同错误仍是模型输出合同错误；事实冲突另行归类并保持硬停。
+		return RecoveryPolicyRetryOnly
 	}
 	return RecoveryPolicyHardError
 }

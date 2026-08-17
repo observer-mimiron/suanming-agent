@@ -177,10 +177,7 @@ func validateBaziTierAssessment(facts BaziFactCapsule, axisStatus string, assess
 		return baziViolationError(baziViolationEvidenceTopicMissing, "static.tier_assessment", "", "tier requires an established core chart and static axis", nil, nil)
 	}
 	if assessment.Level < 1 || assessment.Level > 9 {
-		return baziViolationError(baziViolationMethodContract, "static.tier_assessment.level", "", "rated tier must be in the nine-level range", nil, nil)
-	}
-	if assessment.Status == "rated" && !facts.TierEvidenceComplete {
-		return baziViolationError(baziViolationEvidenceTopicMissing, "static.tier_assessment.status", "", "a fully rated tier requires independent qingzhuo, disease-remedy, rescue, break-risk and He Zhi Zhang evidence", facts.TierEvidenceMissing, baziTierEvidenceTopics)
+		return baziViolationError(baziViolationMethodContract, "static.tier_assessment.level", "", "rated tier must be in the nine-level range", nil, []string{"1-9"})
 	}
 	bounds := baziTierBoundsFor(facts, axisStatus, assessment)
 	if assessment.Level < bounds.Min || assessment.Level > bounds.Max {
@@ -308,10 +305,10 @@ func baziTierDimensionEntries(dimensions baziTierDimensions) []baziNamedTierDime
 	}
 }
 
-// tierDimensionHasGround prevents status-only tier scoring while allowing a
-// fact-only dimension when no selected rule profile exists for this chart.
+// tierDimensionHasGround prevents status-only tier scoring. Classical-search
+// labels are supplementary citations, so they cannot alone establish a dimension.
 func tierDimensionHasGround(dimension baziTierDimension) bool {
-	return len(dimension.FactRefs) > 0 || len(dimension.ClaimRefs) > 0 || len(dimension.EvidenceTopics) > 0
+	return len(dimension.FactRefs) > 0 || len(dimension.ClaimRefs) > 0
 }
 
 // tierDimensionAssertions adapts typed tier dimensions to the shared catalog

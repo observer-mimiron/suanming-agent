@@ -76,9 +76,6 @@ func chooseOrchestrationAction(state *orchestrationGraphState) orchestrationNext
 		if state.Failure.FailureStage == failureStagePrefill && state.Failure.Retryable && state.PrefillAttempts < 2 {
 			return orchestrationActionPrefill
 		}
-		if primaryOutcomeFailed(state.DomainOutcomes) && state.Failure.Retryable && state.DispatchAttempts < 2 {
-			return orchestrationActionDispatch
-		}
 		if !primaryOutcomeFailed(state.DomainOutcomes) && supportOutcomeFailed(state.DomainOutcomes) {
 			state.Degraded = true
 			state.Failure = graphFailure{}

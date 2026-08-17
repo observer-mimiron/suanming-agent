@@ -129,6 +129,7 @@ var coreYongshenKeys = []string{
 	"day_master", "day_master_wuxing", "strength", "strength_method", "strength_evidence",
 	"month_score", "root_count", "same_element", "generate_count", "total_support",
 	"balance_status", "seasonal_tiaohou_hint", "official_visibility", "season", "tiao_hou",
+	"tiaohou_fire",
 	"balance_yong_shen", "tiaohou_yong_shen", "conditional_yong_shen", "yong_shen", "xi_shen",
 	"ji_shen", "geju", "geju_candidate", "geju_status", "geju_detail", "geju_basis",
 	"geju_qing_zhuo", "geju_qing_zhuo_reason", "geju_combination", "chonghe", "shi_shen_power",

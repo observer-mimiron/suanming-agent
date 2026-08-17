@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -140,6 +141,12 @@ func (r *ToolRunner) Run(ctx context.Context, req ToolRunRequest) ToolRunResult 
 
 	attempts := normalizedAttempts(contract.Retry.MaxAttempts)
 	for attempt := 1; attempt <= attempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			result.Error = err
+			result.ErrorClass = ToolErrorCanceled
+			result.Retryable = false
+			break
+		}
 		result.Attempts = attempt
 
 		execCtx := ctx
@@ -165,14 +172,32 @@ func (r *ToolRunner) Run(ctx context.Context, req ToolRunRequest) ToolRunResult 
 		if err == nil {
 			err = fmt.Errorf("tool %s returned nil result", req.ToolName)
 		}
+		if parentErr := ctx.Err(); parentErr != nil {
+			result.Error = parentErr
+			result.ErrorClass = ToolErrorCanceled
+			result.Retryable = false
+			break
+		}
 		result.Error = err
 		result.ErrorClass = ClassifyToolError(err)
 		result.Retryable = canRetry(result.ErrorClass, contract.Retry)
 		if !result.Retryable || attempt == attempts {
 			break
 		}
+		slog.Info("工具调用将重试",
+			"layer", "tool",
+			"tool_name", req.ToolName,
+			"attempt", attempt+1,
+			"max_attempts", attempts,
+			"error_class", result.ErrorClass,
+		)
 		if contract.Retry.BackoffMillis > 0 {
-			time.Sleep(time.Duration(contract.Retry.BackoffMillis) * time.Millisecond)
+			if err := waitForRetry(ctx, time.Duration(contract.Retry.BackoffMillis)*time.Millisecond); err != nil {
+				result.Error = err
+				result.ErrorClass = ToolErrorCanceled
+				result.Retryable = false
+				break
+			}
 		}
 	}
 
@@ -187,7 +212,10 @@ func ClassifyToolError(err error) ToolErrorClass {
 	if err == nil {
 		return ""
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) {
+		return ToolErrorCanceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
 		return ToolErrorTransient
 	}
 	text := strings.ToLower(err.Error())
@@ -202,6 +230,18 @@ func ClassifyToolError(err error) ToolErrorClass {
 		return ToolErrorTransient
 	default:
 		return ToolErrorInternal
+	}
+}
+
+// waitForRetry waits between retries while allowing the request owner to cancel the work.
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 

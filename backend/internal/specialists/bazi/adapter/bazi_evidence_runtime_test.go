@@ -43,6 +43,22 @@ func TestNormalizeBaziEvidencePlanCapsPlannerQueries(t *testing.T) {
 	}
 }
 
+func TestNormalizeBaziEvidencePlanCanonicalizesTraceTopics(t *testing.T) {
+	plan := normalizeBaziEvidencePlan(baziEvidencePlan{
+		NeedRetrieval: true,
+		QueryPackets: []baziQueryPacket{
+			{Topic: "格局成败", Query: "子平真诠 偏印格 成败"},
+			{Topic: "冬令调候", Query: "穷通宝鉴 甲木 亥月 调候"},
+		},
+	}, baziCharterInput{}, baziAnalysisPlan{RetrievalStage: "static"})
+	if got, want := plan.QueryPackets[0].Topic, "geju"; got != want {
+		t.Fatalf("first topic = %q, want %q", got, want)
+	}
+	if got, want := plan.QueryPackets[1].Topic, "tiaohou"; got != want {
+		t.Fatalf("second topic = %q, want %q", got, want)
+	}
+}
+
 func TestBuildEvidenceSupplementPlanSkipsToolFailures(t *testing.T) {
 	plan := baziEvidencePlan{AllowReflection: true, Stage: "static", QueryPackets: []baziQueryPacket{{Topic: "geju", Query: "子平真诠 格局", PreferredSources: []string{"子平真诠"}}}}
 	supplement := buildEvidenceSupplementPlan(plan, baziEvidenceBundle{DegradedTopics: []string{"geju"}})

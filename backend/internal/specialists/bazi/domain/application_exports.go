@@ -146,6 +146,25 @@ func TierDimensionAssertions(assessment TierAssessment) []Assertion {
 	return tierDimensionAssertions(assessment)
 }
 
+// TierAssessmentEvidenceComplete reports whether every tier dimension has a
+// deterministic fact or fixed-rule reference. Knowledge-base citations are not
+// sufficient because they describe methodology rather than this chart's facts.
+func TierAssessmentEvidenceComplete(assessment TierAssessment) bool {
+	return len(TierAssessmentEvidenceMissing(assessment)) == 0
+}
+
+// TierAssessmentEvidenceMissing returns the fixed dimension names without a
+// deterministic fact or fixed-rule reference for trace diagnosis.
+func TierAssessmentEvidenceMissing(assessment TierAssessment) []string {
+	missing := make([]string, 0, len(baziTierDimensionEntries(assessment.Dimensions)))
+	for _, dimension := range baziTierDimensionEntries(assessment.Dimensions) {
+		if !tierDimensionHasGround(dimension.Value) {
+			missing = append(missing, dimension.Name)
+		}
+	}
+	return missing
+}
+
 // ValidateStaticReferenceCatalog checks the static reference allow-list.
 func ValidateStaticReferenceCatalog(state CharterState, assertions []Assertion) error {
 	return validateStaticBaziReferenceCatalog(state, assertions)

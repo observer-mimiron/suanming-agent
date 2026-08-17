@@ -7,12 +7,12 @@ package adapter
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/observer-mimiron/suanming-agent/internal/repair"
 	"github.com/observer-mimiron/suanming-agent/internal/specialists"
 	baziapplication "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/application"
-	bazidomain "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/domain"
 	bazigraph "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/graph"
 )
 
@@ -33,8 +33,6 @@ type baziGraphRuntime struct {
 
 type baziGraphRuntimeCtxKey struct{}
 
-// baziRepairFailureState 保留 runtime 私有调用点名称；状态由八字 Graph 所有。
-type baziRepairFailureState = bazidomain.RepairFailureState
 type Result = bazigraph.Result
 
 func withBaziGraphRuntime(ctx context.Context, runtime *baziGraphRuntime) context.Context {
@@ -47,23 +45,6 @@ func baziGraphRuntimeFromContext(ctx context.Context) (*baziGraphRuntime, error)
 		return nil, fmt.Errorf("bazi graph runtime is incomplete")
 	}
 	return runtime, nil
-}
-
-func repairFailureStateFromRuntime(failure repair.Failure) baziRepairFailureState {
-	return baziRepairFailureState{
-		Domain:      failure.Domain,
-		Stage:       failure.Stage,
-		Class:       failure.Class,
-		Field:       failure.Field,
-		Code:        failure.Code,
-		Message:     failure.Message,
-		Excerpt:     failure.Excerpt,
-		MissingRefs: append([]string(nil), failure.MissingRefs...),
-		AllowedRefs: append([]string(nil), failure.AllowedRefs...),
-		Fallback:    failure.Fallback,
-		Retryable:   failure.Retryable,
-		Repairable:  failure.Repairable,
-	}
 }
 
 func baziEvidenceNeedsAction(in *baziInternalGraphState) bool {
@@ -148,7 +129,7 @@ func (e *Executor) baziContractCheckNode(ctx context.Context, in *baziInternalGr
 		in.AcceptedStatic = in.ChartState.StaticSynthesis
 	}
 	in.RecoveryState = baziRecoveryStateClean
-	baziClearContractFailureTraceAttrs(ctx)
+	baziFinalizeContractTrace(ctx)
 	return in, nil
 }
 
@@ -182,24 +163,38 @@ func (e *Executor) baziRepairNode(ctx context.Context, in *baziInternalGraphStat
 	if err != nil {
 		return nil, err
 	}
-	failure := in.RepairFailure.Runtime()
+	failure := baziRepairFailureFromState(in)
 	decision := repair.DefaultPolicy().Decide(failure, in.RepairState)
 	in.RepairAction = decision.Action
 	if decision.Action != repair.ActionRepairNode || decision.Exhausted {
 		return in, nil
 	}
 	attempt := repair.AttemptsFor(in.RepairState, failure) + 1
+	feedback := buildBaziCanonicalRepairFeedback(failure, attempt)
+	slog.Info("八字合同修复将重试",
+		"layer", "business_repair",
+		"domain", failure.Domain,
+		"stage", failure.Stage,
+		"class", failure.Class,
+		"field", failure.Field,
+		"attempt", attempt,
+		"max_attempts", decision.MaxAttempts,
+		"action", repair.ActionRepairNode,
+	)
 	in.RepairState = repair.RecordAttempt(in.RepairState, repair.Attempt{
-		Domain:  failure.Domain,
-		Stage:   failure.Stage,
-		Class:   failure.Class,
-		Field:   failure.Field,
-		Attempt: attempt,
-		Action:  repair.ActionRepairNode,
+		Domain:            failure.Domain,
+		Stage:             failure.Stage,
+		Class:             failure.Class,
+		Field:             failure.Field,
+		Attempt:           attempt,
+		Action:            repair.ActionRepairNode,
+		FeedbackKeys:      repair.FeedbackKeys(feedback),
+		LearningHintCount: RepairLearningHintCount(feedback),
+		PolicyVersion:     "repair-v1",
+		PromptVersion:     "bazi-canonical-repair-v1",
+		ValidatorVersion:  "bazi-contract-v2",
 	})
 	in.RepairAttempts++
-	in.RepairFeedback = buildBaziCanonicalRepairFeedback(failure, attempt)
-	feedback := in.RepairFeedback
 	var repaired baziCanonicalSynthesis
 	if strings.HasPrefix(in.Failure.FailureStage, "dynamic") {
 		repaired, err = e.runDynamicSynthesisRepair(ctx, runtime.Session, in.ChartState, in.Canonical, in.Question, feedback)
@@ -228,15 +223,21 @@ func (e *Executor) baziRecoverFactsNode(ctx context.Context, in *baziInternalGra
 	}
 	err := baziFailureErrorFromState(in)
 	if !in.Failure.hasFailure() && in.Phase == baziPhaseDynamic && !in.DynamicAccepted {
+		reason := "dynamic_judgment_unaccepted"
+		message := "动态层未形成可展示裁断，已保留可复算事实"
+		if in.FactCapsule.CurrentPeriodRef == "" {
+			reason = "current_period_unavailable"
+			message = "当前尚未交入第一步大运，动态层仅展示可复算事实"
+		}
 		in.ChartState.DynamicSynthesis = canonicalDynamicFailureFactsOnly(
 			in.ChartState,
 			in.ChartState.StaticSynthesis,
-			fmt.Errorf("动态层达到安全收口条件，已保留可复算事实"),
+			fmt.Errorf("%s", message),
 		)
 		in.DynamicAccepted = true
 		in.AcceptedDynamic = in.ChartState.DynamicSynthesis
 		in.RecoveryState = baziRecoveryStateDynamicFactsOnlyDegraded
-		in.TerminationReason = firstNonEmpty(in.TerminationReason, "graph_step_limit_degraded")
+		in.TerminationReason = firstNonEmpty(in.TerminationReason, reason)
 		return in, nil
 	}
 	if strings.HasPrefix(in.FailureStage, "dynamic") && in.RecoveryPolicy == baziRecoveryPolicyDynamicFactsOnly {
@@ -269,6 +270,7 @@ func (e *Executor) baziHardErrorNode(ctx context.Context, in *baziInternalGraphS
 	}
 	in.TerminationReason = firstNonEmpty(in.TerminationReason, "hard_error")
 	in.RecoveryState = baziRecoveryStateHardError
+	baziAnnotateRepairFinalAction(ctx, in, repair.ActionHardError)
 	return in, nil
 }
 
@@ -276,10 +278,26 @@ func baziFailureErrorFromState(in *baziInternalGraphState) error {
 	if in == nil {
 		return nil
 	}
-	if in.RepairFailure.Message != "" {
-		return fmt.Errorf("%s: %s", firstNonEmpty(in.RepairFailure.Code, string(in.RepairFailure.Class)), in.RepairFailure.Message)
+	if in.Failure.Message != "" {
+		return graphFailureError(in.Failure)
+	}
+	if in.RepairFailure.Code != "" || in.RepairFailure.Class != "" {
+		return fmt.Errorf("%s", firstNonEmpty(in.RepairFailure.Code, string(in.RepairFailure.Class)))
 	}
 	return graphFailureError(in.Failure)
+}
+
+// baziRepairFailureFromState rebuilds a local repair input without retaining a
+// complete repair envelope in graph control state.
+func baziRepairFailureFromState(in *baziInternalGraphState) repair.Failure {
+	if in == nil {
+		return repair.Failure{}
+	}
+	failure := in.RepairFailure.Failure()
+	failure.Message = in.Failure.Message
+	failure.MissingRefs = append([]string(nil), in.Failure.MissingRefs...)
+	failure.AllowedRefs = append([]string(nil), in.Failure.AllowedRefs...)
+	return failure
 }
 
 // baziGraphRuntimeResult is the graph boundary used by Executor and outer

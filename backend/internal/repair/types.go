@@ -8,10 +8,6 @@ package repair
 type Class string
 
 const (
-	// TransportTransient covers retryable transport failures such as 429, 5xx and timeouts.
-	TransportTransient Class = "transport_transient"
-	// TransportFatal covers non-retryable transport failures such as 400, 401 and 402.
-	TransportFatal Class = "transport_fatal"
 	// ParseError covers malformed model output that cannot be decoded.
 	ParseError Class = "parse_error"
 	// SchemaError covers decoded output that violates a structured schema.
@@ -24,8 +20,10 @@ const (
 	DomainUnauthorized Class = "domain_unauthorized"
 	// FactConflict covers contradictions with deterministic facts.
 	FactConflict Class = "fact_conflict"
-	// MethodContract covers domain-method violations that should not be model-patched.
+	// MethodContract covers domain-method violations in a model candidate.
 	MethodContract Class = "method_contract"
+	// DeterministicConflict covers contradictory tools, durable assets or deterministic rules.
+	DeterministicConflict Class = "deterministic_conflict"
 	// GuardrailBlocked covers final output blocked by runtime guardrails.
 	GuardrailBlocked Class = "guardrail_blocked"
 	// Unknown covers failures that cannot be safely classified yet.
@@ -38,8 +36,6 @@ type Action string
 const (
 	// ActionAccept means validation succeeded and no repair is needed.
 	ActionAccept Action = "accept"
-	// ActionRetry means the same model/tool call may retry without business repair.
-	ActionRetry Action = "retry"
 	// ActionRepairNode means a bounded business repair node may run.
 	ActionRepairNode Action = "repair_node"
 	// ActionFallback means runtime should degrade through a deterministic fallback.
@@ -55,6 +51,7 @@ type Failure struct {
 	Stage  string
 	Class  Class
 	Field  string
+	Origin Origin
 
 	Code        string
 	Message     string
@@ -68,16 +65,57 @@ type Failure struct {
 	Cause      error
 }
 
-// Attempt records one bounded repair decision without retaining prompts, full
-// trace data or user-authored private text.
-type Attempt struct {
+// Origin identifies whether a failure came from a model candidate, tool result or system invariant.
+type Origin string
+
+const (
+	OriginModelCandidate Origin = "model_candidate"
+	OriginTool           Origin = "tool"
+	OriginSystem         Origin = "system"
+)
+
+// FailureSnapshot is the state-safe portion of a failure retained across graph transitions.
+type FailureSnapshot struct {
 	Domain   string
 	Stage    string
 	Class    Class
 	Field    string
-	Attempt  int
-	Action   Action
-	Feedback map[string]any
+	Code     string
+	Origin   Origin
+	Fallback string
+}
+
+// Snapshot returns the fields safe to persist in graph state and trace metadata.
+func (failure Failure) Snapshot() FailureSnapshot {
+	return FailureSnapshot{
+		Domain: failure.Domain, Stage: failure.Stage, Class: failure.Class, Field: failure.Field,
+		Code: failure.Code, Origin: failure.Origin, Fallback: failure.Fallback,
+	}
+}
+
+// Failure rebuilds a repair decision input from state-safe metadata.
+// Message, excerpts, references and causes intentionally remain node-local.
+func (snapshot FailureSnapshot) Failure() Failure {
+	return Failure{
+		Domain: snapshot.Domain, Stage: snapshot.Stage, Class: snapshot.Class, Field: snapshot.Field,
+		Code: snapshot.Code, Origin: snapshot.Origin, Fallback: snapshot.Fallback,
+	}
+}
+
+// Attempt records one bounded repair decision without retaining prompts, full
+// trace data or user-authored private text.
+type Attempt struct {
+	Domain            string
+	Stage             string
+	Class             Class
+	Field             string
+	Attempt           int
+	Action            Action
+	FeedbackKeys      []string
+	LearningHintCount int
+	PolicyVersion     string
+	PromptVersion     string
+	ValidatorVersion  string
 }
 
 // State tracks the current turn's business repair budget.
@@ -85,4 +123,6 @@ type State struct {
 	Attempts              []Attempt
 	MaxTurnRepairAttempts int
 	MaxNodeRepairAttempts int
+	InitialFailure        FailureSnapshot
+	LastFailure           FailureSnapshot
 }

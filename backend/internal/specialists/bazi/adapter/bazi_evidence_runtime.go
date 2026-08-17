@@ -13,6 +13,7 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/specialists"
 	baziapplication "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/application"
 	bazidomain "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/domain"
+	"github.com/observer-mimiron/suanming-agent/internal/tools"
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
 
@@ -97,7 +98,7 @@ func normalizeBaziEvidencePlan(plan baziEvidencePlan, chartFacts baziCharterInpu
 	}
 	packets := make([]baziQueryPacket, 0, baziEvidenceInitialQueryBudget)
 	for _, packet := range plan.QueryPackets {
-		packet.Topic = strings.TrimSpace(packet.Topic)
+		packet.Topic = canonicalBaziEvidenceTopic(packet.Topic)
 		packet.Query = strings.TrimSpace(packet.Query)
 		if packet.Topic == "" || packet.Query == "" || len([]rune(packet.Query)) > 120 {
 			continue
@@ -113,6 +114,27 @@ func normalizeBaziEvidencePlan(plan baziEvidencePlan, chartFacts baziCharterInpu
 	plan.QueryPackets = packets
 	plan.NeedRetrieval = true
 	return plan
+}
+
+// canonicalBaziEvidenceTopic 统一规划器可能输出的中文主题名，保证检索 trace
+// 与证据合同使用同一稳定键；主题仍只用于引文审计，不能成为裁断前置条件。
+func canonicalBaziEvidenceTopic(topic string) string {
+	topic = strings.TrimSpace(topic)
+	for _, alias := range []struct {
+		keyword   string
+		canonical string
+	}{
+		{keyword: "格局", canonical: "geju"},
+		{keyword: "调候", canonical: "tiaohou"},
+		{keyword: "扶抑", canonical: "fuyi"},
+		{keyword: "大运", canonical: "dayun"},
+		{keyword: "流年", canonical: "liunian"},
+	} {
+		if strings.Contains(topic, alias.keyword) {
+			return alias.canonical
+		}
+	}
+	return topic
 }
 
 // buildTiaohouEvidenceQuery derives a concrete 穷通 query from the calculated
@@ -220,10 +242,8 @@ func (e *Executor) runControlledBaziRetrieval(ctx context.Context, plan baziEvid
 		return bundle
 	}
 
-	searchTool, ok := e.reg.Get("knowledge_search")
-	if !ok {
-		tracing.SetTraceAttributes(ctx, map[string]any{"bazi.evidence.degrade_reason": "tool_unavailable"})
-		return bundle
+	if e.toolRunner == nil {
+		e.toolRunner = tools.NewToolRunner(e.reg)
 	}
 	for index, packet := range plan.QueryPackets {
 		if index == budget {
@@ -232,14 +252,21 @@ func (e *Executor) runControlledBaziRetrieval(ctx context.Context, plan baziEvid
 		retrievalSpan := tracing.SpanFromContext(ctx, "knowledge_search", tracing.KindRetriever)
 		retrievalSpan.SetAttribute("query", packet.Query)
 		retrievalSpan.SetAttribute("topic", packet.Topic)
-		result, err := searchTool.Execute(ctx, map[string]any{"query": packet.Query, "top_k": float64(2)})
-		if err != nil {
-			retrievalSpan.RecordError(err)
+		run := e.toolRunner.Run(ctx, tools.ToolRunRequest{
+			ToolName:       "knowledge_search",
+			Params:         map[string]any{"query": packet.Query, "top_k": float64(2)},
+			DecisionSource: "bazi_evidence",
+		})
+		if run.Status != tools.ToolRunStatusOK && run.Status != tools.ToolRunStatusFallback {
+			if run.Error != nil {
+				retrievalSpan.RecordError(run.Error)
+			}
 			retrievalSpan.SetAttribute("degrade_reason", "tool_error")
 			retrievalSpan.End()
 			bundle.DegradedTopics = mergeStrings(bundle.DegradedTopics, packet.Topic)
 			continue
 		}
+		result := run.Data
 		citations := citationsFromKnowledgeResult(result, packet)
 		degradeReason := knowledgeResultDegradeReason(result)
 		if len(citations) == 0 && degradeReason == "" {

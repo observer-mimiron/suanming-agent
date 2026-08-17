@@ -448,9 +448,6 @@ func validateCharterConsistency(state baziCharterState) error {
 	if err := validateStaticAxisVerdictConsistency(state.StaticSynthesis); err != nil {
 		return err
 	}
-	if err := validateStaticEvidenceCoverageBoundary(state); err != nil {
-		return err
-	}
 	if err := validateStaticTiaohouEvidenceWording(state); err != nil {
 		return err
 	}
@@ -483,19 +480,6 @@ func validateDynamicSynthesisResult(chartState baziCharterState, output baziDyna
 		return err
 	}
 	return validateCharterConsistency(checkState)
-}
-
-// validateStaticEvidenceCoverageBoundary caps only the strength of a static
-// route when planned A-tier topics remain missing. It does not select a chart
-// methodology or alter the model's interpretive text.
-func validateStaticEvidenceCoverageBoundary(state baziCharterState) error {
-	if len(state.EvidenceQuality.MissingTopics) == 0 {
-		return nil
-	}
-	if state.StaticSynthesis.AxisLevel == "主轴成立" || state.StaticSynthesis.AxisLevel == "可以拔高" {
-		return baziViolationError(baziViolationEvidenceTopicMissing, "static.axis_level", "", fmt.Sprintf("static axis level exceeds incomplete evidence boundary: missing %s", strings.Join(state.EvidenceQuality.MissingTopics, ", ")), state.EvidenceQuality.MissingTopics, state.EvidenceQuality.CoveredTopics)
-	}
-	return nil
 }
 
 // validateStaticTiaohouEvidenceWording 只拦截已覆盖调候主证却声称证据缺失的输出。

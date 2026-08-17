@@ -56,6 +56,21 @@ func TestProjectCanonicalStaticSynthesisWithholdsUnknownTiaohouEffectiveness(t *
 	}
 }
 
+func TestProjectCanonicalStaticSynthesisKeepsVerdictWithVerifiedTiaohouFact(t *testing.T) {
+	static := projectCanonicalStaticSynthesis(
+		baziCharterState{Input: baziCharterInput{Yongshen: map[string]any{
+			"tiaohou_fire": map[string]any{"effective": true},
+		}}},
+		baziCanonicalSynthesis{Tiaohou: baziCanonicalUnit{
+			Verdict:  "冬令火透，可参与温养调候。",
+			Boundary: "只确认火可参与调候，不替代完整取用裁断。",
+		}},
+	)
+	if got, want := static.TiaohouAnchor, "冬令火透，可参与温养调候。"; got != want {
+		t.Fatalf("tiaohou anchor = %q, want %q", got, want)
+	}
+}
+
 func TestProjectCanonicalDynamicSynthesisUsesFactsOnlyForOmittedVerdicts(t *testing.T) {
 	state := baziCharterState{AnalysisPlan: baziAnalysisPlan{NeedDynamic: true}}
 	static := baziStaticSynthesis{}

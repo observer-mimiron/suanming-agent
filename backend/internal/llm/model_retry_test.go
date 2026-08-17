@@ -1,10 +1,13 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/adk"
@@ -51,11 +54,21 @@ func TestShouldRetryModelCallError(t *testing.T) {
 }
 
 func TestModelCallRetryDecisionRetriesEmptyOutput(t *testing.T) {
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
 	decision := ModelCallRetryDecision(context.Background(), &adk.RetryContext{
+		RetryAttempt:  1,
 		OutputMessage: schema.AssistantMessage("  ", nil),
 	})
 	if decision == nil || !decision.Retry {
 		t.Fatalf("decision = %+v, want retry", decision)
+	}
+	entry := logs.String()
+	if !strings.Contains(entry, "layer=model_transport") || !strings.Contains(entry, "attempt=1") || !strings.Contains(entry, "reason=empty_output") {
+		t.Fatalf("retry log = %q, want structured model retry fields", entry)
 	}
 }
 

@@ -6,9 +6,13 @@
 
 - **领域单入口与八字 Runner 迁移：** RB0-RB4 和最终收口已完成。dispatch 统一为 `Registry.RunnerFor -> Request{Role, SessionView} -> Runner.Run`；八字组合 Runner 的 primary 直接使用 `specialists/bazi/adapter.Runner`，support 保留通用 ADK runner。八字 Graph、模型、检索、合同、schema 和展示生产代码均位于 `specialists/bazi/`；runtime 只提供共享模型、工具、事件能力投影及跨领域历法资产门禁，不再持有八字专用 runner。专项测试、全量 backend 测试、server build、go list、禁止符号和禁止反向依赖审计均已通过。
 
-- **最后更新：** 2026-08-15
+- **最后更新：** 2026-08-17
 - **阶段：** v1.5 收口完成；Eino 迁移完成；外层 orchestration 和八字内 Graph 已切换为 bounded self-loop；Batch 8 repair 合同收口、Batch 9D 终态 payload 合同修复、Batch 9A/9B 审查、Batch 9C-0 并发门禁和 Batch 9C-1 行为基线均已完成。活动 `/api/chat` 已接入请求取消传播；动态内部引用泄露已有确定性 facts-only 回归保护，并已通过真实八字样例回放。并发问题确认是测试夹具共享切片，未修改生产并发语义。DDD/Clean Architecture 的 Batch A、Batch B、C0、C1 presentation、D1A、D1B、D1C、Qimen E1-E7、Ziwei E5-E18 已完成；E18 是局部紫微纯规则批次，不是本轮 runtime 去领域化主目标。Ziwei 更深 domain/graph/presentation 迁移 deferred；D1C 的合成 Bazi、E1-E4 的 Qimen、E5-E6 的 Ziwei、E7 的 Qimen 工具、E8 的 Ziwei 算法/工具、E9 的 Ziwei 纯星曜核心、E10 的纯定位规则、E11 的五行局/宫名/起紫微规则、E12 的十二神规则、E13 的大限规则、E14 的星曜 JSON DTO 边界、E15 的月/日杂曜索引、E16 的辅星组装、E17 的杂曜组装和 E18 的命宫/身宫纯索引合同测试已通过，主链仍保留无个人资料澄清回放边界。
 - **当前任务：** 八字业务收拢已完成本轮执行边界迁移。Graph 节点、模型/检索调用和 schema 位于 `specialists/bazi/adapter`，纯合同与事实位于 `domain`，用例投影位于 `application`，最终文本位于 `presentation`；runtime 不再持有八字 Graph/模型/证据实现。`bazi_calendar_rule.go` 仍保留 runtime，因为同时服务紫微资产真太阳时版本门禁。业务状态机保留 24 次决策上限；框架节点访问上限按最多三节点/决策单独推导，避免合法补证、修复和事实降级在最终渲染前被框架截断。Graph、SessionView、SSE、trace、API、repair budget 与领域输出语义保持不变。用户可见的静态结论统一为“格局评价已定 / 格局判断暂定 / 格局暂不立评”，不再暴露内部九级证据量表；全程运路和当前岁运仍独立说明对原局的承接，不改写格局评价。格局暂定或暂不立评时，报告只展示岁运结构事实，不展开模型趋势；全程大运条目只保留干支年龄与运干十神，不再呈现扶助、损伤等趋势标签；古籍短引文会同时过滤与日主五行或月令季节明确冲突的内容。暂定格局只展示候选主轴及其证据缺口，不照搬自由文本的成局解释。最终报告总览统一使用“格局评价”和“判断边界”，展示合同已同步并有回归保护。出生资料在 state 合并时将“男命/男性/male”等常见性别表达归一为“男/女”；无法识别时 preflight 先返回中文追问，不进入八字/紫微排盘；八字或紫微的出生年份超出 `1900-2100` 时同样在 preflight 返回可操作的聊天提示。所有已知执行失败均由编排器作为普通聊天文本发送，内部错误仍通过返回值和 trace 记录，不再显示独立红色错误块。八字知识库检索是可选且可见的参考：独立证据规划模型基于用户问题、命盘事实和本轮范围生成最多两条查询；初检成功但没有可用原文或材料高冲突时才允许一条补充查询，每轮实际调用为 `0/3`。知识库同时返回模型参考片段和可选完整短引文；八字优先用后者展示“古籍参照”，旧服务未返回时兼容原片段。目录、书籍首页、空结果和 `timeout`/服务故障都归一为空材料并只记录 trace，不单独使格局评价“暂定”。命中内容不生成新结论。八字领域与全量 backend 测试、server build 均通过。
+- **本轮修复：** 独立数字回复不再让 supervisor 猜术数；已有八字/紫微命盘时沿用对应领域，没有命盘时返回方法澄清。已验收的全程大运综合即使本命格局暂定，也恢复每步结构标签与边界内批语；当前应期仍保留暂定时的事实-only 限制。repair 预算恢复为同一字段最多两次、整轮最多两次；八字 method_contract 已从 Graph 的 hard-error 分支改为带字段/允许值反馈的 schema repair，事实冲突仍硬停。路由、展示、repair focused test、全量 backend 测试和 server build 均通过。
+- **错误处理方案：** `docs/error-handling-retry-plan.md` 已实施。模型 transport、ToolRunner、业务 repair、外层编排各自保留唯一 owner：ADK adapter、prefill 和八字证据检索都经 ToolRunner；知识检索先重试，耗尽后才作为可选材料降级；父 context 取消不会重试或等待退避。模型候选的 schema/projection/method/evidence/fact 错误最多 repair 2 次，并携带当前被拒绝候选；确定性冲突 hard error。Graph 与内部状态只保存 repair failure snapshot，repair attempt 只保存反馈元数据；修复成功仍保留 trace 的 initial/last/final failure，并标记 `accepted_after_repair`，不会误标整轮为降级。工具、模型 transport、八字业务 repair 在实际重试时都会输出不含用户/命盘/候选/原始错误的结构化日志；trace 仍保存完整关联和最终动作。外层 primary runner 整轮 dispatch retry、raw `Tool.Execute` 旁路、repair transport 分类、领域对 repair 的依赖、状态中的反馈正文和重复 trace projector 均已清理。全量 backend 测试、server build、重启后的真实 SSE/Langfuse v3 评测均通过；trace `4887e07c0784fa1ebc228d5a5bdff7b1` 是无 repair 的正常链路样例，repair 成功分支由确定性单测覆盖。2026-08-17 的完整出生资料实测 trace `trc_0104c76b5fa2` 在 45.9 秒内完成：路由为 bazi、静态/动态来源均为 model、最终 audit 为 clean、SSE 已发送 text 和 done。Langfuse CLI 的 observations API 仅支持 v4 写模式，当前本地 Langfuse v3.225.2 需继续使用项目既有 v3 公共 API 读取评测 trace。
+- **知识库与动态终态修复：** 知识库检索只补充古籍参照和已检索材料一致性，不再作为静态主轴、层次或暗合路线的前置条件；层次九个维度必须各自绑定命盘事实或固定规则 ID。2026-08-17 真实回放 `trc_cc00c1a360c7` 为 `status=ok`，在两次成功检索后仍以事实/规则引用完成层次审计；首步大运尚未开始时，`bazi.loop_step=5`、`bazi.max_run_steps=24`，终态准确记录为 `current_period_unavailable`，不再误报 `graph_step_limit_degraded`。
+- **调候事实与检索主题修复：** `YongShenTool` 现仅在冬令输出“火是否透干、可否参与温养调候”的确定性事实，不把它升级为完整逐日主调候 profile、取用或格局结论；其他季节仍保留已有边界。证据规划器把“调候/冬令调候/格局成败”等中文主题归一为稳定键，避免 trace 与证据合同使用不同名称。真实回放 `trc_d502f891c109` 为 `status=ok`，检索主题为 `geju,tiaohou`，冬令甲木且丁火透干的调候段输出“调候尚可”，未再显示“调候有效性待确认”；本轮古籍调候查询未形成可展示短引文，不影响该确定性事实结论。
 - **共享边界：** `internal/calendar` 现在拥有真太阳时版本与日期/经度偏移；八字和紫微都依赖该中性能力。`specialists.Request` 只携带当前领域、只读会话投影和回写回调，不再依赖 `policy.ApprovedRoute`，因此 bounded specialist 的依赖闭包不再包含 `policy` 或 `state`。
 - **代码原则：** 普通命理分歧进 `eval/` 数据集和 Langfuse trace，不进运行时专项分支。
 
@@ -115,12 +119,12 @@
 - Graph state 只存单轮可描述值；Session、Executor、model client 和 SSE sink 通过 context 注入，不接入 checkpoint。
 - 排盘、藏干、透干、大运边界和标准关系可复算；runtime 不注入默认 rule profile，也不从 Go 代码生成 claim。
 - V2 模型 DTO 为 `analysis_plan`、`evidence_plan`、`static_synthesis`、`dynamic_synthesis`、`lifetime_dayun_synthesis`；独立快速 `evidence_plan` 模型调用生成最多两条受约束古籍查询，并在初检无可用原文或高冲突时允许一条补充查询。静态模型为四个固定槽位输出受长度与引用合同约束的短裁断和状态，动态模型必须回填唯一 `current_period_ref`。
-- runtime 派生 evidence status、层次资格和大运事实对齐；renderer 只转写已验证的结构化投影，不重新裁断。
-- 证据质量按 A 级主题逐题验收，输出 `required_topics / covered_topics / missing_topics / degraded_topics`；B 级命例不能替代格局、调候、病药等主证。
+- runtime 派生引用可用状态和大运事实对齐；层次资格只校验九个固定维度是否各自绑定命盘事实或固定规则 ID，renderer 只转写已验证的结构化投影，不重新裁断。
+- 证据质量输出 `required_topics / covered_topics / missing_topics / degraded_topics`，只用于古籍参照和已检索材料的一致性校验；知识库命中、空结果或失败不降低主轴、层次或暗合路线结论。
 - 反思仅重试缺失或高冲突的 A 级主题；查询采用稳定的“典籍 + 主题”并与首轮证据合并。
 - 静态综合不得以“月令本气未透”单因推出暗格、清浊或层次降级；候选路线必须比较透干、藏干层级、根气、时令与结构闭环。
 - 静态综合保留 `pattern_adjudication` 候选矩阵；月令候选不能仅因未透被拒，藏支组合不能无完整比较越级。
-- 静态层次固定观察主轴、有情、有力、清浊、病、药、救应、调候与何知章印证。`rated` 的 1-9 级要求清浊、病药、救应、破格风险、何知章五项独立证据齐全；主证不全但核心事实和主轴成立时输出 `provisional` 的 3-6 级；只有核心事实或静态主轴无法建立时才 `withheld=0`。`provisional` 展示优先列证据缺位、病药未明和受限条件，再列并见条件，最多四项。runtime 只限制证据上下限，不以印星根气等单因直接算等级；主轴和格局路线若反转已计算的偏强/偏弱事实，按既有 `static.strength_balance` 进入静态 facts-only 降级。
+- 静态层次固定观察主轴、有情、有力、清浊、病、药、救应、调候与何知章印证。`rated` 的 1-9 级要求九个维度逐项有命盘事实或固定规则 ID，古籍主题只能补充出处；命盘结构本身存在未解决限制时输出 `provisional` 的 3-6 级；只有核心事实或静态主轴无法建立时才 `withheld=0`。`provisional` 展示优先列证据缺位、病药未明和受限条件，再列并见条件，最多四项。runtime 只限制证据上下限，不以印星根气等单因直接算等级；主轴和格局路线若反转已计算的偏强/偏弱事实，按既有 `static.strength_balance` 进入静态 facts-only 降级。
 - canonical 通过确定性投影、事实引用和静态/动态合同校验后才进入 renderer；事实/方法冲突硬失败，结构或授权缺口按 recovery policy facts-only，当前没有 `model_partial` 成功态。
 - 动态综合接收由出生年和目标流年推导的 `subject_context`，并以 `allowed_outcome_domains / outcome_domains` 做结构化授权。
 - 未成年人只允许结构、成长环境、照护节奏和可观察发展；遗漏或越权进入 violation 重试，不能靠扩张自然语言禁词表兜底。
@@ -195,10 +199,10 @@
 - `bazi-stability-v1` 尚无本轮新报告：它会在十次串行调用全部结束后才写入报告，前次长调用期间被人为停止。取得新的十轮稳定性结论仍需允许完整在线运行。
 - `bazi-answer-quality-v1` 已完成两轮真实在线回放；每轮 2/3，失败 case 在 `dynamic` method contract hard error 与无正文响应之间表现为在线模型合同波动，成功样本的答案质量合同无违规；该风险不属于本批终态 audit 修复。
 - 动态 baseline 已删除完整趋势生成：模型动态综合失败时，只展示已绑定当前大运的干支、年龄、日期边界、运干十神和已计算关系；无法定位时明确说明，不能回退成全量人生大运目录。
-- `current_dayun` 为空或过期时仍按透传日期边界回补；若目标时刻早于首步交运，明确显示“尚未交入第一步大运”。
+- `current_dayun` 为空或过期时仍按透传日期边界回补；若目标时刻早于首步交运，明确显示“尚未交入第一步大运”，并以 `current_period_unavailable` 终止，不误记为 `graph_step_limit_degraded`。
 - cheap gate 仅允许 `period_fortune` 或单域 `natal_chart` 的同域普通追问复用；具体事件、健康、方法、时间和跨域变化均回完整 Supervisor，不重新分类或扩域。
 - 规则材料来自 prompt、知识库检索和未来数据驱动规则表；Go runtime 不承担子平、穷通或逐运趋势 claim provider 职责。
-- V2 字段审计以类型化 `BaziSemanticPolicy` 为准，不扫描最终中文判断。trace 额外记录 `bazi.tier.{status,level,evidence_complete}` 与 `bazi.dynamic.{current_period_ref,current_period_realization}`。
+- V2 字段审计以类型化 `BaziSemanticPolicy` 为准，不扫描最终中文判断。trace 额外记录 `bazi.tier.{status,level,evidence_complete}`，其中 evidence 仅指固定维度的事实/规则引用完整性，不指知识库主题命中；并记录 `bazi.dynamic.{current_period_ref,current_period_realization}`。
 - `case_005_2025_topic_coverage_and_age_scope` 只验证证据主题覆盖、主轴一致性、子正换日分钟与幼儿年龄边界；运行时代码不包含该命盘、session、trace 或目标格局分支。
 
 ## 下一步

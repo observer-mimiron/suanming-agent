@@ -41,7 +41,6 @@ func TestBuildFactCapsuleKeepsDeterministicFactsSeparate(t *testing.T) {
 			"ganZhi":        "甲午",
 			"dayun_chonghe": []map[string]any{{"description": "甲午与原局有已计算关系"}},
 		},
-		CoveredTopics: []string{"qingzhuo"},
 	})
 
 	if !capsule.CoreFactsReady || !capsule.FireEffective || !capsule.FireEffectivenessKnown {
@@ -52,9 +51,6 @@ func TestBuildFactCapsuleKeepsDeterministicFactsSeparate(t *testing.T) {
 	}
 	if !capsule.OfficialVisible || capsule.OfficialHidden {
 		t.Fatalf("official visibility = %+v", capsule)
-	}
-	if capsule.TierEvidenceComplete || len(capsule.TierEvidenceMissing) != 4 {
-		t.Fatalf("tier evidence = %+v", capsule)
 	}
 	if len(capsule.RootPositions) != 2 || len(capsule.VisibleSameElementStems) != 1 {
 		t.Fatalf("root/same-element facts = %+v", capsule)

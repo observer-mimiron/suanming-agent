@@ -5,8 +5,9 @@ import "strings"
 const (
 	// DefaultMaxTurnRepairAttempts is the first-version whole-turn business repair cap.
 	DefaultMaxTurnRepairAttempts = 2
-	// DefaultMaxNodeRepairAttempts is the first-version per stage/field repair cap.
-	DefaultMaxNodeRepairAttempts = 1
+	// DefaultMaxNodeRepairAttempts limits retries for one stage/field while the
+	// whole-turn cap still prevents unbounded business repair.
+	DefaultMaxNodeRepairAttempts = 2
 )
 
 // NewState returns a repair state with the fixed v1 budget defaults.
@@ -57,6 +58,16 @@ func BudgetExhausted(state State, failure Failure) bool {
 func RecordAttempt(state State, attempt Attempt) State {
 	state = WithDefaultBudget(state)
 	state.Attempts = append(state.Attempts, attempt)
+	return state
+}
+
+// RecordFailure preserves the first failure and updates the latest one without retaining candidate text.
+func RecordFailure(state State, failure Failure) State {
+	snapshot := failure.Snapshot()
+	if state.InitialFailure.Domain == "" {
+		state.InitialFailure = snapshot
+	}
+	state.LastFailure = snapshot
 	return state
 }
 

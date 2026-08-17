@@ -128,6 +128,6 @@ func buildBaziFactCapsulePromptView(state baziCharterState, includeDynamic bool)
 	return bazidomain.BuildPromptView(bazidomain.FactInput{
 		BaziResult: state.Input.BaziResult, Yongshen: state.Input.Yongshen,
 		MonthCommand:  bazidomain.MonthBranchForEvidenceQuery(state.Input),
-		CurrentPeriod: current, CoveredTopics: state.EvidenceQuality.CoveredTopics,
+		CurrentPeriod: current,
 	}, includeDynamic)
 }

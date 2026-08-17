@@ -9,7 +9,6 @@ import (
 	"fmt"
 
 	"github.com/cloudwego/eino/adk"
-	"github.com/observer-mimiron/suanming-agent/internal/repair"
 	"github.com/observer-mimiron/suanming-agent/internal/specialists"
 	baziapplication "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/application"
 	bazidomain "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/domain"
@@ -125,8 +124,7 @@ func baziTierDimensionEntries(dimensions baziTierDimensions) []baziNamedTierDime
 func strengthEvidenceSummary(yongshen map[string]any) string {
 	return bazidomain.StrengthEvidenceSummary(yongshen)
 }
-func capsuleTiaohouDisplay(c BaziFactCapsule) string      { return bazidomain.TiaohouDisplay(c) }
-func capsuleTierEvidenceDisplay(c BaziFactCapsule) string { return bazidomain.TierEvidenceDisplay(c) }
+func capsuleTiaohouDisplay(c BaziFactCapsule) string { return bazidomain.TiaohouDisplay(c) }
 func staticPatternFactSummary(input baziCharterInput) string {
 	return bazidomain.StaticPatternFactSummary(input)
 }
@@ -188,33 +186,6 @@ func baziViolationFromError(err error) (bazidomain.ValidationViolation, bool) {
 func baziContractFailureFromError(stage string, err error) (baziContractFailure, bool) {
 	return baziapplication.ContractFailureFromError(stage, err)
 }
-func repairFailureFromBaziContract(stage string, err error) (repair.Failure, bool) {
-	return baziapplication.RepairFailureFromError(stage, err)
-}
-func repairClassFromBaziContract(class string) repair.Class {
-	switch class {
-	case bazidomain.ContractFailureEvidenceOverclaim:
-		return repair.EvidenceOverclaim
-	case bazidomain.ContractFailureDomainUnauthorized:
-		return repair.DomainUnauthorized
-	case bazidomain.ContractFailureProjectionMismatch:
-		return repair.ProjectionMismatch
-	case bazidomain.ContractFailureSchemaError:
-		return repair.SchemaError
-	case bazidomain.ContractFailureFactConflict:
-		return repair.FactConflict
-	case bazidomain.ContractFailureMethodContract:
-		return repair.MethodContract
-	default:
-		return repair.Unknown
-	}
-}
-func repairFallbackFromBaziRecoveryPolicy(policy string) string {
-	if policy == bazidomain.RecoveryPolicyStaticFactsOnly || policy == bazidomain.RecoveryPolicyDynamicFactsOnly || policy == bazidomain.RecoveryPolicyFullFactsOnly {
-		return "facts_only"
-	}
-	return ""
-}
 func recordGraphFailure(_ context.Context, failure *graphFailure, domain, stage string, err error) error {
 	if failure == nil || err == nil {
 		return nil
@@ -266,9 +237,10 @@ type RuntimePort struct {
 // Executor 是八字 adapter 的单轮执行宿主，由 runtime 注入共享能力。
 // 它不拥有 Manager 会话，也不负责跨领域调度。
 type Executor struct {
-	builder AgentBuilder
-	reg     *tools.Registry
-	port    RuntimePort
+	builder    AgentBuilder
+	reg        *tools.Registry
+	toolRunner *tools.ToolRunner
+	port       RuntimePort
 }
 
 // graphFailure 是 adapter 内部的可序列化失败投影，不携带 runtime 错误对象。
@@ -302,7 +274,12 @@ func (r *Runner) Run(ctx context.Context, req specialists.Request) (specialists.
 	if req.Session == nil {
 		return specialists.Result{}, fmt.Errorf("bazi adapter runner requires session view")
 	}
-	executor := &Executor{builder: r.Port.Builder, reg: r.Port.Registry, port: r.Port}
+	executor := &Executor{
+		builder:    r.Port.Builder,
+		reg:        r.Port.Registry,
+		toolRunner: tools.NewToolRunner(r.Port.Registry),
+		port:       r.Port,
+	}
 	result, err := executor.baziGraphRuntimeResult(ctx, r.Port.Sink, req.Session, req.UserMessage)
 	if err != nil {
 		return specialists.Result{}, err
@@ -325,27 +302,6 @@ type Event struct {
 
 // RuntimeFailure 保留旧名称，实际使用公共 runner 失败合同。
 type RuntimeFailure = specialists.Failure
-
-type RepairTraceEvent struct {
-	Failure           repair.Failure
-	Attempt           int
-	MaxAttempts       int
-	Action            repair.Action
-	Feedback          map[string]any
-	LearningHintCount int
-	Exhausted         bool
-	FinalAction       repair.Action
-}
-
-func RepairTraceAttrs(event RepairTraceEvent) map[string]any {
-	return map[string]any{
-		"repair.domain": event.Failure.Domain, "repair.stage": event.Failure.Stage,
-		"repair.class": string(event.Failure.Class), "repair.field": event.Failure.Field,
-		"repair.attempt": event.Attempt, "repair.max_attempts": event.MaxAttempts,
-		"repair.action": string(event.Action), "repair.learning_hint_count": event.LearningHintCount,
-		"repair.exhausted": event.Exhausted, "repair.final_action": string(event.FinalAction),
-	}
-}
 
 func graphFailureFromError(domain, stage string, err error) graphFailure {
 	if err == nil {

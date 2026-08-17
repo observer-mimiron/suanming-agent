@@ -71,7 +71,7 @@ func factHint(id string) string {
 		return "输入 core_chart.month_pillar：月令/月柱"
 	case "yongshen.strength", "yongshen.strength_evidence", "yongshen.balance_status":
 		return "输入 core_chart：强弱与受力证据"
-	case "yongshen.season", "yongshen.seasonal_tiaohou_hint", "yongshen.tiao_hou", "yongshen.tiaohou_yong_shen":
+	case "yongshen.season", "yongshen.seasonal_tiaohou_hint", "yongshen.tiao_hou", "yongshen.tiaohou_fire", "yongshen.tiaohou_yong_shen":
 		return "输入 core_chart：季节与调候材料"
 	case "yongshen.geju", "yongshen.geju_basis", "yongshen.geju_candidate", "yongshen.geju_detail", "yongshen.geju_status":
 		return "输入 core_chart：格局候选与依据"

@@ -37,7 +37,8 @@ const (
 
 // baziInternalGraphState 是八字内部 graph 的单轮状态。
 // 它只保存可描述的输入、候选、合同、预算和终止信息；会话、Executor
-// 与 SSE sink 通过本轮 context 注入，避免把运行时指针带入 Graph state。
+// 与 SSE sink 通过本轮 context 注入，避免把运行时指针带入 Graph state；
+// repair 仅保存短快照，完整反馈只在当前节点调用期间存在。
 type baziInternalGraphState struct {
 	Question string
 
@@ -71,8 +72,7 @@ type baziInternalGraphState struct {
 	FailureClass      string
 	RecoveryPolicy    string
 	RepairState       repair.State
-	RepairFailure     baziRepairFailureState
-	RepairFeedback    map[string]any
+	RepairFailure     repair.FailureSnapshot
 	RepairAction      repair.Action
 	RepairedStage     string
 	BranchPath        []string
@@ -199,23 +199,52 @@ func baziAnnotateRepairFinalAction(ctx context.Context, in *baziInternalGraphSta
 	if in == nil || in.RepairFailure.Domain == "" {
 		return
 	}
-	failure := in.RepairFailure.Runtime()
+	failure := in.RepairFailure.Failure()
 	attempt := repair.AttemptsFor(in.RepairState, failure)
 	decision := repair.DefaultPolicy().Decide(failure, in.RepairState)
 	exhausted := decision.Exhausted
 	if action == repair.ActionAccept {
 		exhausted = false
 	}
-	tracing.SetTraceAttributes(ctx, RepairTraceAttrs(RepairTraceEvent{
+	feedbackKeys, hintCount := baziLastRepairAttemptMetadata(in.RepairState)
+	attrs := repair.TraceAttrs(repair.TraceEvent{
 		Failure:           failure,
 		Attempt:           attempt,
 		MaxAttempts:       decision.MaxAttempts,
 		Action:            in.RepairAction,
-		Feedback:          in.RepairFeedback,
-		LearningHintCount: RepairLearningHintCount(in.RepairFeedback),
+		FeedbackKeys:      feedbackKeys,
+		LearningHintCount: hintCount,
 		Exhausted:         exhausted,
 		FinalAction:       action,
-	}))
+	})
+	if initial := in.RepairState.InitialFailure; initial.Domain != "" {
+		attrs["repair.initial_class"] = string(initial.Class)
+		attrs["repair.initial_stage"] = initial.Stage
+		attrs["repair.initial_field"] = initial.Field
+	}
+	if last := in.RepairState.LastFailure; last.Domain != "" {
+		attrs["repair.last_class"] = string(last.Class)
+		attrs["repair.last_stage"] = last.Stage
+		attrs["repair.last_field"] = last.Field
+	}
+	attrs["repair.final_class"] = string(failure.Class)
+	if action == repair.ActionAccept {
+		attrs["repair.candidate_status"] = "accepted_after_repair"
+	}
+	attrs["recovery.final_state"] = in.RecoveryState
+	attrs["recovery.final_policy"] = in.RecoveryPolicy
+	tracing.SetTraceAttributes(ctx, attrs)
+}
+
+// baziLastRepairAttemptMetadata returns only metadata retained from the most recent repair prompt.
+func baziLastRepairAttemptMetadata(state repair.State) ([]string, int) {
+	for index := len(state.Attempts) - 1; index >= 0; index-- {
+		attempt := state.Attempts[index]
+		if attempt.Action == repair.ActionRepairNode {
+			return append([]string(nil), attempt.FeedbackKeys...), attempt.LearningHintCount
+		}
+	}
+	return nil, 0
 }
 
 // baziAcceptRepair 标记领域 repair 成功并清理旧失败状态。
@@ -231,12 +260,12 @@ func baziAcceptRepair(ctx context.Context, in *baziInternalGraphState, canonical
 	in.RecoveryPolicy = ""
 	in.RecoveryState = baziRecoveryStateClean
 	in.RepairAction = repair.ActionAccept
-	baziClearContractFailureTraceAttrs(ctx)
+	baziFinalizeContractTrace(ctx)
 	baziAnnotateRepairFinalAction(ctx, in, repair.ActionAccept)
 }
 
-// baziClearContractFailureTraceAttrs 覆盖旧合同失败 trace，不删除 repair 链路信息。
-func baziClearContractFailureTraceAttrs(ctx context.Context) {
+// baziFinalizeContractTrace clears transient graph errors and preserves repair history.
+func baziFinalizeContractTrace(ctx context.Context) {
 	tracing.SetTraceAttributes(ctx, map[string]any{
 		"bazi.graph.error":                   "",
 		"bazi.graph.error_stage":             "",
@@ -246,11 +275,6 @@ func baziClearContractFailureTraceAttrs(ctx context.Context) {
 		"bazi.dynamic.error_stage":           "",
 		"bazi.inner_agent.error":             "",
 		"bazi.inner_agent.stage":             "",
-		"bazi.contract.failure_class":        "clean",
-		"bazi.contract.recovery_policy":      "",
-		"bazi.contract.finding_code":         "",
-		"bazi.contract.finding_field":        "",
-		"bazi.contract.detected_domain":      "",
 		"bazi.internal_graph.recovery_state": baziRecoveryStateClean,
 	})
 }
@@ -342,21 +366,15 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 			MissingRefs:  append([]string(nil), failure.MissingRefs...),
 			AllowedRefs:  append([]string(nil), failure.AllowedRefs...),
 		}
-		in.RepairFailure = repairFailureStateFromRuntime(repair.Failure{
-			Domain:      "bazi",
-			Stage:       stage,
-			Class:       repairClassFromBaziContract(failure.Class),
-			Field:       failure.Field,
-			Code:        failure.FindingCode,
-			Message:     failure.Reason,
-			Excerpt:     failure.Excerpt,
-			MissingRefs: append([]string(nil), failure.MissingRefs...),
-			AllowedRefs: append([]string(nil), failure.AllowedRefs...),
-			Fallback:    repairFallbackFromBaziRecoveryPolicy(failure.RecoveryPolicy),
-			Retryable:   failure.RecoveryPolicy == baziRecoveryPolicyRetryOnly,
-			Repairable:  failure.RecoveryPolicy == baziRecoveryPolicyRetryOnly,
-		})
-		currentRepairFailure = in.RepairFailure.Runtime()
+		repairFailure, repairOK := baziapplication.RepairFailureFromError(stage, err)
+		if !repairOK {
+			repairFailure = repair.Failure{
+				Domain: "bazi", Stage: stage, Class: repair.DeterministicConflict,
+				Origin: repair.OriginSystem, Code: failure.FindingCode, Message: failure.Reason,
+			}
+		}
+		in.RepairFailure = repairFailure.Snapshot()
+		currentRepairFailure = repairFailure
 		hasCurrentRepairFailure = true
 		attrs["bazi.internal_graph.recovery_state"] = in.RecoveryState
 		attrs["bazi.contract.failure_class"] = failure.Class
@@ -367,7 +385,7 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 		if failure.Field != "" {
 			attrs["bazi.contract.finding_field"] = failure.Field
 		}
-	} else if repairFailure, ok := repairFailureFromBaziContract(stage, err); ok {
+	} else if repairFailure, ok := baziapplication.RepairFailureFromError(stage, err); ok {
 		in.FailureClass = string(repairFailure.Class)
 		in.RecoveryPolicy = baziRecoveryPolicyRetryOnly
 		in.Failure = graphFailure{
@@ -380,7 +398,7 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 			MissingRefs:  append([]string(nil), repairFailure.MissingRefs...),
 			AllowedRefs:  append([]string(nil), repairFailure.AllowedRefs...),
 		}
-		in.RepairFailure = repairFailureStateFromRuntime(repairFailure)
+		in.RepairFailure = repairFailure.Snapshot()
 		currentRepairFailure = repairFailure
 		hasCurrentRepairFailure = true
 		attrs["bazi.contract.failure_class"] = in.FailureClass
@@ -390,7 +408,19 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 	// 仅在本轮已有业务 repair 且当前 policy 不再允许继续 repair 时补写终态；
 	// 复用安全投影，避免把 repair 后的候选正文或 feedback value 写入 trace。
 	if hasCurrentRepairFailure {
+		in.RepairState = repair.RecordFailure(in.RepairState, currentRepairFailure)
 		decision := repair.DefaultPolicy().Decide(currentRepairFailure, in.RepairState)
+		if initial := in.RepairState.InitialFailure; initial.Domain != "" {
+			attrs["repair.initial_class"] = string(initial.Class)
+			attrs["repair.initial_stage"] = initial.Stage
+			attrs["repair.initial_field"] = initial.Field
+		}
+		if last := in.RepairState.LastFailure; last.Domain != "" {
+			attrs["repair.last_class"] = string(last.Class)
+			attrs["repair.last_stage"] = last.Stage
+			attrs["repair.last_field"] = last.Field
+			attrs["repair.failure_origin"] = string(last.Origin)
+		}
 		businessRepairAttempts := 0
 		for _, attempt := range in.RepairState.Attempts {
 			if attempt.Action == repair.ActionRepairNode {
@@ -398,7 +428,7 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 			}
 		}
 		if businessRepairAttempts > 0 && !decision.Repairable {
-			tracing.SetTraceAttributes(ctx, RepairTraceAttrs(RepairTraceEvent{
+			tracing.SetTraceAttributes(ctx, repair.TraceAttrs(repair.TraceEvent{
 				Failure:     currentRepairFailure,
 				Attempt:     businessRepairAttempts,
 				MaxAttempts: decision.MaxAttempts,

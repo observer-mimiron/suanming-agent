@@ -9,10 +9,7 @@ import "strings"
 // BaziFactCapsule 保留 runtime 的兼容名称，实际类型由 Bazi domain 所有。
 type BaziFactCapsule = FactCapsule
 
-// baziTierEvidenceTopics 保留 runtime 合同校验使用的稳定主题顺序。
-var baziTierEvidenceTopics = TierEvidenceTopics()
-
-// buildBaziFactCapsule 把已选月令、当前大运和证据覆盖传给 domain 构建事实胶囊。
+// buildBaziFactCapsule 把已选月令和当前大运传给 domain 构建事实胶囊。
 func buildBaziFactCapsule(state baziCharterState) BaziFactCapsule {
 	return BuildFactCapsule(baziFactInput(state))
 }
@@ -35,7 +32,6 @@ func baziFactInput(state baziCharterState) FactInput {
 		MonthCommand:     MonthBranchForEvidenceQuery(state.Input),
 		CurrentPeriodRef: currentDayunPeriodRef(state),
 		CurrentPeriod:    currentPeriod,
-		CoveredTopics:    state.EvidenceQuality.CoveredTopics,
 	}
 }
 
@@ -52,21 +48,6 @@ func capsuleFireDisplay(capsule BaziFactCapsule) string {
 // capsuleTiaohouDisplay 保留 runtime 文案调用点并委托给 domain。
 func capsuleTiaohouDisplay(capsule BaziFactCapsule) string {
 	return TiaohouDisplay(capsule)
-}
-
-// capsuleTierEvidenceDisplay 保留 runtime 文案调用点并委托给 domain。
-func capsuleTierEvidenceDisplay(capsule BaziFactCapsule) string {
-	return TierEvidenceDisplay(capsule)
-}
-
-// tierEvidenceComplete 将 runtime 的证据审计输入交给 domain 判断覆盖是否完整。
-func tierEvidenceComplete(state baziCharterState) bool {
-	return TierEvidenceComplete(state.EvidenceQuality.CoveredTopics)
-}
-
-// tierEvidenceMissing 返回 runtime 当前证据审计尚未覆盖的独立主题。
-func tierEvidenceMissing(state baziCharterState) []string {
-	return TierEvidenceMissing(state.EvidenceQuality.CoveredTopics)
 }
 
 // MonthBranchForEvidenceQuery 从月柱或扶抑事实中读取月令地支。

@@ -52,7 +52,7 @@
 
 - 除 `disease` 外，每个维度的 `state` 只能是 `missing`、`limited`、`mixed`、`usable`、`strong`。
 - `disease.state` 只能是 `unresolved`、`light`、`moderate`、`heavy`、`critical`。
-- 每个维度必须给出 `state` 和 `evidence_topics`；有事实或规则 ID 时再带对应引用数组，空数组直接省略。每个非 withheld 维度至少引用一项事实、规则或证据主题。何知章只作正反印证入口，不是加减分表。
+- 每个维度必须给出 `state`；每个非 withheld 维度必须至少引用一项 `fact_refs` 或 `claim_refs`。`evidence_topics` 仅记录古籍补充出处，不能替代本盘事实或固定规则。何知章只作正反印证入口，不是加减分表。
 - `status=rated`：核心命盘事实、主轴和九级维度已能支持本轮评价；`level` 为 1-9。检索命中可作为古籍参照，检索超时、空结果或未覆盖主题不得单独降低本状态。
 - `status=provisional`：核心命盘和主轴已能建立，但命盘结构本身仍有未解决的限制或裁断保留；仍必须给出 `level`，且只能为 3-6。不得因检索缺一项材料自动进入此状态。
 - `status=withheld`：仅当核心命盘事实或静态主轴无法建立；`level` 必须为 0。

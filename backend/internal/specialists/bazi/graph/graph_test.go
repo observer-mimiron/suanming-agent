@@ -203,11 +203,11 @@ func TestRunMaxBusinessStepsReachesFallbackRender(t *testing.T) {
 	deps.Dynamic = recordCallback(&calls, "dynamic_judgment", func(state *State) {
 		state.DynamicAttempted = true
 		state.Failure = Failure{Class: "schema_error", Domain: "bazi"}
-		state.RepairFailure = repair.Failure{Class: repair.SchemaError}
+		state.RepairFailure = repair.Failure{Class: repair.SchemaError}.Snapshot()
 	})
 	deps.Repair = recordCallback(&calls, "repair", func(state *State) {
 		state.Failure = Failure{Class: "domain_unauthorized", Domain: "bazi"}
-		state.RepairFailure = repair.Failure{Class: repair.DomainUnauthorized, Fallback: "dynamic_facts_only"}
+		state.RepairFailure = repair.Failure{Class: repair.DomainUnauthorized, Fallback: "dynamic_facts_only"}.Snapshot()
 	})
 	deps.ContractCheck = recordCallback(&calls, "contract_check", nil)
 	deps.RecoverFacts = recordCallback(&calls, "recover_facts", nil)

@@ -97,22 +97,34 @@ func marshalResult(result any, err error) string {
 	return string(b)
 }
 
-func executeRegistryTool(ctx context.Context, reg *tools.Registry, name string, params map[string]any) string {
-	gt, ok := reg.Get(name)
-	if !ok {
-		return "{}"
+// runRegistryTool is the only adapter path into registered tools.
+// ADK-originated calls use the same governance, timeout, retry and trace contract as prefill.
+func runRegistryTool(ctx context.Context, reg *tools.Registry, name string, params map[string]any) tools.ToolRunResult {
+	return tools.NewToolRunner(reg).Run(ctx, tools.ToolRunRequest{
+		ToolName:       name,
+		Params:         params,
+		DecisionSource: "adk_specialist",
+	})
+}
+
+// executeRegistryTool serializes a successful governed tool result for an ADK tool response.
+func executeRegistryTool(ctx context.Context, reg *tools.Registry, name string, params map[string]any) (string, error) {
+	result := runRegistryTool(ctx, reg, name, params)
+	if result.Status != tools.ToolRunStatusOK && result.Status != tools.ToolRunStatusFallback {
+		// ADK 工具协议把失败回传给模型作下一步依据；ToolRunner 已记录真实错误和重试，
+		// 这里不能把底层错误文本或 provider 响应继续注入模型上下文。
+		return `{"error":"tool_call_failed"}`, nil
 	}
-	result, err := gt.Execute(ctx, params)
-	return marshalResult(result, err)
+	return marshalResult(result.Data, nil), nil
 }
 
 func inferRegistryTool[I any](reg *tools.Registry, name, desc string) (tool.BaseTool, error) {
 	return utils.InferTool(name, desc, func(ctx context.Context, input I) (string, error) {
 		params, err := structToMap(input)
 		if err != nil {
-			return "{}", nil
+			return "", fmt.Errorf("encode %s parameters: %w", name, err)
 		}
-		return executeRegistryTool(ctx, reg, name, params), nil
+		return executeRegistryTool(ctx, reg, name, params)
 	})
 }
 
@@ -136,16 +148,16 @@ func newDayunAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 	return utils.InferTool("dayun_analyzer", "分析每个大运的吉凶和十神类型", func(ctx context.Context, input dayunInput) (string, error) {
 		params, err := structToMap(input)
 		if err != nil {
-			return "{}", nil
+			return "", fmt.Errorf("encode dayun parameters: %w", err)
 		}
 		baziJSON, _ := params["bazi_json"].(string)
 		gender, _ := params["gender"].(string)
 		if baziJSON == "" {
-			return "{}", nil
+			return "", fmt.Errorf("bazi_json is required")
 		}
 		var baziResult map[string]any
 		if err := json.Unmarshal([]byte(baziJSON), &baziResult); err != nil {
-			return "{}", nil
+			return "", fmt.Errorf("parse bazi_json: %w", err)
 		}
 		if gender != "" && baziResult["gender"] == nil {
 			baziResult["gender"] = gender
@@ -153,12 +165,11 @@ func newDayunAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 
 		// 若 yongshen 缺失，从 birthday 字段反推出生时间并调用 yongshen 工具兜底
 		if baziResult["yongshen"] == nil {
-			if yt, ok := reg.Get("yongshen"); ok {
-				if yongshenParams := buildYongshenParamsFromBaziResult(baziResult); yongshenParams != nil {
-					if yr, yerr := yt.Execute(ctx, yongshenParams); yerr == nil && yr != nil {
-						if ym, ok := yr.(map[string]any); ok {
-							baziResult["yongshen"] = ym
-						}
+			if yongshenParams := buildYongshenParamsFromBaziResult(baziResult); yongshenParams != nil {
+				yongshen := runRegistryTool(ctx, reg, "yongshen", yongshenParams)
+				if (yongshen.Status == tools.ToolRunStatusOK || yongshen.Status == tools.ToolRunStatusFallback) && yongshen.Data != nil {
+					if ym, ok := yongshen.Data.(map[string]any); ok {
+						baziResult["yongshen"] = ym
 					}
 				}
 			}
@@ -168,7 +179,7 @@ func newDayunAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 			"dayun":       baziResult["dayun"],
 			"bazi_result": baziResult,
 		}
-		return executeRegistryTool(ctx, reg, "dayun_analyzer", toolParams), nil
+		return executeRegistryTool(ctx, reg, "dayun_analyzer", toolParams)
 	})
 }
 
@@ -229,16 +240,17 @@ func newKnowledgeSearchAdapter(reg *tools.Registry, flashChat llm.Chat) (tool.Ba
 		}
 		params, err := structToMap(input)
 		if err != nil {
-			return `{"passages":[]}`, nil
+			return "", fmt.Errorf("encode knowledge_search parameters: %w", err)
 		}
-		gt, ok := reg.Get("knowledge_search")
-		if !ok {
-			return `{"passages":[]}`, nil
+		run := runRegistryTool(ctx, reg, "knowledge_search", params)
+		if run.Status != tools.ToolRunStatusOK && run.Status != tools.ToolRunStatusFallback {
+			if run.ErrorClass == tools.ToolErrorInvalidParams {
+				return "", run.Error
+			}
+			// 古籍材料可选；重试耗尽后只暴露稳定的降级标记，不把底层错误注入模型上下文。
+			return `{"passages":[],"fallback":true,"degrade_reason":"knowledge_unavailable"}`, nil
 		}
-		result, err := gt.Execute(ctx, params)
-		if err != nil || result == nil {
-			return `{"passages":[]}`, nil
-		}
+		result := run.Data
 		// 压缩古籍段落：优先用 flash 模型提炼要点，fallback 到 400 字截断
 		if rm, ok := result.(map[string]any); ok {
 			if passages, ok := rm["passages"].([]interface{}); ok && len(passages) > 3 {
@@ -278,10 +290,7 @@ func newKnowledgeCatalogAdapter(reg *tools.Registry) (tool.BaseTool, error) {
 			if callCount > 1 {
 				return "目录已在上一条 knowledge_catalog 工具结果中提供。你现在必须调用 knowledge_search 检索古籍原文，不要再调 knowledge_catalog。", nil
 			}
-			if _, ok := reg.Get("knowledge_catalog"); !ok {
-				return `{"error":"catalog not registered"}`, nil
-			}
-			return executeRegistryTool(ctx, reg, "knowledge_catalog", nil), nil
+			return executeRegistryTool(ctx, reg, "knowledge_catalog", nil)
 		})
 }
 

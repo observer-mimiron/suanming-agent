@@ -11,10 +11,10 @@ func TestPolicyClassifiesFailureByAction(t *testing.T) {
 		wantAction    Action
 		wantRetryable bool
 	}{
-		{name: "transport transient", class: TransportTransient, wantAction: ActionRetry, wantRetryable: true},
 		{name: "schema repair", class: SchemaError, wantAction: ActionRepairNode, wantRetryable: true},
-		{name: "fact conflict", class: FactConflict, wantAction: ActionHardError},
-		{name: "unauthorized fallback", class: DomainUnauthorized, fallback: "facts_only", wantAction: ActionFallback},
+		{name: "fact conflict", class: FactConflict, wantAction: ActionRepairNode, wantRetryable: true},
+		{name: "method contract", class: MethodContract, wantAction: ActionRepairNode, wantRetryable: true},
+		{name: "deterministic conflict", class: DeterministicConflict, wantAction: ActionHardError},
 	}
 
 	for _, test := range tests {
@@ -32,15 +32,17 @@ func TestBudgetCountsRepairAttemptsByTurnAndStage(t *testing.T) {
 	state := RecordAttempt(NewState(), Attempt{
 		Domain: "bazi", Stage: "static", Field: "main_axis", Action: ActionRepairNode,
 	})
-	state = RecordAttempt(state, Attempt{
-		Domain: "bazi", Stage: "static", Field: "main_axis", Action: ActionRetry,
-	})
-
 	if got := AttemptsFor(state, failure); got != 1 {
 		t.Fatalf("AttemptsFor() = %d, want 1", got)
 	}
+	if BudgetExhausted(state, failure) {
+		t.Fatal("same stage/field repair budget should allow a second repair")
+	}
+	state = RecordAttempt(state, Attempt{
+		Domain: "bazi", Stage: "static", Field: "main_axis", Action: ActionRepairNode,
+	})
 	if !BudgetExhausted(state, failure) {
-		t.Fatal("same stage/field repair budget should be exhausted")
+		t.Fatal("same stage/field repair budget should be exhausted after two repairs")
 	}
 
 	state = RecordAttempt(state, Attempt{
@@ -51,20 +53,39 @@ func TestBudgetCountsRepairAttemptsByTurnAndStage(t *testing.T) {
 	}
 }
 
-func TestHTTPStatusRetryableOnlyForTransientFailures(t *testing.T) {
-	for _, test := range []struct {
-		status int
-		want   bool
-	}{
-		{status: 408, want: true},
-		{status: 429, want: true},
-		{status: 500, want: true},
-		{status: 400, want: false},
-		{status: 401, want: false},
-		{status: 404, want: false},
-	} {
-		if got := HTTPStatusRetryable(test.status); got != test.want {
-			t.Fatalf("HTTPStatusRetryable(%d) = %t, want %t", test.status, got, test.want)
-		}
+func TestRecordFailurePreservesInitialAndUpdatesLast(t *testing.T) {
+	state := RecordFailure(NewState(), Failure{Domain: "bazi", Stage: "static", Class: SchemaError, Field: "axis"})
+	state = RecordFailure(state, Failure{Domain: "bazi", Stage: "dynamic", Class: FactConflict, Field: "period"})
+	if state.InitialFailure.Stage != "static" || state.LastFailure.Stage != "dynamic" {
+		t.Fatalf("snapshots = %#v / %#v", state.InitialFailure, state.LastFailure)
+	}
+}
+
+func TestFailureSnapshotRebuildsOnlyStateSafeFields(t *testing.T) {
+	failure := Failure{
+		Domain: "bazi", Stage: "static", Class: FactConflict, Field: "axis", Code: "AXIS_CONFLICT",
+		Origin: OriginModelCandidate, Fallback: "static_facts_only", Message: "rejected text", Excerpt: "candidate excerpt",
+		MissingRefs: []string{"unexpected"}, AllowedRefs: []string{"known"},
+	}
+
+	rebuilt := failure.Snapshot().Failure()
+	if rebuilt.Domain != failure.Domain || rebuilt.Class != failure.Class || rebuilt.Fallback != failure.Fallback {
+		t.Fatalf("rebuilt failure = %#v", rebuilt)
+	}
+	if rebuilt.Message != "" || rebuilt.Excerpt != "" || len(rebuilt.MissingRefs) != 0 || len(rebuilt.AllowedRefs) != 0 || rebuilt.Cause != nil {
+		t.Fatalf("snapshot leaked non-state fields: %#v", rebuilt)
+	}
+}
+
+func TestTraceAttrsDoesNotExposeFeedbackValues(t *testing.T) {
+	attrs := TraceAttrs(TraceEvent{
+		Failure:      Failure{Domain: "bazi", Stage: "static", Class: ProjectionMismatch, Field: "axis", Origin: OriginModelCandidate},
+		FeedbackKeys: []string{"allowed_fix", "reason"},
+	})
+	if _, leaked := attrs["reason"]; leaked {
+		t.Fatal("trace attrs leaked feedback value")
+	}
+	if got := attrs["repair.failure_origin"]; got != string(OriginModelCandidate) {
+		t.Fatalf("repair.failure_origin=%v", got)
 	}
 }

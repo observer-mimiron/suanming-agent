@@ -22,6 +22,7 @@ func (e *Executor) runStaticSynthesis(ctx context.Context, view *specialists.Ses
 	if strings.TrimSpace(canonical.MainAxis.Verdict) != "" {
 		payload["canonical_synthesis"] = canonical
 	}
+	payload["rejected_candidate"] = canonical
 	payload["runtime_catalog"] = baziStaticRuntimeCatalogView(chartState)
 	out, err := runBaziInnerAgentJSON[baziStructuredStaticSynthesis](ctx, e.builder, baziStaticSynthesisConfig(), view, buildBaziCharterPrompt("静态综合", question, payload))
 	if err != nil {
@@ -49,6 +50,7 @@ func (e *Executor) runStaticSynthesisRepair(ctx context.Context, view *specialis
 	if strings.TrimSpace(canonical.MainAxis.Verdict) != "" {
 		payload["canonical_synthesis"] = canonical
 	}
+	payload["rejected_candidate"] = canonical
 	payload["runtime_catalog"] = baziStaticRuntimeCatalogView(chartState)
 	payload["validation_feedback"] = feedback
 	out, err := runBaziInnerAgentJSON[baziStructuredStaticSynthesis](ctx, e.builder, baziStaticSynthesisConfig(), view, buildBaziCharterPrompt("静态综合修复", question, payload))
@@ -112,6 +114,7 @@ func (e *Executor) runDynamicSynthesisRepair(ctx context.Context, view *speciali
 	}
 	payload := baziapplication.BuildDynamicSynthesisPayload(chartState)
 	payload["runtime_catalog"] = baziDynamicRuntimeCatalogView(chartState)
+	payload["rejected_candidate"] = canonical
 	payload["validation_feedback"] = feedback
 	out, err := runBaziInnerAgentJSON[baziStructuredDynamicSynthesis](ctx, e.builder, baziDynamicSynthesisConfig(), view, buildBaziCharterPrompt("动态综合修复", question, payload))
 	if err != nil {
@@ -486,17 +489,13 @@ func staticRuntimeLimitations(state baziCharterState) []string {
 	case !capsule.FireEffective:
 		limits = append(limits, "已有材料显示火不足以单独作为调候依据。")
 	}
-	if !capsule.TierEvidenceComplete {
-		limits = append(limits, capsuleTierEvidenceDisplay(capsule)+"，层次仅作暂定定位。")
-	}
 	return baziapplication.CanonicalListOrDefault(limits, []string{"静态层只解释本命结构；岁运承接与条件风险由动态层单独处理。"})
 }
 
 // staticRuntimeReasoningSummary states the fixed static decision basis without
 // repeating the model's main-axis wording in another renderer section.
 func staticRuntimeReasoningSummary(state baziCharterState) string {
-	capsule := buildBaziFactCapsule(state)
-	return "静态裁断按月令、通根、透干、受力、官星透藏、调候资格与层次独立证据状态投影；" + capsuleTierEvidenceDisplay(capsule) + "。"
+	return "静态裁断按月令、通根、透干、受力、官星透藏、调候资格与固定层次规则投影。"
 }
 
 // staticRuntimeReasoningSteps returns the stable order used by the legacy

@@ -267,11 +267,6 @@ func validatePatternAdjudication(state baziCharterState, adjudication baziPatter
 		if err := requirePatternComparisonDimensions(candidate); err != nil {
 			return err
 		}
-		if candidate.Origin == "hidden_combination" {
-			if !containsString(state.EvidenceQuality.CoveredTopics, "geju") {
-				return baziViolationError(baziViolationEvidenceTopicMissing, "static.pattern_adjudication.candidates.evidence_topics", candidate.ID, "hidden combination cannot lead without covered geju authority evidence", []string{"geju"}, state.EvidenceQuality.CoveredTopics)
-			}
-		}
 	}
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/observer-mimiron/suanming-agent/internal/repair"
 	bazigraph "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/graph"
+	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
 
 func TestRunBaziGraphNodeKeepsGraphPhaseAuthoritative(t *testing.T) {
@@ -94,5 +95,36 @@ func TestBaziGraphPayloadCarriesTerminalAudit(t *testing.T) {
 	got, ok := result.Payload.(*baziInternalGraphState)
 	if !ok || got != terminal || !got.ChartState.StaticSynthesis.ContractAudit.Compliant {
 		t.Fatalf("terminal payload audit = %#v, want clean terminal audit", result.Payload)
+	}
+}
+
+func TestBaziAcceptRepairPreservesFailureTraceWithoutDegradingTurn(t *testing.T) {
+	failure := repair.Failure{
+		Domain: "bazi", Stage: "static_projection", Class: repair.MethodContract,
+		Field: "static.main_axis", Code: "STATIC_METHOD_CONTRACT", Origin: repair.OriginModelCandidate,
+	}
+	in := &baziInternalGraphState{
+		RepairFailure: failure.Snapshot(),
+		RepairState:   repair.RecordFailure(repair.NewState(), failure),
+		RepairAction:  repair.ActionRepairNode,
+		RecoveryState: baziRecoveryStateClean,
+	}
+	ctx, root := tracing.NewRealTracer(nil).StartTrace(context.Background(), "bazi-repair")
+	defer root.End()
+
+	baziAcceptRepair(ctx, in, baziCanonicalSynthesis{})
+	trace := tracing.TraceFromContext(ctx)
+	if trace == nil {
+		t.Fatal("repair trace is missing")
+	}
+	attrs := trace.Attributes
+	if attrs["repair.initial_class"] != string(repair.MethodContract) || attrs["repair.last_class"] != string(repair.MethodContract) || attrs["repair.final_class"] != string(repair.MethodContract) {
+		t.Fatalf("repair history attrs = %#v", attrs)
+	}
+	if attrs["repair.final_action"] != string(repair.ActionAccept) || attrs["repair.candidate_status"] != "accepted_after_repair" {
+		t.Fatalf("repair terminal attrs = %#v", attrs)
+	}
+	if trace.Status != "ok" {
+		t.Fatalf("repair success trace status = %q, want ok", trace.Status)
 	}
 }

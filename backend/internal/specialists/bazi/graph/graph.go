@@ -67,7 +67,8 @@ func (f Failure) HasFailure() bool {
 
 // State contains the graph-owned control facts for one BaZi turn. Payload is a
 // domain-data carrier owned by the adapter; it never contains model clients,
-// executors or SSE sinks and is not used for action selection.
+// executors or SSE sinks and is not used for action selection. RepairFailure
+// retains only a FailureSnapshot; detailed repair input remains node-local.
 type State struct {
 	Phase       string `json:"phase,omitempty"`
 	NextAction  Action `json:"next_action,omitempty"`
@@ -88,11 +89,11 @@ type State struct {
 	DynamicAttempted    bool `json:"dynamic_attempted"`
 	DynamicAccepted     bool `json:"dynamic_accepted"`
 
-	Failure        Failure        `json:"failure"`
-	RecoveryPolicy string         `json:"recovery_policy,omitempty"`
-	RepairState    repair.State   `json:"repair_state"`
-	RepairFailure  repair.Failure `json:"repair_failure"`
-	RepairAction   repair.Action  `json:"repair_action,omitempty"`
+	Failure        Failure                `json:"failure"`
+	RecoveryPolicy string                 `json:"recovery_policy,omitempty"`
+	RepairState    repair.State           `json:"repair_state"`
+	RepairFailure  repair.FailureSnapshot `json:"repair_failure"`
+	RepairAction   repair.Action          `json:"repair_action,omitempty"`
 
 	EvidenceAttempts  int `json:"evidence_attempts"`
 	TransportAttempts int `json:"transport_attempts"`
@@ -358,13 +359,14 @@ func decideNode(deps Deps) func(context.Context, *State) (*State, error) {
 
 func chooseAction(state *State) Action {
 	if state.Failure.HasFailure() {
-		decision := repair.DefaultPolicy().Decide(state.RepairFailure, state.RepairState)
+		repairFailure := state.RepairFailure.Failure()
+		decision := repair.DefaultPolicy().Decide(repairFailure, state.RepairState)
 		state.RepairAction = decision.Action
 		if decision.Action == repair.ActionRepairNode && !decision.Exhausted {
 			state.Phase = phaseRepair
 			return ActionRepair
 		}
-		if decision.Action == repair.ActionFallback && strings.TrimSpace(state.RepairFailure.Fallback) != "" {
+		if decision.Action == repair.ActionFallback && strings.TrimSpace(repairFailure.Fallback) != "" {
 			return ActionRecoverFacts
 		}
 		return ActionHardError

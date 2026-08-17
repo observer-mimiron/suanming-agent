@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-var tierEvidenceTopics = []string{"qingzhuo", "bingyao", "jiuying", "poge", "hezhizhang"}
-
 var stemElements = map[string]string{
 	"甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
 	"己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
@@ -23,7 +21,6 @@ type FactInput struct {
 	MonthCommand     string
 	CurrentPeriodRef string
 	CurrentPeriod    map[string]any
-	CoveredTopics    []string
 }
 
 // RootPosition 记录日主通根，不把通根数量升级成格局或层次结论；层级沿用藏干确定顺序。
@@ -53,16 +50,9 @@ type FactCapsule struct {
 	FireEffective           bool           `json:"fire_effective"`
 	FireEffectivenessKnown  bool           `json:"fire_effectiveness_known"`
 	CoreFactsReady          bool           `json:"core_facts_ready"`
-	TierEvidenceComplete    bool           `json:"tier_evidence_complete"`
-	TierEvidenceMissing     []string       `json:"tier_evidence_missing"`
 	CurrentPeriodRef        string         `json:"current_period_ref"`
 	CurrentPeriodGanZhi     string         `json:"current_period_ganzhi"`
 	CurrentPeriodRelations  []string       `json:"current_period_relations"`
-}
-
-// TierEvidenceTopics 返回确定性证据合同使用的稳定权威主题顺序。
-func TierEvidenceTopics() []string {
-	return append([]string(nil), tierEvidenceTopics...)
 }
 
 // BuildFactCapsule 只从窄输入派生确定性事实，不生成命理裁断。
@@ -79,7 +69,6 @@ func BuildFactCapsule(input FactInput) FactCapsule {
 	)
 	rootPositions, sameStems, firePresent, fireVisible := capsulePillarFacts(input.BaziResult["pillars"], dayMaster)
 	fireEffective, fireKnown := capsuleFireEffectiveness(fire)
-	missing := TierEvidenceMissing(input.CoveredTopics)
 	return FactCapsule{
 		MonthCommand:            strings.TrimSpace(input.MonthCommand),
 		RootPositions:           rootPositions,
@@ -99,8 +88,6 @@ func BuildFactCapsule(input FactInput) FactCapsule {
 		FireEffective:           fireEffective,
 		FireEffectivenessKnown:  fireKnown,
 		CoreFactsReady:          strings.TrimSpace(input.MonthCommand) != "" && dayMaster != "" && len(input.BaziResult) > 0,
-		TierEvidenceComplete:    len(missing) == 0,
-		TierEvidenceMissing:     missing,
 		CurrentPeriodRef:        strings.TrimSpace(input.CurrentPeriodRef),
 		CurrentPeriodGanZhi:     strings.TrimSpace(stringValue(input.CurrentPeriod["ganZhi"])),
 		CurrentPeriodRelations:  relationTextList(input.CurrentPeriod["dayun_chonghe"]),
@@ -119,16 +106,15 @@ func BuildPromptView(input FactInput, includeDynamic bool) map[string]any {
 		roots = append(roots, position)
 	}
 	view := map[string]any{
-		"月令":       firstNonEmpty(capsule.MonthCommand, "工具未提供"),
-		"日主通根":     firstNonEmpty(strings.Join(roots, "、"), "未见可展示通根"),
-		"同类透干":     firstNonEmpty(strings.Join(capsule.VisibleSameElementStems, "、"), "未见同类透干"),
-		"印星生扶":     fmt.Sprintf("已计算生扶信号 %d 项", capsule.ResourceSupportCount),
-		"强弱受力":     fmt.Sprintf("扶身 %d；泄耗克身 %d", capsule.SupportScore, capsule.PressureScore),
-		"扶身信号":     firstNonEmpty(strings.Join(capsule.SupportSignals, "；"), "工具未提供"),
-		"泄耗克身信号":   firstNonEmpty(strings.Join(capsule.PressureSignals, "；"), "工具未提供"),
-		"官星透藏":     OfficialDisplay(capsule),
-		"火与调候状态":   FireDisplay(capsule),
-		"层次独立证据状态": TierEvidenceDisplay(capsule),
+		"月令":     firstNonEmpty(capsule.MonthCommand, "工具未提供"),
+		"日主通根":   firstNonEmpty(strings.Join(roots, "、"), "未见可展示通根"),
+		"同类透干":   firstNonEmpty(strings.Join(capsule.VisibleSameElementStems, "、"), "未见同类透干"),
+		"印星生扶":   fmt.Sprintf("已计算生扶信号 %d 项", capsule.ResourceSupportCount),
+		"强弱受力":   fmt.Sprintf("扶身 %d；泄耗克身 %d", capsule.SupportScore, capsule.PressureScore),
+		"扶身信号":   firstNonEmpty(strings.Join(capsule.SupportSignals, "；"), "工具未提供"),
+		"泄耗克身信号": firstNonEmpty(strings.Join(capsule.PressureSignals, "；"), "工具未提供"),
+		"官星透藏":   OfficialDisplay(capsule),
+		"火与调候状态": FireDisplay(capsule),
 	}
 	if includeDynamic {
 		view["当前大运"] = firstNonEmpty(capsule.CurrentPeriodGanZhi, "未识别")
@@ -195,34 +181,6 @@ func TiaohouDisplay(capsule FactCapsule) string {
 		parts = append(parts, "火未透出，作用仍需结合位置与时令判断")
 	}
 	return strings.Join(parts, "；")
-}
-
-// TierEvidenceDisplay 报告证据覆盖情况，不生成层次等级。
-func TierEvidenceDisplay(capsule FactCapsule) string {
-	if capsule.TierEvidenceComplete {
-		return "清浊、病药、救应、破格风险与何知章独立证据已覆盖"
-	}
-	labels := make([]string, 0, len(capsule.TierEvidenceMissing))
-	for _, topic := range capsule.TierEvidenceMissing {
-		labels = append(labels, map[string]string{
-			"qingzhuo": "清浊", "bingyao": "病药", "jiuying": "救应", "poge": "破格风险", "hezhizhang": "何知章",
-		}[topic])
-	}
-	return "尚缺独立证据：" + strings.Join(filterNonEmpty(labels), "、")
-}
-
-// TierEvidenceComplete 判断全部独立权威主题是否已覆盖。
-func TierEvidenceComplete(covered []string) bool { return len(TierEvidenceMissing(covered)) == 0 }
-
-// TierEvidenceMissing 返回检索审计尚未覆盖的独立层次主题。
-func TierEvidenceMissing(covered []string) []string {
-	missing := make([]string, 0, len(tierEvidenceTopics))
-	for _, topic := range tierEvidenceTopics {
-		if !containsString(covered, topic) {
-			missing = append(missing, topic)
-		}
-	}
-	return missing
 }
 
 // capsulePillarFacts 从四柱载荷提取通根层级、同类透干和火出现事实。

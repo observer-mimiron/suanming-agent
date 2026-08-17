@@ -34,6 +34,7 @@ const (
 	ToolErrorInternal         ToolErrorClass = "internal_error"
 	ToolErrorNotFound         ToolErrorClass = "not_found"
 	ToolErrorApprovalRequired ToolErrorClass = "approval_required"
+	ToolErrorCanceled         ToolErrorClass = "canceled"
 )
 
 // RetryPolicy declares which tool failures can be retried by ToolRunner.

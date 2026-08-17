@@ -141,6 +141,23 @@ func TestYongShen_UsesSameMinuteAsBaziCalc(t *testing.T) {
 	}
 }
 
+func TestYongShen_WinterVisibleFireProvidesTiaohouParticipationFact(t *testing.T) {
+	m := execYongShenForTest(t, map[string]any{
+		"year": float64(2025), "month": float64(11), "day": float64(10),
+		"hour": float64(23), "minute": float64(53), "gender": "男", "longitude": float64(121.47),
+	})
+	status, ok := m["tiaohou_fire"].(map[string]any)
+	if !ok {
+		t.Fatalf("tiaohou_fire = %T, want map", m["tiaohou_fire"])
+	}
+	if status["effective"] != true || status["visible"] != true {
+		t.Fatalf("tiaohou_fire = %#v, want visible effective winter fire", status)
+	}
+	if basis, _ := status["basis"].(string); !strings.Contains(basis, "冬令") {
+		t.Fatalf("tiaohou fire basis = %q", basis)
+	}
+}
+
 func TestYongShen_GejuCombinationDistinguishesHiddenStemStrength(t *testing.T) {
 	m := execYongShenForTest(t, map[string]any{
 		"year": float64(2025), "month": float64(11), "day": float64(11),

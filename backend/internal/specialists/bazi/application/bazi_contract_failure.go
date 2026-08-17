@@ -1,7 +1,7 @@
-// Package application 分类八字综合合同失败，供 adapter 的 repair、恢复和 trace 投影使用。
+// Package application 分类八字综合合同失败，供 adapter 的 repair 和恢复使用。
 //
-// 合同 finding 只提供语义元数据，本文件只映射成确定性 runtime 动作；
-// 不重写命理解读，也不引入命盘专项分支。
+// 合同 finding 只映射为共享 repair envelope；不投影 trace、重写命理解读，
+// 也不引入命盘专项分支。
 package application
 
 import (
@@ -61,21 +61,17 @@ func repairFailureFromBaziContract(stage string, err error) (repair.Failure, boo
 	if errors.As(err, &schemaErr) {
 		failure := repair.Failure{
 			Domain: "bazi", Stage: strings.TrimSpace(stage), Class: repair.SchemaError,
-			Field: schemaErr.Schema, Code: "schema_error", Message: schemaErr.Detail,
+			Field: schemaErr.Schema, Origin: repair.OriginModelCandidate, Code: "schema_error", Message: schemaErr.Detail,
 			Fallback: baziStructuredFailureFallback(stage), Cause: err,
 		}
-		decision := repair.DefaultPolicy().Decide(failure, repair.State{})
-		failure.Retryable, failure.Repairable = decision.Retryable, decision.Repairable
 		return failure, true
 	}
 	if isBaziInnerAgentParseError(err) {
 		failure := repair.Failure{
 			Domain: "bazi", Stage: strings.TrimSpace(stage), Class: repair.ParseError,
-			Field: "output", Code: "parse_error", Message: err.Error(),
+			Field: "output", Origin: repair.OriginModelCandidate, Code: "parse_error", Message: err.Error(),
 			Fallback: baziStructuredFailureFallback(stage), Cause: err,
 		}
-		decision := repair.DefaultPolicy().Decide(failure, repair.State{})
-		failure.Retryable, failure.Repairable = decision.Retryable, decision.Repairable
 		return failure, true
 	}
 	failure, ok := baziContractFailureFromError(stage, err)
@@ -87,6 +83,7 @@ func repairFailureFromBaziContract(stage string, err error) (repair.Failure, boo
 		Stage:    strings.TrimSpace(stage),
 		Class:    repairClassFromBaziContract(failure.Class),
 		Field:    strings.TrimSpace(failure.Field),
+		Origin:   repair.OriginModelCandidate,
 		Code:     strings.TrimSpace(failure.FindingCode),
 		Message:  strings.TrimSpace(failure.Reason),
 		Excerpt:  strings.TrimSpace(failure.Excerpt),
@@ -97,9 +94,6 @@ func repairFailureFromBaziContract(stage string, err error) (repair.Failure, boo
 		repairFailure.MissingRefs = append([]string(nil), violation.MissingRefs...)
 		repairFailure.AllowedRefs = append([]string(nil), violation.AllowedRefs...)
 	}
-	decision := repair.DefaultPolicy().Decide(repairFailure, repair.State{})
-	repairFailure.Retryable = decision.Retryable
-	repairFailure.Repairable = decision.Repairable
 	return repairFailure, true
 }
 
@@ -130,41 +124,6 @@ func baziRecoveryPolicyForFailure(stage, class string) string {
 // invalid deterministic result.
 func withBaziStaticFallback(stage string, failure baziContractFailure) baziContractFailure {
 	return bazidomain.WithStaticFallback(stage, failure)
-}
-
-// baziTraceAttrsForContractFailure projects compact failure details into traces
-// without retaining full candidate text.
-func baziTraceAttrsForContractFailure(stage string, err error) map[string]any {
-	failure, ok := baziContractFailureFromError(stage, err)
-	if !ok {
-		return nil
-	}
-	attrs := map[string]any{
-		"bazi.contract.failure_class":   failure.Class,
-		"bazi.contract.recovery_policy": failure.RecoveryPolicy,
-	}
-	if failure.FindingCode != "" {
-		attrs["bazi.contract.finding_code"] = failure.FindingCode
-	}
-	if failure.Field != "" {
-		attrs["bazi.contract.finding_field"] = failure.Field
-	}
-	if failure.DetectedDomain != "" {
-		attrs["bazi.contract.detected_domain"] = failure.DetectedDomain
-	}
-	if repairFailure, ok := repairFailureFromBaziContract(stage, err); ok {
-		decision := repair.DefaultPolicy().Decide(repairFailure, repair.State{})
-		attrs["repair.domain"] = repairFailure.Domain
-		attrs["repair.stage"] = repairFailure.Stage
-		attrs["repair.class"] = string(repairFailure.Class)
-		attrs["repair.field"] = repairFailure.Field
-		attrs["repair.attempt"] = 0
-		attrs["repair.max_attempts"] = decision.MaxAttempts
-		attrs["repair.action"] = string(decision.Action)
-		attrs["repair.exhausted"] = decision.Exhausted
-		attrs["repair.final_action"] = string(decision.Action)
-	}
-	return attrs
 }
 
 // repairClassFromBaziContract bridges the BaZi-local closed taxonomy into the

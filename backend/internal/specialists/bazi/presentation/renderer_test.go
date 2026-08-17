@@ -190,13 +190,13 @@ func TestPresentationProvisionalTierSuppressesFortuneProse(t *testing.T) {
 			CurrentTrend: "当前大运结构兑现较顺。", LiunianFocus: "吉中带险。", WindowLevel: "扰动年",
 		},
 	})
-	for _, forbidden := range []string{"结构兑现较顺", "吉中带险", "扰动年", "扶助用神", "有助于发挥本命用神", "食神弱需印星转化"} {
+	for _, forbidden := range []string{"结构兑现较顺", "吉中带险", "扰动年", "食神弱需印星转化"} {
 		if strings.Contains(output, forbidden) {
 			t.Fatalf("provisional report leaked %q: %s", forbidden, output)
 		}
 	}
 	for _, want := range []string{
-		"**庚寅运（24-33岁）**：庚为偏财",
+		"**庚寅运（24-33岁）｜扶助用神**：庚为偏财；此运有助于发挥本命用神。",
 		"**候选主轴**：以七杀格为主轴，食神制杀与杀印相生并见。",
 		"候选主轴仍须完成清浊、病药与救应等条件核验；当前独立证据未全，本轮不据此定局。",
 	} {
@@ -206,6 +206,20 @@ func TestPresentationProvisionalTierSuppressesFortuneProse(t *testing.T) {
 	}
 	if !strings.Contains(output, "**流年干支**：丙午") {
 		t.Fatalf("provisional report lost calculated fact: %s", output)
+	}
+}
+
+func TestPresentationProvisionalTierKeepsAcceptedLifetimeLabels(t *testing.T) {
+	output := RenderFinalReply(FinalReplyInput{
+		AnalysisPlan:      AnalysisPlan{NeedLifetimeDayun: true},
+		Facts:             ChartFacts{DayunPeriods: []DayunPeriod{{Ref: "dayun[0]", Label: "庚寅运（24-33岁）", GanZhi: "庚寅", TenGod: "偏财"}}},
+		StaticSynthesis:   StaticSynthesis{TierStatus: "provisional", TierJudgment: "格局判断暂定"},
+		LifetimeSynthesis: LifetimeDayunSynthesis{Status: "accepted", PeriodClaims: []LifetimeDayunClaim{{PeriodRef: "dayun[0]", PeriodEffect: "support_use"}}},
+	})
+	for _, want := range []string{"扶助用神", "此运有助于发挥本命用神"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("provisional report missing lifetime label %q: %s", want, output)
+		}
 	}
 }
 

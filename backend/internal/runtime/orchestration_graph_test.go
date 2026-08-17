@@ -108,7 +108,7 @@ func (r retryingPrimaryRunner) Run(context.Context, specialists.Request) (specia
 	return r.result, nil
 }
 
-func TestExecute_RetriesOnlyFailedPrimaryThroughGraph(t *testing.T) {
+func TestExecute_DoesNotRetryFailedPrimaryThroughGraph(t *testing.T) {
 	graph, err := buildOrchestrationGraph()
 	if err != nil {
 		t.Fatalf("buildOrchestrationGraph: %v", err)
@@ -146,14 +146,14 @@ func TestExecute_RetriesOnlyFailedPrimaryThroughGraph(t *testing.T) {
 		},
 		Slots: schemas.DecisionSlots{QuestionText: "今天运气怎么样"},
 	}, "今天运气怎么样")
-	if err != nil {
-		t.Fatalf("Execute() error = %v", err)
+	if err == nil {
+		t.Fatal("Execute() error = nil, want failed primary result")
 	}
-	if turnType != "agent_reading" || text != "重试后的奇门结论" {
-		t.Fatalf("result = (%q, %q), want agent_reading and retry result", turnType, text)
+	if turnType != "agent_error" || text != "" {
+		t.Fatalf("result = (%q, %q), want agent_error without retry result", turnType, text)
 	}
-	if calls != 2 {
-		t.Fatalf("primary runner calls = %d, want one initial call plus one retry", calls)
+	if calls != 1 {
+		t.Fatalf("primary runner calls = %d, want exactly one", calls)
 	}
 	textEvents := 0
 	for _, event := range sink.events {
@@ -161,8 +161,8 @@ func TestExecute_RetriesOnlyFailedPrimaryThroughGraph(t *testing.T) {
 			textEvents++
 		}
 	}
-	if textEvents != 1 {
-		t.Fatalf("text event count = %d, want exactly one", textEvents)
+	if textEvents != 0 {
+		t.Fatalf("text event count = %d, want none before outer error projection", textEvents)
 	}
 }
 

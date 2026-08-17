@@ -67,7 +67,7 @@ flowchart LR
 | 接入 | handler / orchestrator | `/api/chat`、SSE、会话锁、状态读写、trace | 推理和资产选择 |
 | 路由 | RouteAdvisor / Policy Gate | 意图、领域、槽位、确定性纠偏 | 最终执行方案和成文 |
 | 主控 | Manager | 对话承接、焦点解析、`ExecutionPlan`、follow-up 策略、通用直答、最终 compose | 开放式 ReAct 循环、任意工具选择、自由计算命理确定性事实 |
-| 确定性执行 | Prefill / ToolRunner | artifact 准备、工具合同、参数校验、超时、重试、错误分类 | 语义路由或最终解释 |
+| 确定性执行 | Prefill / ToolRunner | artifact 准备、所有 registry 工具的统一执行入口、参数校验、超时、重试、错误分类 | 语义路由或最终解释 |
 | 领域 | specialist runner(s) | 限域分析、受控检索、领域结果 | 最终答复权和跨对象猜测 |
 | 输出 | final guard / SSE bridge | 最终合同校验和事件输出 | 替代 prefill 的缺失资产检查 |
 
@@ -85,11 +85,11 @@ flowchart LR
 | `Policy Gate` | 对路由施加准入、白名单、澄清和确定性纠偏 | 领域解释、最终答复、模型 transport/retry 策略 |
 | `Manager` | 持有会话焦点，解析对象和资产，生成 `ExecutionPlan`，决定 follow-up，并做最终 compose | 路由审批、低层模型 transport/retry、自由工具发现、确定性命理计算 |
 | `ExecutionPlan` | 表达本轮 route、domain、subject、artifact requirement 和执行模式 | 执行副作用、模型调用、SSE 输出和状态持久化 |
-| `Prefill / ToolRunner` | 按 `ArtifactRequirement` 准备确定性资产，执行工具合同、参数校验、超时、工具 retry 和错误分类 | 语义路由、领域裁断、最终成文；不能替缺失资产让 specialist 猜测 |
+| `Prefill / ToolRunner` | 按 `ArtifactRequirement` 准备确定性资产，并作为 prefill 与 ADK specialist adapter 调用 registry 工具的唯一入口，执行工具合同、参数校验、超时、工具 retry 和错误分类 | 语义路由、领域裁断、最终成文；不能替缺失资产让 specialist 猜测 |
 | bounded specialist | 在计划边界内完成限域解释、受控检索和领域结果 | 会话 owner、计划改写、跨对象猜测、最终答复权 |
 | `final guard / SSE bridge` | 校验最终输出合同，发送唯一最终 `text` 和 `done` 事件 | 补算资产、重做路由、替代领域解释或决定业务 retry |
 | trace / observability | 记录运行事实、阶段、错误、repair 和诊断投影；提供 `TurnTrace`/OTel/Langfuse 观测 | 作为执行真相源、改变下一动作、替业务 owner 做判断 |
-| `internal/repair` | 统一 failure class、repair action/policy、预算和 attempt 记录 | 传输层通用 retry、路由决策、最终文本生成和事实猜测 |
+| `internal/repair` | 统一模型候选 failure class、repair action/policy、预算、attempt、短状态快照和安全 trace 投影 | 传输层通用 retry、路由决策、最终文本生成和事实猜测 |
 
 ### 依赖方向与禁止项
 
@@ -441,7 +441,7 @@ DDD Batch E1 已将奇门盘面的 typed `Chart`/`Cell` 和 `rotating_8` 符号�
 
 ### 检索
 
-`knowledge_catalog` 用于目录意识，`knowledge_search` 返回供模型参考的证据片段，并可附带一段完整、短小的 `quote` 供最终引用。知识库不承担最终解释；八字在排盘与分析范围就绪后由独立证据规划模型生成最多两条受限查询，初检无可用原文或材料高冲突时才允许一条补充查询，每轮实际检索为 `0/3`。adapter 向综合模型注入至多两段短引文，优先使用 `quote`，旧服务未提供时兼容原证据片段。指定古籍的检索结果只接受章节级原文，目录、书籍首页和元数据摘要在知识库路由与八字 adapter 双重过滤。检索不可用时只记录 trace，正常命盘裁断继续输出。命中且通过短引文过滤的内容在最终报告展示为“古籍参照”，只说明取法，不生成新结论。
+`knowledge_catalog` 用于目录意识，`knowledge_search` 返回供模型参考的证据片段，并可附带一段完整、短小的 `quote` 供最终引用。知识库不承担最终解释或主轴、层次、暗合路线的前置条件；八字在排盘与分析范围就绪后由独立证据规划模型生成最多两条受限查询，初检无可用原文或材料高冲突时才允许一条补充查询，每轮实际检索为 `0/3`。adapter 向综合模型注入至多两段短引文，优先使用 `quote`，旧服务未提供时兼容原证据片段。指定古籍的检索结果只接受章节级原文，目录、书籍首页和元数据摘要在知识库路由与八字 adapter 双重过滤。检索不可用时只记录 trace，正常命盘裁断继续输出。命中且通过短引文过滤的内容在最终报告展示为“古籍参照”，只说明取法，不生成新结论。
 
 ## Follow-up 与恢复
 

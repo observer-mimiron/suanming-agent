@@ -4,8 +4,11 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
@@ -122,6 +125,7 @@ func TestClassifyToolError(t *testing.T) {
 		want ToolErrorClass
 	}{
 		{err: context.DeadlineExceeded, want: ToolErrorTransient},
+		{err: context.Canceled, want: ToolErrorCanceled},
 		{err: errors.New("query is required"), want: ToolErrorInvalidParams},
 		{err: errors.New("permission denied"), want: ToolErrorPermissionDenied},
 		{err: errors.New("business rejected"), want: ToolErrorBusinessRejected},
@@ -135,7 +139,43 @@ func TestClassifyToolError(t *testing.T) {
 	}
 }
 
+func TestToolRunner_DoesNotRetryCanceledParent(t *testing.T) {
+	called := 0
+	reg := NewRegistry()
+	reg.RegisterWithContract(runnerTool{
+		name: "cancelled",
+		fn: func(context.Context, map[string]any) (any, error) {
+			called++
+			return nil, errors.New("temporary failure")
+		},
+	}, ToolContract{
+		Name:       "cancelled",
+		ReadOnly:   true,
+		Idempotent: true,
+		SideEffect: SideEffectRead,
+		Retry: RetryPolicy{
+			MaxAttempts:       3,
+			BackoffMillis:     100,
+			RetryErrorClasses: []ToolErrorClass{ToolErrorTransient},
+		},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := NewToolRunner(reg).Run(ctx, ToolRunRequest{ToolName: "cancelled"})
+	if called != 0 || result.Attempts != 0 {
+		t.Fatalf("called=%d attempts=%d, want no execution", called, result.Attempts)
+	}
+	if result.ErrorClass != ToolErrorCanceled {
+		t.Fatalf("ErrorClass=%q, want %q", result.ErrorClass, ToolErrorCanceled)
+	}
+}
+
 func TestToolRunner_RetriesTransientErrors(t *testing.T) {
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
 	attempts := 0
 	reg := NewRegistry()
 	reg.RegisterWithContract(runnerTool{
@@ -167,6 +207,13 @@ func TestToolRunner_RetriesTransientErrors(t *testing.T) {
 	}
 	if result.Attempts != 2 {
 		t.Fatalf("Attempts = %d, want 2", result.Attempts)
+	}
+	entry := logs.String()
+	if !strings.Contains(entry, "tool_name=flaky") || !strings.Contains(entry, "attempt=2") || !strings.Contains(entry, "error_class=transient") {
+		t.Fatalf("retry log = %q, want structured tool retry fields", entry)
+	}
+	if strings.Contains(entry, "temporary network error") {
+		t.Fatalf("retry log leaked raw error = %q", entry)
 	}
 }
 

@@ -139,7 +139,7 @@ func knownBaziFactRefs(state baziCharterState) map[string]struct{} {
 		"yongshen.official_visibility.visible": {}, "yongshen.official_visibility.hidden": {},
 		"yongshen.season": {}, "yongshen.seasonal_tiaohou_hint": {}, "yongshen.shi_shen_power": {},
 		"yongshen.strength": {}, "yongshen.strength_evidence": {}, "yongshen.strength_method": {},
-		"yongshen.tiao_hou": {}, "yongshen.tiaohou_yong_shen": {}, "yongshen.xi_shen": {}, "yongshen.yong_shen": {},
+		"yongshen.tiao_hou": {}, "yongshen.tiaohou_fire": {}, "yongshen.tiaohou_yong_shen": {}, "yongshen.xi_shen": {}, "yongshen.yong_shen": {},
 		"liunian.branch": {}, "liunian.current_dayun": {}, "liunian.gan_zhi": {}, "liunian.relations": {},
 		"liunian.shen_sha": {}, "liunian.shi_shen": {}, "liunian.stem": {}, "liunian.year": {},
 	}

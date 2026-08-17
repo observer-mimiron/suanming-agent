@@ -221,3 +221,18 @@ func TestApplyConsultationContractClearsKindWhenProfileRequiresClarification(t *
 		t.Fatalf("route = %+v, want profile clarification", route)
 	}
 }
+
+func TestNormalizeBareNumericReplyKeepsExistingBaziDomain(t *testing.T) {
+	st := state.NewSession("numeric-reply")
+	seedBaziAsset(st)
+	route := policy.ApprovedRoute{PrimaryDomain: "ziwei", SecondaryDomains: []string{"bazi"}, TaskIntent: "interpret_chart"}
+
+	normalizeBareNumericReply("1", st, &route)
+
+	if route.PrimaryDomain != "bazi" || route.TaskIntent != "fortune_followup" {
+		t.Fatalf("route = %+v, want bazi fortune_followup", route)
+	}
+	if hasDomain(route.SecondaryDomains, "ziwei") || !route.PolicyHints.CanReuseCachedResult {
+		t.Fatalf("route = %+v, numeric reply must not keep ziwei or lose cached reuse", route)
+	}
+}

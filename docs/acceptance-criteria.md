@@ -110,7 +110,7 @@
 - **Given** 用户请求完整八字解读
 - **When** runtime 执行八字内部图
 - **Then** trace 记录 `bazi.loop_step`、`bazi.next_action`、`bazi.termination_reason`；实际路径由 `decide_next` 按 state 选择 `analysis_plan`、`evidence_action`、`static_judgment`、`dynamic_judgment`、`repair`、`recover_facts` 或 `render`，编译上限为 24 步
-- **And** `contract_check` 只校验并写入 failure；`fact_conflict`、`method_contract` 不调用模型 repair，允许 repair 的阶段最多一次
+- **And** `contract_check` 只校验并写入 failure；模型候选的 `parse_error`、`schema_error`、`projection_mismatch`、`method_contract`、`evidence_overclaim`、`domain_unauthorized` 和 `fact_conflict` 都携带有界反馈进入 repair，单字段和单轮均最多 2 次；工具、持久资产或确定性规则互相冲突时标记 `deterministic_conflict` 并直接停止
 - **And** outer `orchestration` trace 记录 `orchestration.loop_step`、`orchestration.next_action`、`orchestration.termination_reason`，编译上限为 16 步；`final_guard` 在 Graph `Invoke` 后执行，最终 `text` 只发送一次
 - **And** 2026 流年只引用 runtime 绑定的甲午运，不得引用 `dayun[0]`；完整大运目录只展示确定性事实
 - **And** 本命层次固定为九级：核心命盘和主轴已成立但独立主证未闭合时，必须输出 `provisional` 的第 3-6 级；清浊、病药、救应、破格风险和何知章五项证据齐全时才可输出 `rated` 的第 1-9 级；只有核心事实或主轴无法建立时才允许 `withheld` 的 0 级

@@ -12,7 +12,7 @@ import (
 	solartime "github.com/observer-mimiron/suanming-agent/internal/calendar"
 )
 
-// YongShenTool 提供八字受力、月令与十神位置事实。
+// YongShenTool 提供八字受力、月令、十神位置及冬令火参与调候的事实。
 // 强弱、用忌、格局成败和调候优先级由 runtime 的 selected rule profile 裁断，
 // 本工具不得把工程估计伪装成命理 verdict。
 type YongShenTool struct{}
@@ -183,6 +183,7 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 	} else if season == "夏" {
 		seasonalTiaohouHint = "夏令燥湿需由调候 profile 结合日主与月令裁断"
 	}
+	tiaohouFire := winterTiaohouFireStatus(season, allGan, allZhi, stemWx, branchHidegan)
 
 	// 月令主格候选（按子平月令取格口径）。候选不是成格 verdict。
 	// 月令地支藏干中透出天干者，以该天干与日主的十神关系命名格局。
@@ -221,6 +222,7 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 		"total_support":         totalSupport,
 		"season":                season,
 		"seasonal_tiaohou_hint": seasonalTiaohouHint,
+		"tiaohou_fire":          tiaohouFire,
 		"balance_yong_shen":     []string{},
 		"tiaohou_yong_shen":     []string{},
 		"conditional_yong_shen": []string{},
@@ -245,6 +247,39 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 		"shi_shen_power":   shiShenPower,
 		"gender":           gender,
 	}, nil
+}
+
+// winterTiaohouFireStatus 只为冬令提供火是否可参与调候的确定性事实。
+// 它不替代逐日主、逐月令的完整调候 profile；火透干只说明已有温养条件，
+// 不能据此断定具体取用、层次或格局成败。
+func winterTiaohouFireStatus(season string, allGan, allZhi []string, elements map[string]string, hidden map[string][]string) map[string]any {
+	if season != "冬" {
+		return nil
+	}
+	present, visible := false, false
+	for _, gan := range allGan {
+		if elements[gan] == "火" {
+			present, visible = true, true
+		}
+	}
+	for _, zhi := range allZhi {
+		for _, gan := range hidden[zhi] {
+			if elements[gan] == "火" {
+				present = true
+			}
+		}
+	}
+	basis := "冬令以火温养，未见火透干。"
+	if visible {
+		basis = "冬令以火温养，命局火透干，可作为已确认的调候参与条件。"
+	}
+	return map[string]any{
+		"present":       present,
+		"visible":       visible,
+		"effective":     visible,
+		"effectiveness": map[bool]string{true: "effective", false: "limited"}[visible],
+		"basis":         basis,
+	}
 }
 
 func visibleStemWeight() int {
