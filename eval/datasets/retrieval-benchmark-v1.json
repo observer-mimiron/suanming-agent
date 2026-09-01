@@ -21,6 +21,30 @@
       "expected_task_intent_any": ["fortune_followup", "direct_bazi", "collect_profile"],
       "expected_turn_type_any": ["agent_reading", "clarification"],
       "required_observations": ["preflight", "sse_emit", "knowledge_search"]
+    },
+    {
+      "id": "retrieval-bazi-static-pattern-conditions",
+      "session_id": "eval-retrieval-bazi-pattern-v1",
+      "setup_message": "女，1985年8月20日午时，杭州",
+      "message": "请完整分析八字，按子平法判断月令格局及成格条件，并检索相关原文",
+      "expected_route_primary": "bazi",
+      "expected_task_intent_any": ["fortune_followup", "direct_bazi", "collect_profile"],
+      "expected_turn_type_any": ["agent_reading", "clarification"],
+      "required_observations": ["preflight", "sse_emit", "knowledge_search"],
+      "observation_attribute_checks": [
+        {
+          "observation": "knowledge_search",
+          "attribute": "topic",
+          "equals": "geju"
+        },
+        {
+          "observation": "knowledge_search",
+          "attribute": "query",
+          "contains_all": ["子平真诠"],
+          "contains_any": ["成格", "取格", "格局", "月令"],
+          "must_not_contain": ["成格成立", "本命定为"]
+        }
+      ]
     }
   ]
 }

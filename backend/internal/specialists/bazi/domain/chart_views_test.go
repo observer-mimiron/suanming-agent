@@ -33,3 +33,17 @@ func TestBuildDynamicFactsViewKeepsOnlyBoundedFields(t *testing.T) {
 		t.Fatalf("private liunian field leaked: %#v", view)
 	}
 }
+
+func TestBuildCoreChartViewProjectsBoundedPatternCandidates(t *testing.T) {
+	view := BuildCoreChartView(ChartViewInput{Yongshen: map[string]any{
+		"geju_candidate":   "伤官格",
+		"geju_combination": "伤官生财；伤官佩印",
+	}})
+	candidates, ok := view["pattern_candidates"].([]map[string]any)
+	if !ok || len(candidates) != 3 {
+		t.Fatalf("pattern candidates = %#v", view["pattern_candidates"])
+	}
+	if candidates[0]["name"] != "伤官格" || candidates[0]["origin"] != "month_command" {
+		t.Fatalf("month candidate = %#v", candidates[0])
+	}
+}

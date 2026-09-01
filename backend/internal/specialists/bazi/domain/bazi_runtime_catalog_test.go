@@ -96,7 +96,6 @@ func TestBaziRuntimeCatalogIncludesFactCapsuleReferences(t *testing.T) {
 		"fact_capsule.month_command",
 		"fact_capsule.support_score",
 		"fact_capsule.fire_effectiveness_known",
-		"fact_capsule.tier_evidence_missing",
 	} {
 		if err := validateBaziReferenceCatalog(state, []baziAssertion{{FactRefs: []baziFactRef{ref}}}); err != nil {
 			t.Fatalf("fact capsule reference %q rejected: %v", ref, err)

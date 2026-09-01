@@ -8,7 +8,7 @@
       "message": "男，1990年5月20日巳时，北京，分析八字",
       "include_response": true,
       "sse_must_not_emit_error": true,
-      "response_must_contain_all": ["总览结论", "本命总断", "强弱视角", "调候视角", "格局视角", "格局评价", "判断边界", "当前应期"],
+      "response_must_contain_all": ["总览结论", "本命总断", "强弱视角", "调候视角", "格局视角", "当前应期"],
       "response_must_not_contain": ["已停止展示不稳定内容", "请稍后重试", "上游未提供"],
       "expected_route_primary": "bazi",
       "expected_task_intent_any": ["collect_profile", "interpret_chart", "amend_profile"],

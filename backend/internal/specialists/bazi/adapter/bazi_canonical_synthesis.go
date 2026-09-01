@@ -28,12 +28,11 @@ func (e *Executor) runStaticSynthesis(ctx context.Context, view *specialists.Ses
 	if err != nil {
 		return baziCanonicalSynthesis{}, err
 	}
-	out = normalizeBaziStaticJudgment(chartState, out)
 	out.Claims, err = bazidomain.NormalizeStaticClaims(out.Claims)
 	if err != nil {
 		return baziCanonicalSynthesis{}, err
 	}
-	assertions := append(structuredStaticClaims(chartState, out.Claims), bazidomain.TierDimensionAssertions(out.TierAssessment)...)
+	assertions := structuredStaticClaims(chartState, out.Claims)
 	if err := bazidomain.ValidateStaticReferenceCatalog(chartState, assertions); err != nil {
 		return baziCanonicalSynthesis{}, err
 	}
@@ -57,12 +56,11 @@ func (e *Executor) runStaticSynthesisRepair(ctx context.Context, view *specialis
 	if err != nil {
 		return baziCanonicalSynthesis{}, err
 	}
-	out = normalizeBaziStaticJudgment(chartState, out)
 	out.Claims, err = bazidomain.NormalizeStaticClaims(out.Claims)
 	if err != nil {
 		return baziCanonicalSynthesis{}, err
 	}
-	assertions := append(structuredStaticClaims(chartState, out.Claims), bazidomain.TierDimensionAssertions(out.TierAssessment)...)
+	assertions := structuredStaticClaims(chartState, out.Claims)
 	if err := bazidomain.ValidateStaticReferenceCatalog(chartState, assertions); err != nil {
 		return baziCanonicalSynthesis{}, err
 	}
@@ -70,15 +68,6 @@ func (e *Executor) runStaticSynthesisRepair(ctx context.Context, view *specialis
 		return baziCanonicalSynthesis{}, err
 	}
 	return applyStaticClaims(chartState, canonical, out)
-}
-
-// normalizeBaziStaticJudgment 把原局风险状态投影到确定性官星透藏事实。
-// 模型不能把官星不可见的命局写成既成风险；只修正这一项事实派生字段，其他合同冲突仍按原策略处理。
-func normalizeBaziStaticJudgment(state baziCharterState, judgment baziStructuredStaticSynthesis) baziStructuredStaticSynthesis {
-	if !buildBaziFactCapsule(state).OfficialVisible {
-		judgment.NatalRiskStatus = "withheld"
-	}
-	return judgment
 }
 
 // runDynamicSynthesis 将已通过静态校验的主轴扩展为逐运与流年 claim。
@@ -160,107 +149,14 @@ func applyStaticClaims(state baziCharterState, canonical baziCanonicalSynthesis,
 			return baziCanonicalSynthesis{}, baziViolationError(baziViolationScopeEscalation, "static.claims", "", "static synthesis misses required claim kind "+string(kind), nil, nil)
 		}
 	}
-	canonical.TierAssessment = output.TierAssessment
-	canonical.Tier = canonicalTierUnitFromAssessment(output.TierAssessment)
+	canonical.PatternName = strings.TrimSpace(output.PatternName)
+	canonical.PatternRoute = strings.TrimSpace(output.PatternRoute)
+	canonical.PatternEvaluation = strings.TrimSpace(output.PatternEvaluation)
 	canonical.Limitations = staticRuntimeLimitations(state)
 	canonical.StaticReasoningSummary = staticRuntimeReasoningSummary(state)
 	canonical.ReasoningSteps = staticRuntimeReasoningSteps()
 	canonical.AdviceBoundary = staticRuntimeAdviceBoundary()
 	return canonical, nil
-}
-
-// canonicalTierUnitFromAssessment 保留内部等级证据，但只向展示字段投影格局评价状态。
-// 模型不直接生成面向用户的结论文本。
-func canonicalTierUnitFromAssessment(assessment baziTierAssessment) baziCanonicalUnit {
-	factRefs, relationRefs, claimRefs, topics := tierAssessmentReferences(assessment)
-	return baziCanonicalUnit{
-		Kind:           string(baziAssertionTier),
-		Verdict:        tierAssessmentJudgment(assessment),
-		Boundary:       tierAssessmentBasis(assessment),
-		FactRefs:       factRefs,
-		RelationRefs:   relationRefs,
-		ClaimRefs:      claimRefs,
-		EvidenceTopics: topics,
-		Confidence:     assessment.Confidence,
-	}
-}
-
-// tierAssessmentReferences merges the nine structured dimensions into the
-// one legacy tier assertion without adding any model-generated text.
-func tierAssessmentReferences(assessment baziTierAssessment) ([]string, []baziRelationRef, []string, []string) {
-	factRefs := []string{}
-	claimRefs := []string{}
-	topics := []string{}
-	seenFacts, seenClaims, seenTopics := map[string]bool{}, map[string]bool{}, map[string]bool{}
-	for _, dimension := range baziTierDimensionEntries(assessment.Dimensions) {
-		for _, ref := range dimension.Value.FactRefs {
-			if value := strings.TrimSpace(string(ref)); value != "" && !seenFacts[value] {
-				seenFacts[value] = true
-				factRefs = append(factRefs, value)
-			}
-		}
-		for _, ref := range dimension.Value.ClaimRefs {
-			if value := strings.TrimSpace(string(ref)); value != "" && !seenClaims[value] {
-				seenClaims[value] = true
-				claimRefs = append(claimRefs, value)
-			}
-		}
-		for _, topic := range dimension.Value.EvidenceTopics {
-			if topic = strings.TrimSpace(topic); topic != "" && !seenTopics[topic] {
-				seenTopics[topic] = true
-				topics = append(topics, topic)
-			}
-		}
-	}
-	return factRefs, nil, claimRefs, topics
-}
-
-// tierAssessmentJudgment 将内部等级状态投影为格局评价，避免把量表误作古籍定级。
-func tierAssessmentJudgment(assessment baziTierAssessment) string {
-	if assessment.Status == "withheld" {
-		return "格局暂不立评（仅作结构观察）"
-	}
-	if assessment.Status == "provisional" {
-		return "格局判断暂定"
-	}
-	return "格局评价已定"
-}
-
-// tierAssessmentBasis 仅投影具名证据维度，说明格局评价的边界而不重判结论。
-func tierAssessmentBasis(assessment baziTierAssessment) string {
-	if assessment.Status == "withheld" {
-		return "静态主轴或基础命盘事实尚未建立，因此本轮只作结构观察。"
-	}
-	parts := make([]string, 0, 9)
-	for _, dimension := range baziTierDimensionEntries(assessment.Dimensions) {
-		parts = append(parts, tierDimensionLabel(dimension.Name)+"："+tierDimensionStateLabel(dimension))
-	}
-	basis := "格局评价按月令用神、成败救应、用神纯杂、有情有力、藏透与位置配合交叉观察；" + strings.Join(parts, "；") + "。"
-	if assessment.Status == "provisional" {
-		return basis + " 当前命盘结构仍有保留，本轮结论暂定。"
-	}
-	return basis
-}
-
-// tierDimensionLabel keeps renderer text in domain vocabulary while model DTOs
-// remain stable ASCII keys.
-func tierDimensionLabel(name string) string {
-	return map[string]string{
-		"main_axis": "主轴", "youqing": "有情", "youli": "有力", "qingzhuo": "清浊",
-		"disease": "病", "remedy": "药", "rescue": "救应", "tiaohou": "调候", "hezhizhang": "何知章印证",
-	}[name]
-}
-
-// tierDimensionStateLabel translates state enums only; it does not re-evaluate them.
-func tierDimensionStateLabel(dimension baziNamedTierDimension) string {
-	if dimension.Disease {
-		return map[string]string{
-			"unresolved": "病势未明", "light": "病轻", "moderate": "病中", "heavy": "病重", "critical": "病重难解",
-		}[dimension.Value.State]
-	}
-	return map[string]string{
-		"missing": "缺位", "limited": "受限", "mixed": "并见", "usable": "可用", "strong": "得力",
-	}[dimension.Value.State]
 }
 
 // applyDynamicClaims 将动态 DTO 按确定性大运顺序映射为 canonical 动态单元。
@@ -301,16 +197,13 @@ func applyDynamicClaims(state baziCharterState, canonical baziCanonicalSynthesis
 		}
 		break
 	}
-	canonical.Risks = append([]string{}, output.Limitations...)
-	canonical.DynamicReasoningSummary = output.ReasoningSummary
-	canonical.DynamicOutcomeDomains = append([]string{}, output.OutcomeDomains...)
-	canonical.ReasoningSteps = append([]string{}, output.ReasoningSteps...)
+	// 限制、推理步骤和年龄授权范围由 runtime 根据事实胶囊投影，
+	// 不再要求动态模型重复填写这些高漂移字段。
 	return canonical, nil
 }
 
-// dynamicRuntimeClaimBoundary owns dynamic display limits. The schema keeps a
-// boundary field for transport compatibility, but model-authored limits are not
-// trusted because they can contradict the static tier or leaked catalog terms.
+// dynamicRuntimeClaimBoundary owns dynamic display limits. The model no longer
+// authors boundary text; runtime supplies it so limits cannot leak catalog terms.
 func dynamicRuntimeClaimBoundary(kind baziAssertionKind) string {
 	switch kind {
 	case baziAssertionDayunPeriod:
@@ -357,7 +250,7 @@ func structuredDynamicClaims(state baziCharterState, output baziStructuredDynami
 func structuredClaimFromPeriodClaim(claim baziStructuredPeriodClaim) baziStructuredClaim {
 	return baziStructuredClaim{
 		Verdict: claim.Verdict, FactRefs: claim.FactRefs, RelationRefs: claim.RelationRefs,
-		ClaimRefs: claim.ClaimRefs, EvidenceTopics: claim.EvidenceTopics, Confidence: claim.Confidence, Boundary: claim.Boundary,
+		ClaimRefs: claim.ClaimRefs, EvidenceTopics: claim.EvidenceTopics, Confidence: claim.Confidence,
 	}
 }
 
@@ -398,7 +291,7 @@ func dynamicPeriodIndex(ref string, periods []map[string]any) (int, bool) {
 
 // structuredClaimAssertion 只在 runtime 内部补齐固定定位字段，模型输出仍保持最小合同。
 func structuredClaimAssertion(claim baziStructuredClaim, kind baziAssertionKind, subject, id string) baziAssertion {
-	return baziAssertion{ID: id, Kind: kind, Subject: subject, Verdict: claim.Verdict, FactRefs: claim.FactRefs, RelationRefs: claim.RelationRefs, ClaimRefs: claim.ClaimRefs, EvidenceTopics: claim.EvidenceTopics, Confidence: claim.Confidence, Boundary: claim.Boundary}
+	return baziAssertion{ID: id, Kind: kind, Subject: subject, Verdict: claim.Verdict, FactRefs: claim.FactRefs, RelationRefs: claim.RelationRefs, ClaimRefs: claim.ClaimRefs, EvidenceTopics: claim.EvidenceTopics, Confidence: claim.Confidence, Boundary: dynamicRuntimeClaimBoundary(kind)}
 }
 
 // structuredStaticClaimAssertion adapts the bounded static verdict while
@@ -428,7 +321,7 @@ func staticClaimSubject(kind baziAssertionKind) string {
 // canonicalUnitFromStructuredClaim 将最小模型 claim 补成内部 canonical 单元。
 func canonicalUnitFromStructuredClaim(claim baziStructuredClaim, kind baziAssertionKind) baziCanonicalUnit {
 	return baziCanonicalUnit{
-		Kind: string(kind), Verdict: claim.Verdict, Boundary: claim.Boundary,
+		Kind: string(kind), Verdict: claim.Verdict, Boundary: dynamicRuntimeClaimBoundary(kind),
 		FactRefs: factRefsToStrings(claim.FactRefs), RelationRefs: append([]baziRelationRef{}, claim.RelationRefs...),
 		ClaimRefs: claimRefsToStrings(claim.ClaimRefs), EvidenceTopics: append([]string{}, claim.EvidenceTopics...), Confidence: claim.Confidence,
 	}
@@ -467,7 +360,7 @@ func staticRuntimeClaimBoundary(state baziCharterState, kind baziAssertionKind) 
 	case baziAssertionStrength:
 		return "强弱依据月令、通根位置和层级、同类透干、印星生扶、食伤泄身、财官耗克及已计算受力；" + strengthEvidenceSummary(state.Input.Yongshen) + "扶抑结论不自动等同于格局取用或调候用神。"
 	case baziAssertionTiaohou:
-		return "调候先看月令的寒暖燥湿需求，再核对火的出现、透出和有效性；" + capsuleTiaohouDisplay(capsule) + "。火存在、火根或午的地势均不自动等同于调候有效。"
+		return "调候按月令、全局寒暖燥湿与已覆盖材料判断；火透或有根只是条件，不能单独定效。"
 	case baziAssertionPatternUsage:
 		return firstNonEmptyTrim(staticPatternFactSummary(state.Input), "工具未返回完整月令取格事实。") + "；格局取用只在已覆盖证据范围内比较，不把未闭合结构拔高为成格或贵格。"
 	default:
@@ -485,7 +378,7 @@ func staticRuntimeLimitations(state baziCharterState) []string {
 	}
 	switch {
 	case !capsule.FireEffectivenessKnown:
-		limits = append(limits, "调候有效性尚待明确材料确认，不以火存在或火根替代有效性判断。")
+		limits = append(limits, "调候力度按月令与已覆盖材料确认；火透或有根不能单独定效。")
 	case !capsule.FireEffective:
 		limits = append(limits, "已有材料显示火不足以单独作为调候依据。")
 	}
@@ -495,7 +388,7 @@ func staticRuntimeLimitations(state baziCharterState) []string {
 // staticRuntimeReasoningSummary states the fixed static decision basis without
 // repeating the model's main-axis wording in another renderer section.
 func staticRuntimeReasoningSummary(state baziCharterState) string {
-	return "静态裁断按月令、通根、透干、受力、官星透藏、调候资格与固定层次规则投影。"
+	return "静态裁断按月令、通根、透干、受力、官星透藏和调候资格投影。"
 }
 
 // staticRuntimeReasoningSteps returns the stable order used by the legacy
@@ -504,7 +397,7 @@ func staticRuntimeReasoningSteps() []string {
 	return []string{
 		"先核对月令、通根、透干、印比与泄耗克身的已计算事实。",
 		"再在事实与已覆盖规则材料范围内裁断主轴、强弱、调候和格局。",
-		"最后单列格局评价；当前大运只解释承接，不改写本命结构。",
+		"最后收束格局取用；当前大运只解释承接，不改写本命结构。",
 	}
 }
 

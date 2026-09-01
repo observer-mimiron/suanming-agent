@@ -20,7 +20,6 @@ import (
 // It records accepted typed states only and never promotes them into a new judgment.
 func annotateBaziSynthesisSources(ctx context.Context, state baziCharterState) {
 	capsule := buildBaziFactCapsule(state)
-	tier := state.StaticSynthesis.TierAssessment
 	outputMode := "model_full"
 	switch {
 	case isFactsOnlyStaticSynthesis(state.StaticSynthesis):
@@ -36,12 +35,6 @@ func annotateBaziSynthesisSources(ctx context.Context, state baziCharterState) {
 		"bazi.static.recovery_reason":             state.StaticSynthesis.RecoveryReason,
 		"bazi.static.assertion_count":             len(state.StaticSynthesis.Assertions),
 		"bazi.static.contract_audit":              baziContractAuditSummary(state.StaticSynthesis.ContractAudit),
-		"bazi.tier.source":                        firstNonEmptyTrim(state.StaticSynthesis.Source, "unknown"),
-		"bazi.tier.status":                        firstNonEmptyTrim(tier.Status, "legacy"),
-		"bazi.tier.level":                         tier.Level,
-		"bazi.tier.confidence":                    tier.Confidence,
-		"bazi.tier.evidence_complete":             bazidomain.TierAssessmentEvidenceComplete(tier),
-		"bazi.tier.evidence_missing":              strings.Join(bazidomain.TierAssessmentEvidenceMissing(tier), ","),
 		"bazi.tiaohou.coverage":                   baziapplication.TiaohouCoverage(state.EvidenceQuality),
 		"bazi.dynamic.source":                     firstNonEmptyTrim(state.DynamicSynthesis.Source, "unknown"),
 		"bazi.dynamic.error":                      state.DynamicSynthesis.RecoveryReason,
@@ -90,7 +83,7 @@ func baziFieldAuditResult(notes []string) string {
 	seen := make(map[string]struct{}, len(notes))
 	for _, note := range notes {
 		note = strings.TrimSpace(note)
-		if note == "" || note == "canonical_tier_withheld_by_runtime" || note == "canonical_dynamic_projection_facts_only" {
+		if note == "" || note == "canonical_dynamic_projection_facts_only" {
 			continue
 		}
 		if _, exists := seen[note]; exists {
@@ -124,8 +117,6 @@ func collectBaziSoftAuditWarnings(state baziCharterState) []string {
 	staticText := strings.Join([]string{
 		state.StaticSynthesis.MainAxis,
 		state.StaticSynthesis.PatternOutcome,
-		state.StaticSynthesis.TierJudgment,
-		state.StaticSynthesis.TierBasis,
 	}, "\n")
 	dynamicText := strings.Join([]string{
 		state.DynamicSynthesis.CurrentTrend,

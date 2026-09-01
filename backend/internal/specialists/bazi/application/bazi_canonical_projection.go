@@ -38,23 +38,27 @@ func projectCanonicalSynthesis(state baziCharterState, canonical baziCanonicalSy
 }
 
 func projectCanonicalStaticSynthesis(state baziCharterState, c baziCanonicalSynthesis) baziStaticSynthesis {
-	tierVerdict, tierBoundary, tierWithheld := canonicalTierText(state, c.Tier, c.TierAssessment)
 	reasoningSteps := c.ReasoningSteps
 	if len(reasoningSteps) == 0 {
 		reasoningSteps = []string{
 			"先核对排盘、月令与日主强弱的可复算事实。",
 			"再结合格局、调候和证据缺口收束主轴边界。",
-			"最后只在证据覆盖范围内说明层次与岁运兑现。",
+			"最后只在证据覆盖范围内说明岁运承接。",
 		}
 	}
 	patternBasis := firstNonEmptyTrim(c.Pattern.Boundary, bazidomain.StaticPatternFactSummary(state.Input), "本轮只保留可复算结构事实。")
 	patternOutcome := firstNonEmptyTrim(c.Pattern.Verdict, c.MainAxis.Verdict, "本轮未形成格局成败裁断。")
+	patternName := strings.TrimSpace(c.PatternName)
+	patternRoute := strings.TrimSpace(c.PatternRoute)
+	patternEvaluation := strings.TrimSpace(c.PatternEvaluation)
 	counterEvidence := firstNonEmptyTrim(strings.Join(c.Limitations, "；"), c.MainAxis.Boundary, c.Pattern.Boundary, "本轮未形成额外反证。")
 	axisConsistency := firstNonEmptyTrim(c.MainAxis.Boundary, c.Pattern.Boundary, "主轴边界以已覆盖证据为准。")
 	strengthBalance := firstNonEmptyTrim(c.Strength.Verdict, strengthEvidenceSummary(state.Input.Yongshen), "本轮未形成强弱裁断。")
 	tiaohouAnchor := firstNonEmptyTrim(c.Tiaohou.Verdict, "本轮只确认季节环境与调候边界。")
-	if !bazidomain.FactCapsuleForState(state).FireEffectivenessKnown {
-		tiaohouAnchor = "调候有效性尚待确认；当前只按月令寒暖燥湿需求与火的出现位置观察。"
+	capsule := bazidomain.FactCapsuleForState(state)
+	if strings.TrimSpace(c.Tiaohou.Verdict) == "" && !capsule.FireEffectivenessKnown {
+		// 模型未形成调候 verdict 时才回退事实；已有检索依据的裁断不能被覆盖。
+		tiaohouAnchor = bazidomain.TiaohouDisplay(capsule)
 	}
 	tiaohouConstraint := firstNonEmptyTrim(c.Tiaohou.Boundary, "调候先后需以已覆盖规则材料为准。")
 	claimStrength := canonicalConfidence(c.MainAxis.Confidence)
@@ -75,6 +79,9 @@ func projectCanonicalStaticSynthesis(state baziCharterState, c baziCanonicalSynt
 		ConflictReasons:         bazidomain.NonEmptyStrings([]string{counterEvidence}),
 		PatternBasis:            patternBasis,
 		PatternOutcome:          patternOutcome,
+		PatternName:             patternName,
+		PatternRoute:            patternRoute,
+		PatternEvaluation:       patternEvaluation,
 		CounterEvidence:         counterEvidence,
 		AxisConsistency:         axisConsistency,
 		TiaohouConstraint:       tiaohouConstraint,
@@ -94,10 +101,7 @@ func projectCanonicalStaticSynthesis(state baziCharterState, c baziCanonicalSynt
 		PatternAdjudication: buildProjectedPatternAdjudication(state),
 		PatternAndQingZhuo:  firstNonEmptyTrim(c.Pattern.Boundary, c.Pattern.Verdict, "本轮仅作结构观察。"),
 		QiShiOrCongHua:      "本轮不以气势从化另立主轴。",
-		TierJudgment:        tierVerdict,
-		TierBasis:           tierBoundary,
-		TierAssessment:      c.TierAssessment,
-		ReasoningSummary:    firstNonEmptyTrim(c.StaticReasoningSummary, c.MainAxis.Verdict+"；"+c.Pattern.Verdict+"；"+tierBoundary, c.MainAxis.Verdict),
+		ReasoningSummary:    firstNonEmptyTrim(c.StaticReasoningSummary, c.MainAxis.Verdict+"；"+c.Pattern.Verdict, c.MainAxis.Verdict),
 		ReasoningSteps:      reasoningSteps,
 		TopicDirectAnswer:   "",
 		TopicFocusAnswer:    "",
@@ -107,11 +111,8 @@ func projectCanonicalStaticSynthesis(state baziCharterState, c baziCanonicalSynt
 		ContractAudit:       c.ContractAudit,
 		FieldAudit:          append([]string{}, c.FieldAudit...),
 	}
-	if tierWithheld {
-		static.FieldAudit = append(static.FieldAudit, "canonical_tier_withheld_by_runtime")
-	}
 	static = sanitizeMinorStaticProjection(state, static)
-	static.Assertions = buildProjectedStaticAssertions(state, static, c, tierWithheld)
+	static.Assertions = buildProjectedStaticAssertions(state, static, c)
 	return static
 }
 
@@ -137,8 +138,6 @@ func sanitizeMinorStaticProjection(state baziCharterState, static baziStaticSynt
 	static.AxisConsistency = minorOutcomeSafeText(static.AxisConsistency, fallback)
 	static.TiaohouConstraint = minorOutcomeSafeText(static.TiaohouConstraint, fallback)
 	static.TiaohouAnchor = minorOutcomeSafeText(static.TiaohouAnchor, fallback)
-	static.TierJudgment = minorOutcomeSafeText(static.TierJudgment, "格局判断暂定")
-	static.TierBasis = minorOutcomeSafeText(static.TierBasis, fallback)
 	static.ReasoningSummary = minorOutcomeSafeText(static.ReasoningSummary, fallback)
 	static.ReasoningSteps = minorOutcomeSafeList(static.ReasoningSteps, []string{
 		"先看命局结构、季节环境和已覆盖证据。",
@@ -239,13 +238,6 @@ func ProjectCanonicalDynamicSynthesis(state bazidomain.CharterState, canonical b
 	return projectCanonicalDynamicSynthesis(state, canonical, static)
 }
 
-func canonicalTierText(state baziCharterState, tier baziCanonicalUnit, assessment baziTierAssessment) (string, string, bool) {
-	if assessment.Status != "" {
-		return bazidomain.TierAssessmentJudgment(assessment), bazidomain.TierAssessmentBasis(assessment), assessment.Status == "withheld"
-	}
-	return firstNonEmptyTrim(tier.Verdict, "仅作结构观察"), firstNonEmptyTrim(tier.Boundary, "层次判断以已覆盖证据为边界。"), false
-}
-
 func canonicalEvidenceStatus(state baziCharterState, unit baziCanonicalUnit) string {
 	if len(unit.EvidenceTopics) == 0 {
 		return baziEvidenceSupported
@@ -258,18 +250,12 @@ func canonicalEvidenceStatus(state baziCharterState, unit baziCanonicalUnit) str
 	return baziEvidenceSupported
 }
 
-func buildProjectedStaticAssertions(state baziCharterState, static baziStaticSynthesis, c baziCanonicalSynthesis, tierWithheld bool) []baziAssertion {
+func buildProjectedStaticAssertions(state baziCharterState, static baziStaticSynthesis, c baziCanonicalSynthesis) []baziAssertion {
 	main := canonicalAssertion(state, "static.main_axis", baziAssertionMainAxis, "chart", c.MainAxis)
 	strength := canonicalAssertion(state, "static.strength", baziAssertionStrength, "day_master", c.Strength)
 	tiaohou := canonicalAssertion(state, "static.tiaohou", baziAssertionTiaohou, "chart", c.Tiaohou)
 	pattern := canonicalAssertion(state, "static.pattern", baziAssertionPatternUsage, "chart", c.Pattern)
-	tier := canonicalAssertion(state, "static.tier", baziAssertionTier, "chart", c.Tier)
-	if tierWithheld {
-		tier.Verdict = static.TierJudgment
-		tier.Boundary = static.TierBasis
-		tier.EvidenceStatus = baziEvidenceWithheld
-	}
-	return []baziAssertion{main, strength, tiaohou, pattern, tier}
+	return []baziAssertion{main, strength, tiaohou, pattern}
 }
 
 func buildProjectedDynamicAssertions(state baziCharterState, dynamic baziDynamicSynthesis) []baziAssertion {

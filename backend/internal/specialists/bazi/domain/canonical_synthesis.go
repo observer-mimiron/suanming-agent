@@ -40,8 +40,9 @@ type CanonicalSynthesis struct {
 	Strength                 CanonicalUnit        `json:"strength"`
 	Tiaohou                  CanonicalUnit        `json:"tiaohou"`
 	Pattern                  CanonicalUnit        `json:"pattern"`
-	Tier                     CanonicalUnit        `json:"tier"`
-	TierAssessment           TierAssessment       `json:"-"`
+	PatternName              string               `json:"pattern_name,omitempty"`
+	PatternRoute             string               `json:"pattern_route,omitempty"`
+	PatternEvaluation        string               `json:"pattern_evaluation,omitempty"`
 	DayunOverview            CanonicalUnit        `json:"dayun_overview"`
 	DayunPeriods             []CanonicalDayunUnit `json:"dayun_periods,omitempty"`
 	Liunian                  CanonicalUnit        `json:"liunian"`

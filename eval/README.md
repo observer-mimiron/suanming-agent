@@ -111,6 +111,15 @@ eval/
 
 可选 `setup_message` 用同一 session 先建立上下文；需要把 setup 与正式追问分开核验。稳定断言应优先使用 route、task intent、turn type、SSE done、artifact 或 observation，不能把某句中文文案作为主断言。
 
+需要验证检索主题时，可用 `observation_attribute_checks` 检查指定 observation 的 `topic`、`query` 等属性；每条检查匹配同名 observation 中至少一条：
+
+```json
+"observation_attribute_checks": [
+  {"observation": "knowledge_search", "attribute": "topic", "equals": "geju"},
+  {"observation": "knowledge_search", "attribute": "query", "contains_all": ["子平真诠"], "contains_any": ["成格", "取格", "格局", "月令"]}
+]
+```
+
 当前数据集覆盖：
 
 - 首轮八字主链和完成事件。

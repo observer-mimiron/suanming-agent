@@ -337,6 +337,50 @@ class EvalTimeoutTest(unittest.TestCase):
             )
         self.assertEqual(result["trace_attributes"]["bazi.dynamic.source"], "facts_only_degraded")
 
+    def test_observation_attribute_checks_match_pattern_query(self):
+        trace = {
+            "observations": [
+                {
+                    "name": "knowledge_search",
+                    "metadata": {
+                        "attributes": {
+                            "topic": "geju",
+                            "query": "子平真诠 月令 透干 通根 成格条件",
+                        }
+                    },
+                }
+            ]
+        }
+        runner.validate_observation_attribute_checks(
+            {
+                "observation_attribute_checks": [
+                    {"observation": "knowledge_search", "attribute": "topic", "equals": "geju"},
+                    {
+                        "observation": "knowledge_search",
+                        "attribute": "query",
+                        "contains_all": ["子平真诠"],
+                        "contains_any": ["成格", "取格", "格局", "月令"],
+                    },
+                ]
+            },
+            trace,
+        )
+
+    def test_observation_attribute_checks_reject_non_pattern_query(self):
+        with self.assertRaisesRegex(RuntimeError, "observation attribute missing terms"):
+            runner.validate_observation_attribute_checks(
+                {
+                    "observation_attribute_checks": [
+                        {
+                            "observation": "knowledge_search",
+                            "attribute": "query",
+                            "contains_all": ["子平真诠"],
+                        }
+                    ]
+                },
+                {"observations": [{"name": "knowledge_search", "attributes": {"query": "穷通宝鉴 调候"}}]},
+            )
+
     def test_smoke_case_rejects_forbidden_trace_attribute(self):
         trace = {
             "metadata": {

@@ -9,10 +9,10 @@ import "strings"
 func renderPresentationFactsOnlyDegradedTemplate(state FinalReplyInput) string {
 	var b strings.Builder
 	writeHeading(&b, "总览结论")
-	writeConclusion(&b, "本轮只列可复算命盘事实；暂不作主轴、层次、大运吉凶或具体应事。")
+	writeConclusion(&b, "本轮只列可复算命盘事实；暂不作主轴、大运吉凶或具体应事。")
 	writeBullets(&b, []string{
 		"**输出范围**：排盘、强弱证据摘要、大运日期边界、十神与已计算关系。",
-		"**静态状态**：本轮暂不输出主轴与层次裁断。",
+		"**静态状态**：本轮暂不输出主轴裁断。",
 		"**动态状态**：动态裁断受限时，仅展示大运与流年事实。",
 	})
 
@@ -34,7 +34,7 @@ func renderPresentationFactsOnlyDegradedTemplate(state FinalReplyInput) string {
 	writeBullets(&b, buildLiunianFactBullets(state))
 
 	writeHeading(&b, "说明")
-	writeConclusion(&b, "这不是完整八字解读；需要静态与动态综合稳定后，才输出主轴、用神、层次和岁运判断。")
+	writeConclusion(&b, "这不是完整八字解读；需要静态与动态综合稳定后，才输出主轴、用神和岁运判断。")
 	return strings.TrimSpace(b.String())
 }
 
@@ -67,8 +67,10 @@ func renderPresentationFullTemplate(state FinalReplyInput) string {
 		seenStrength[key] = struct{}{}
 		strengthBullets = append(strengthBullets, labeledBullet(item.label, value))
 	}
-	strengthBullets = append(strengthBullets, labeledBullet("说明", "扶抑只说明日主受力，不自动等同于格局取用或调候用神。"))
 	writeBullets(&b, strengthBullets)
+	if usage := strings.TrimSpace(state.Facts.UsageSummary); usage != "" {
+		writeBullets(&b, usageBullets(usage))
+	}
 
 	writeHeading(&b, "调候视角")
 	writeConclusion(&b, buildPresentationTiaohouConclusion(state))
@@ -78,23 +80,10 @@ func renderPresentationFullTemplate(state FinalReplyInput) string {
 
 	writeHeading(&b, "格局视角")
 	writeConclusion(&b, buildPresentationPatternConclusion(state))
-	patternBullets := []string{
-		"**规则口径**：" + ruleProfileLabel(state),
-		labeledBullet("候选主轴", buildPresentationCandidateAxis(state)),
-		labeledBullet("依据", buildPresentationPatternEvidence(state)),
-	}
-	writeBullets(&b, patternBullets)
-
-	writeSubheading(&b, "格局评价")
-	writeBullets(&b, []string{
-		labeledBullet("判读口径", tierAssessmentStandardText()),
-	})
-	writeConclusion(&b, firstDisplayText(state.StaticSynthesis.TierJudgment, "格局暂不立评（仅作结构观察）。"))
-	writeBullets(&b, []string{
-		labeledBullet("判定依据", state.StaticSynthesis.TierBasis),
-	})
+	writeBullets(&b, []string{labeledBullet("依据", firstDisplayText(
+		buildPresentationPatternEvidence(state),
+	))})
 	writeClassicalReferences(&b, state)
-	writeHighlightBlock(&b, "断语所限", buildOverviewLimitationSummary(state))
 
 	if state.AnalysisPlan.NeedLifetimeDayun {
 		writeHeading(&b, "全程运路")
@@ -107,7 +96,7 @@ func renderPresentationFullTemplate(state FinalReplyInput) string {
 	if isMinorBaziSubject(state) {
 		writeConclusion(&b, buildMinorDayunConclusion(state))
 		writeBullets(&b, buildMinorDayunBullets(state))
-	} else if state.DynamicSynthesis.FactsOnly || limitsFortuneProse(state) {
+	} else if state.DynamicSynthesis.FactsOnly {
 		writeConclusion(&b, buildDayunConclusion(state))
 		writeBullets(&b, factsOnlyCurrentDayunBullets(state))
 	} else {
@@ -118,22 +107,18 @@ func renderPresentationFullTemplate(state FinalReplyInput) string {
 	}
 
 	writeSubheading(&b, "流年应期")
-	if state.DynamicSynthesis.FactsOnly || limitsFortuneProse(state) {
+	if state.DynamicSynthesis.FactsOnly {
 		writeConclusion(&b, buildLiunianConclusion(state))
-		writeBullets(&b, buildLiunianFactBullets(state))
+		writeBullets(&b, []string{labeledBullet("依据", joinOrDefault(buildLiunianFactBullets(state), "本轮未形成流年依据。"))})
 	} else {
 		writeConclusion(&b, buildLiunianConclusion(state))
-		writeBullets(&b, []string{
-			labeledBullet("年性", renderWindowLevel(state.DynamicSynthesis.WindowLevel)),
-			labeledBullet("依据", joinOrDefault(state.DynamicSynthesis.TriggerSignals, "")),
-			labeledBullet("限制", buildDynamicConstraintText(state)),
-		})
+		writeBullets(&b, []string{labeledBullet("依据", joinOrDefault(state.DynamicSynthesis.TriggerSignals, "本轮未形成流年依据。"))})
 	}
 
 	return strings.TrimSpace(b.String())
 }
 
-// writeFinalOverview 在报告末尾收束本命主轴、层次、限制、发挥方向与阶段走势。
+// writeFinalOverview 在报告末尾收束本命主轴、限制、发挥方向与阶段走势。
 // 这些内容都来自已验证槽位，展示层不新增性格、事业或婚姻断语。
 
 func renderPresentationTopicTemplate(state FinalReplyInput) string {
@@ -164,7 +149,7 @@ func renderPresentationTopicTemplate(state FinalReplyInput) string {
 		writeConclusion(&b, "本节仅展示上游提供的动态裁断。")
 		writeBullets(&b, []string{
 			"**原局裁断**：" + firstDisplayText(state.StaticSynthesis.MainAxis, "本轮未形成原局裁断。"),
-			"**岁运机制**：" + buildTierRealizationText(state),
+			"**岁运机制**：" + buildRealizationText(state),
 			"**限制**：" + buildDynamicConstraintText(state),
 		})
 	case "conservative_reason":
@@ -172,7 +157,7 @@ func renderPresentationTopicTemplate(state FinalReplyInput) string {
 		writeBullets(&b, []string{
 			labeledBullet("裁断", firstDisplayText(state.StaticSynthesis.PatternOutcome, "本轮未形成格局裁断。")),
 			"**限制面**：" + buildPresentationLimitationText(state),
-			"**层次依据**：" + firstDisplayText(state.StaticSynthesis.TierBasis, "本轮未形成层次依据。"),
+			"**依据**：" + firstDisplayText(buildPresentationPatternEvidence(state), "本轮未形成命盘依据。"),
 		})
 	default:
 		writeConclusion(&b, "本节仅展示上游提供的命盘裁断。")
@@ -199,12 +184,9 @@ func renderPresentationTopicTemplate(state FinalReplyInput) string {
 
 func renderPresentationYearTemplate(state FinalReplyInput) string {
 	var b strings.Builder
-	if state.DynamicSynthesis.FactsOnly || limitsFortuneProse(state) {
+	if state.DynamicSynthesis.FactsOnly {
 		writeHeading(&b, "年度判断")
 		conclusion := "受授权边界限制，本轮只展示可复算年度事实，不判断现实应事。"
-		if limitsFortuneProse(state) {
-			conclusion = "格局评价尚未确定，本轮只展示可复算年度事实。"
-		}
 		writeConclusion(&b, conclusion)
 		writeParagraphs(&b, []string{"原局参考：" + fallbackText(state.StaticSynthesis.MainAxis, "静态综合未提供主轴裁断。")})
 

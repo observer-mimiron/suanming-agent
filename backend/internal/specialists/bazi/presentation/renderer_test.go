@@ -3,8 +3,6 @@ package presentation
 import (
 	"strings"
 	"testing"
-
-	bazidomain "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/domain"
 )
 
 func TestPresentationTiaohouConclusionPrefersAnchor(t *testing.T) {
@@ -20,7 +18,6 @@ func TestPresentationTiaohouConclusionPrefersAnchor(t *testing.T) {
 func TestPresentationLimitationDeduplicatesExactFallback(t *testing.T) {
 	input := FinalReplyInput{StaticSynthesis: StaticSynthesis{
 		CounterEvidence: "关系触发会增加过程反复，具体应事不作展开。",
-		TierBasis:       "关系触发会增加过程反复，具体应事不作展开。",
 	}}
 	if got := buildPresentationLimitationText(input); strings.Count(got, input.StaticSynthesis.CounterEvidence) != 1 {
 		t.Fatalf("expected exact duplicate limitation once, got %q", got)
@@ -40,21 +37,39 @@ func TestPresentationPatternEvidenceDoesNotRepeatAxis(t *testing.T) {
 	}
 }
 
-func TestPresentationUsesGejuEvaluationWithoutInternalTierScale(t *testing.T) {
+func TestPresentationUsesGejuConclusionAndEvidence(t *testing.T) {
 	output := RenderFinalReply(FinalReplyInput{
 		StaticSynthesis: StaticSynthesis{
-			TierJudgment: "格局评价已定",
-			TierBasis:    "格局评价依据已验收的结构、证据与限制维度综合确定。",
+			PatternName:       "伤官格",
+			PatternRoute:      "伤官佩印",
+			PatternEvaluation: "成格受限",
 		},
 	})
-	for _, want := range []string{"### 格局评价", "**格局评价**", "格局评价已定"} {
+	for _, want := range []string{"## 格局视角", "**主格：伤官格", "成局路线：伤官佩印\n子平定性：成格受限"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q: %s", want, output)
 		}
 	}
-	for _, unwanted := range []string{"命格层次", "第6级", "保守定位"} {
+	for _, unwanted := range []string{"候选主轴", "规则口径", "判读口径", "断语所限", "命格层次", "第6级", "保守定位"} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("output leaked %q: %s", unwanted, output)
+		}
+	}
+}
+
+func TestPresentationShowsUsageSummaryBelowStrength(t *testing.T) {
+	output := RenderFinalReply(FinalReplyInput{
+		Facts: ChartFacts{UsageSummary: "喜神：木；用神：火；忌神：金、水"},
+	})
+	strength := strings.Index(output, "## 强弱视角")
+	tiaohou := strings.Index(output, "## 调候视角")
+	usage := strings.Index(output, "- **喜神**：木")
+	if strength < 0 || usage < strength || tiaohou < usage {
+		t.Fatalf("usage summary must appear below strength: %s", output)
+	}
+	for _, want := range []string{"- **喜神**：木", "- **用神**：火", "- **忌神**：金、水"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("usage output missing %q: %s", want, output)
 		}
 	}
 }
@@ -109,7 +124,7 @@ func TestPresentationFullReportPlacesOverviewFirstWithoutRepeat(t *testing.T) {
 	}
 }
 
-func TestValidateFinalWriterOutputRequiresOverviewTierAndBoundary(t *testing.T) {
+func TestValidateFinalWriterOutputRequiresCompactOverview(t *testing.T) {
 	plan := baziAnalysisPlan{WriterTemplate: "full"}
 	output := RenderFinalReply(FinalReplyInput{AnalysisPlan: AnalysisPlan{WriterTemplate: "full"}})
 	for _, tc := range []struct {
@@ -117,9 +132,7 @@ func TestValidateFinalWriterOutputRequiresOverviewTierAndBoundary(t *testing.T) 
 		output  string
 		wantErr bool
 	}{
-		{name: "accepts current labels", output: output},
-		{name: "rejects missing tier", output: strings.Replace(output, "**格局评价**", "**其他评价**", 1), wantErr: true},
-		{name: "rejects missing boundary", output: strings.Replace(output, "**判断边界**", "**其他说明**", 1), wantErr: true},
+		{name: "accepts compact overview", output: output},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateFinalWriterOutput(plan, baziCharterState{}, tc.output)
@@ -162,58 +175,11 @@ func TestBaziPresentationDayunPeriodsOmitsTimestampRange(t *testing.T) {
 	}
 }
 
-func TestBaziPresentationStaticCarriesTierStatus(t *testing.T) {
-	static := baziStaticSynthesis{TierAssessment: bazidomain.TierAssessment{Status: "provisional"}}
-	if got := baziPresentationStatic(static).TierStatus; got != "provisional" {
-		t.Fatalf("tier status = %q", got)
-	}
-}
-
-func TestPresentationProvisionalTierSuppressesFortuneProse(t *testing.T) {
-	output := RenderFinalReply(FinalReplyInput{
-		AnalysisPlan: AnalysisPlan{NeedLifetimeDayun: true},
-		Facts: ChartFacts{
-			LiunianGanZhi: "丙午", LiunianTenGod: "比肩",
-			DayunPeriods: []DayunPeriod{{Ref: "dayun[0]", Label: "庚寅运（24-33岁）", GanZhi: "庚寅", TenGod: "偏财"}},
-		},
-		StaticSynthesis: StaticSynthesis{
-			TierStatus:     "provisional",
-			TierJudgment:   "格局判断暂定",
-			MainAxis:       "以七杀格为主轴，食神制杀与杀印相生并见。",
-			PatternOutcome: "食神制杀条件不足，食神弱需印星转化。",
-		},
-		LifetimeSynthesis: LifetimeDayunSynthesis{
-			Status: "accepted", Summary: "结构兑现较顺", Trajectory: "smooth_realization",
-			PeriodClaims: []LifetimeDayunClaim{{PeriodRef: "dayun[0]", PeriodEffect: "support_use"}},
-		},
-		DynamicSynthesis: DynamicSynthesis{
-			CurrentTrend: "当前大运结构兑现较顺。", LiunianFocus: "吉中带险。", WindowLevel: "扰动年",
-		},
-	})
-	for _, forbidden := range []string{"结构兑现较顺", "吉中带险", "扰动年", "食神弱需印星转化"} {
-		if strings.Contains(output, forbidden) {
-			t.Fatalf("provisional report leaked %q: %s", forbidden, output)
-		}
-	}
-	for _, want := range []string{
-		"**庚寅运（24-33岁）｜扶助用神**：庚为偏财；此运有助于发挥本命用神。",
-		"**候选主轴**：以七杀格为主轴，食神制杀与杀印相生并见。",
-		"候选主轴仍须完成清浊、病药与救应等条件核验；当前独立证据未全，本轮不据此定局。",
-	} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("provisional report missing %q: %s", want, output)
-		}
-	}
-	if !strings.Contains(output, "**流年干支**：丙午") {
-		t.Fatalf("provisional report lost calculated fact: %s", output)
-	}
-}
-
-func TestPresentationProvisionalTierKeepsAcceptedLifetimeLabels(t *testing.T) {
+func TestPresentationKeepsAcceptedLifetimeLabels(t *testing.T) {
 	output := RenderFinalReply(FinalReplyInput{
 		AnalysisPlan:      AnalysisPlan{NeedLifetimeDayun: true},
 		Facts:             ChartFacts{DayunPeriods: []DayunPeriod{{Ref: "dayun[0]", Label: "庚寅运（24-33岁）", GanZhi: "庚寅", TenGod: "偏财"}}},
-		StaticSynthesis:   StaticSynthesis{TierStatus: "provisional", TierJudgment: "格局判断暂定"},
+		StaticSynthesis:   StaticSynthesis{},
 		LifetimeSynthesis: LifetimeDayunSynthesis{Status: "accepted", PeriodClaims: []LifetimeDayunClaim{{PeriodRef: "dayun[0]", PeriodEffect: "support_use"}}},
 	})
 	for _, want := range []string{"扶助用神", "此运有助于发挥本命用神"} {
@@ -226,7 +192,6 @@ func TestPresentationProvisionalTierKeepsAcceptedLifetimeLabels(t *testing.T) {
 func TestPresentationLimitationTextAvoidsTerminalPunctuationBeforeJoin(t *testing.T) {
 	output := buildPresentationLimitationText(FinalReplyInput{StaticSynthesis: StaticSynthesis{
 		CounterEvidence: "调候有效性尚待核验。",
-		TierBasis:       "清浊关系仍需继续核对。",
 	}})
 	if strings.Contains(output, "。；") {
 		t.Fatalf("limitation contains bad punctuation: %q", output)
@@ -243,7 +208,7 @@ func TestPresentationFactsOnlyDynamicSuppressesTrendFields(t *testing.T) {
 		},
 	})
 	currentSection := sectionContent(output, "## 当前应期", "")
-	for _, forbidden := range []string{"**年性**", "**依据**", "**限制**"} {
+	for _, forbidden := range []string{"**年性**", "**限制**"} {
 		if strings.Contains(currentSection, forbidden) {
 			t.Fatalf("facts-only dynamic output leaked %q: %s", forbidden, currentSection)
 		}

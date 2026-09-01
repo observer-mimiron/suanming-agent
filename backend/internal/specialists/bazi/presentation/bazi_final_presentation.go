@@ -90,7 +90,53 @@ func baziPresentationFacts(state baziCharterState) ChartFacts {
 		OfficialVisible:        capsule.OfficialVisible,
 		OfficialHidden:         capsule.OfficialHidden,
 		FireEffectivenessKnown: capsule.FireEffectivenessKnown,
+		UsageSummary:           usageSummary(state.Input.Yongshen),
 	}
+}
+
+// usageSummary 只展示上游确定性工具已有的喜用忌字段；空值保持待定，不由展示层推断。
+func usageSummary(yongshen map[string]any) string {
+	return "喜神：" + usageList(yongshen["xi_shen"]) + "；用神：" + usageList(yongshen["yong_shen"]) + "；忌神：" + usageList(yongshen["ji_shen"])
+}
+
+// usageBullets 将固定顺序的喜用忌摘要拆成三项，避免一行信息过密。
+func usageBullets(summary string) []string {
+	labels := []string{"喜神", "用神", "忌神"}
+	values := map[string]string{}
+	for _, part := range strings.Split(summary, "；") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "：")
+		if ok {
+			values[key] = strings.TrimSpace(value)
+		}
+	}
+	bullets := make([]string, 0, len(labels))
+	for _, label := range labels {
+		value := strings.TrimSpace(values[label])
+		if value == "" {
+			value = "待定"
+		}
+		bullets = append(bullets, labeledBullet(label, value))
+	}
+	return bullets
+}
+
+// usageList 将工具返回的字符串数组投影为单行展示文本。
+func usageList(raw any) string {
+	var values []string
+	switch typed := raw.(type) {
+	case []string:
+		values = typed
+	case []any:
+		for _, item := range typed {
+			if value, ok := item.(string); ok && strings.TrimSpace(value) != "" {
+				values = append(values, strings.TrimSpace(value))
+			}
+		}
+	}
+	if len(values) == 0 {
+		return "待定"
+	}
+	return strings.Join(values, "、")
 }
 
 // baziPresentationDayunPeriods projects only the stable facts used by labels and headings.
@@ -127,6 +173,9 @@ func baziPresentationStatic(static baziStaticSynthesis) StaticSynthesis {
 		MainAxis:          static.MainAxis,
 		AxisConsistency:   static.AxisConsistency,
 		PatternOutcome:    static.PatternOutcome,
+		PatternName:       static.PatternName,
+		PatternRoute:      static.PatternRoute,
+		PatternEvaluation: static.PatternEvaluation,
 		CounterEvidence:   static.CounterEvidence,
 		TiaohouConstraint: static.TiaohouConstraint,
 		TiaohouAnchor:     static.TiaohouAnchor,
@@ -139,9 +188,6 @@ func baziPresentationStatic(static baziStaticSynthesis) StaticSynthesis {
 			Fuyi:    static.Usage.Fuyi,
 			Tiaohou: static.Usage.Tiaohou,
 		},
-		TierStatus:        static.TierAssessment.Status,
-		TierJudgment:      static.TierJudgment,
-		TierBasis:         static.TierBasis,
 		ReasoningSummary:  static.ReasoningSummary,
 		TopicDirectAnswer: static.TopicDirectAnswer,
 		TopicFocusAnswer:  static.TopicFocusAnswer,

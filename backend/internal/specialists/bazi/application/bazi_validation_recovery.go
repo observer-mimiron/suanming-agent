@@ -7,8 +7,6 @@ package application
 import (
 	"fmt"
 	"strings"
-
-	bazidomain "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/domain"
 )
 
 const (
@@ -47,11 +45,6 @@ func recoveryReasonText(cause error, fallback string) string {
 		return fallback
 	}
 	return cause.Error()
-}
-
-// hasDynamicHardBoundary 识别动态文本中的高风险具体应事，供严格 validator 使用。
-func hasDynamicHardBoundary(text string) bool {
-	return bazidomain.HasUnsupportedConcreteOutcome(text) || containsAnyText([]string{text}, []string{"投资", "投资建议"})
 }
 
 // normalizeByAlias 只服务分析计划兼容值，不改写静态或动态综合结果。

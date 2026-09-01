@@ -31,26 +31,26 @@ func TestNormalizeByAliasCanonicalizesPlannerMode(t *testing.T) {
 	}
 }
 
-func TestCanonicalTierTextDoesNotWithholdForMissingOptionalReferences(t *testing.T) {
-	judgment, basis, withheld := canonicalTierText(
-		baziCharterState{EvidenceQuality: baziEvidenceQuality{MissingTopics: []string{"qingzhuo"}}},
-		baziCanonicalUnit{Verdict: "格局评价已定", Boundary: "命盘结构已验收。", EvidenceTopics: []string{"qingzhuo"}},
-		baziTierAssessment{},
-	)
-	if withheld || judgment != "格局评价已定" || basis != "命盘结构已验收。" {
-		t.Fatalf("tier text = (%q, %q, %t), want accepted model tier without retrieval cap", judgment, basis, withheld)
-	}
-}
-
-func TestProjectCanonicalStaticSynthesisWithholdsUnknownTiaohouEffectiveness(t *testing.T) {
+func TestProjectCanonicalStaticSynthesisKeepsVerifiedTiaohouVerdictWhenEffectivenessUnknown(t *testing.T) {
 	static := projectCanonicalStaticSynthesis(
-		baziCharterState{Input: baziCharterInput{Yongshen: map[string]any{}}},
+		baziCharterState{Input: baziCharterInput{
+			BaziResult: map[string]any{
+				"dayGan": "戊",
+				"pillars": []any{
+					map[string]any{"name": "年柱", "stem": "辛", "branch": "未", "hideGan": []any{"己", "丁", "乙"}},
+					map[string]any{"name": "月柱", "stem": "丁", "branch": "酉", "hideGan": []any{"辛"}},
+					map[string]any{"name": "日柱", "stem": "戊", "branch": "申", "hideGan": []any{"庚", "壬", "戊"}},
+					map[string]any{"name": "时柱", "stem": "己", "branch": "未", "hideGan": []any{"己", "丁", "乙"}},
+				},
+			},
+			Yongshen: map[string]any{"day_master": "戊"},
+		}},
 		baziCanonicalSynthesis{Tiaohou: baziCanonicalUnit{
 			Verdict:  "时干透火但根气不足，调候之力有限，层次受此制约。",
 			Boundary: "调候先看月令与火的有效性。",
 		}},
 	)
-	want := "调候有效性尚待确认；当前只按月令寒暖燥湿需求与火的出现位置观察。"
+	want := "时干透火但根气不足，调候之力有限，层次受此制约。"
 	if static.TiaohouAnchor != want {
 		t.Fatalf("tiaohou anchor = %q, want %q", static.TiaohouAnchor, want)
 	}

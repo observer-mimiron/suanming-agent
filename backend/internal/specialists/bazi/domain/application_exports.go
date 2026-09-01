@@ -4,8 +4,6 @@
 // 不读取会话，不调用模型、检索、repair、追踪或输出传输。
 package domain
 
-import "strings"
-
 // BuildFactsOnlyDynamicSynthesis builds the deterministic dynamic fallback.
 func BuildFactsOnlyDynamicSynthesis(input CharterInput, static StaticSynthesis, reason string) DynamicSynthesis {
 	return buildFactsOnlyDynamicSynthesis(input, static, reason)
@@ -58,69 +56,6 @@ func FirstUnauthorizedMinorOutcomeSignal(text string) (string, string) {
 	return firstUnauthorizedMinorOutcomeSignal(text)
 }
 
-// TierAssessmentJudgment 返回面向用户的格局评价状态，不暴露内部证据等级。
-func TierAssessmentJudgment(assessment TierAssessment) string {
-	if assessment.Status == "withheld" {
-		return "格局暂不立评（仅作结构观察）"
-	}
-	if assessment.Status == "rated" {
-		return "格局评价已定"
-	}
-	return "格局判断暂定"
-}
-
-// TierAssessmentBasis returns the deterministic tier basis.
-func TierAssessmentBasis(assessment TierAssessment) string {
-	if assessment.Status == "withheld" {
-		return "关键证据链尚未闭合，因此本轮只作结构观察。"
-	}
-	if assessment.Status == "provisional" {
-		reasons := provisionalTierReasons(assessment.Dimensions)
-		if len(reasons) == 0 {
-			return "格局评价依据已验收的结构与限制维度综合确定；尚有维度待继续核对，本轮结论暂定。"
-		}
-		return "格局评价依据已验收的结构与限制维度综合确定；" + strings.Join(reasons, "、") + "，本轮结论暂定。"
-	}
-	return "格局评价依据已验收的结构、证据与限制维度综合确定。"
-}
-
-// provisionalTierReasons 把已验收的维度状态投影为暂定原因，不重新评估格局等级。
-func provisionalTierReasons(dimensions TierDimensions) []string {
-	reasons := make([]string, 0, 4)
-	for _, states := range [][]string{{"missing", "unresolved"}, {"limited"}, {"mixed"}} {
-		for _, dimension := range baziTierDimensionEntries(dimensions) {
-			if len(reasons) == 4 {
-				return reasons
-			}
-			if !containsString(states, dimension.Value.State) {
-				continue
-			}
-			if reason := provisionalTierReason(dimension); reason != "" {
-				reasons = append(reasons, reason)
-			}
-		}
-	}
-	return reasons
-}
-
-// provisionalTierReason 只翻译现有状态，避免展示层用自然语言补造证据。
-func provisionalTierReason(dimension baziNamedTierDimension) string {
-	if dimension.Disease && dimension.Value.State == "unresolved" {
-		return "病药关系未明"
-	}
-	labels := map[string]map[string]string{
-		"main_axis":  {"missing": "主轴证据缺位", "limited": "主轴承接受限", "mixed": "主轴条件并见"},
-		"youqing":    {"missing": "有情条件缺位", "limited": "有情条件受限", "mixed": "有情条件并见"},
-		"youli":      {"missing": "有力条件缺位", "limited": "有力条件受限", "mixed": "有力条件并见"},
-		"qingzhuo":   {"missing": "清浊证据缺位", "limited": "清浊判断受限", "mixed": "清浊关系并见"},
-		"remedy":     {"missing": "用药条件缺位", "limited": "用药条件受限", "mixed": "用药条件并见"},
-		"rescue":     {"missing": "救应条件缺位", "limited": "救应条件受限", "mixed": "救应条件并见"},
-		"tiaohou":    {"missing": "调候条件待核", "limited": "调候条件受限", "mixed": "调候条件并见"},
-		"hezhizhang": {"missing": "何知章印证缺位", "limited": "何知章印证受限", "mixed": "何知章印证并见"},
-	}
-	return labels[dimension.Name][dimension.Value.State]
-}
-
 // ValidateStaticJudgment checks the static model DTO against deterministic facts.
 func ValidateStaticJudgment(state CharterState, judgment StructuredStaticSynthesis) error {
 	return validateBaziStaticJudgmentPolicy(state, judgment)
@@ -139,30 +74,6 @@ func ValidateDynamicPreconditions(state CharterState) error {
 // ValidateDynamicSynthesisAfterGraphNormalization rechecks normalized dynamic output at the Graph boundary.
 func ValidateDynamicSynthesisAfterGraphNormalization(state CharterState) error {
 	return validateDynamicSynthesisAfterGraphNormalization(state)
-}
-
-// TierDimensionAssertions returns the fixed assertions derived from tier dimensions.
-func TierDimensionAssertions(assessment TierAssessment) []Assertion {
-	return tierDimensionAssertions(assessment)
-}
-
-// TierAssessmentEvidenceComplete reports whether every tier dimension has a
-// deterministic fact or fixed-rule reference. Knowledge-base citations are not
-// sufficient because they describe methodology rather than this chart's facts.
-func TierAssessmentEvidenceComplete(assessment TierAssessment) bool {
-	return len(TierAssessmentEvidenceMissing(assessment)) == 0
-}
-
-// TierAssessmentEvidenceMissing returns the fixed dimension names without a
-// deterministic fact or fixed-rule reference for trace diagnosis.
-func TierAssessmentEvidenceMissing(assessment TierAssessment) []string {
-	missing := make([]string, 0, len(baziTierDimensionEntries(assessment.Dimensions)))
-	for _, dimension := range baziTierDimensionEntries(assessment.Dimensions) {
-		if !tierDimensionHasGround(dimension.Value) {
-			missing = append(missing, dimension.Name)
-		}
-	}
-	return missing
 }
 
 // ValidateStaticReferenceCatalog checks the static reference allow-list.

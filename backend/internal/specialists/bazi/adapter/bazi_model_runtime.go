@@ -1,6 +1,6 @@
 // package adapter 包含 Manager 拥有的八字模型适配。
 //
-// 本文件负责分析规划、提示构建和内层 agent 的 JSON/文本适配；
+// 本文件负责确定性分析范围、提示构建和内层 agent 的 JSON/文本适配；
 // 不负责 Graph 拓扑、合同判定、事实计算或最终答复渲染。
 package adapter
 
@@ -16,10 +16,44 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/tracing"
 )
 
-// runBaziAnalysisPlanner 让内层模型选择本轮八字分析所需的阶段和输出模板。
-func (e *Executor) runBaziAnalysisPlanner(ctx context.Context, view *specialists.SessionView, question string, chartFacts baziCharterInput) (baziAnalysisPlan, error) {
-	payload := baziapplication.BuildAnalysisPlannerPayload(question, chartFacts)
-	return runBaziInnerAgentJSON[baziAnalysisPlan](ctx, e.builder, baziAnalysisPlannerConfig(), view, buildBaziCharterPrompt("分析模式判定", question, payload))
+// deterministicBaziAnalysisPlan 将有限的写作模板选择收束到代码，避免
+// 模型把“是否需要动态层”判断成不稳定的自由文本任务。
+func deterministicBaziAnalysisPlan(question string) baziAnalysisPlan {
+	q := strings.TrimSpace(question)
+	plan := defaultBaziAnalysisPlan(q)
+	if containsBaziKeyword(q, "今年", "本年", "流年", "大运", "岁运", "近期", "最近", "哪年", "何时") {
+		plan.Mode = "dynamic_focus"
+		plan.RetrievalStage = "dynamic"
+		plan.NeedDynamic = true
+		plan.NeedLifetimeDayun = false
+		plan.FocusTopics = []string{"当前大运", "流年应期"}
+		plan.WriterTemplate = "year"
+		plan.TopicMode = "timing_reason"
+		plan.StageSummary = "已按时间窗口进入岁运分析。"
+		return plan
+	}
+	if containsBaziKeyword(q, "财运", "事业", "婚姻", "感情", "健康", "子女", "用神", "格局", "调候", "什么意思", "什么是", "怎么") &&
+		!containsBaziKeyword(q, "分析八字", "完整", "全面", "整体") {
+		plan.Mode = "topic_focus"
+		plan.RetrievalStage = "static"
+		plan.NeedDynamic = false
+		plan.NeedLifetimeDayun = false
+		plan.FocusTopics = []string{"命局主轴", "专题依据"}
+		plan.WriterTemplate = "topic"
+		plan.TopicMode = "analysis"
+		plan.StageSummary = "已按专题问题进入命局分析。"
+	}
+	return plan
+}
+
+// containsBaziKeyword 只做模板路由，不参与命理裁断。
+func containsBaziKeyword(text string, keywords ...string) bool {
+	for _, keyword := range keywords {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 // defaultBaziAnalysisPlan 在规划模型不可用时提供保守的完整分析计划。
@@ -79,6 +113,16 @@ func buildBaziCharterPrompt(stage, question string, payload any) string {
 
 // runBaziInnerAgentText 运行一次非流式内层 agent，并返回最后一条文本消息。
 func runBaziInnerAgentText(ctx context.Context, builder AgentBuilder, cfg specialists.Config, view *specialists.SessionView, userPrompt string) (string, error) {
+	// 内层阶段使用配置名建立独立 LLM span，避免所有八字模型调用都被归到外层路由，
+	// 否则无法判断是证据、静态、动态还是 repair 在消耗时间和 token。
+	ctx = tracing.WithEinoCallbackSpan(ctx, tracing.EinoCallbackSpanConfig{
+		Name: cfg.Name,
+		Kind: tracing.KindLLM,
+		Attributes: map[string]any{
+			"bazi.inner_agent.name":   cfg.Name,
+			"bazi.inner_agent.schema": cfg.StructuredSchema,
+		},
+	})
 	agent, err := builder.BuildEphemeralInnerAgent(ctx, cfg, view)
 	if err != nil {
 		tracing.SetTraceAttributes(ctx, map[string]any{

@@ -26,6 +26,9 @@ type StaticSynthesis struct {
 	ConflictReasons         []string            `json:"conflict_reasons"`
 	PatternBasis            string              `json:"pattern_basis"`
 	PatternOutcome          string              `json:"pattern_outcome"`
+	PatternName             string              `json:"pattern_name,omitempty"`
+	PatternRoute            string              `json:"pattern_route,omitempty"`
+	PatternEvaluation       string              `json:"pattern_evaluation,omitempty"`
 	CounterEvidence         string              `json:"counter_evidence"`
 	AxisConsistency         string              `json:"axis_consistency"`
 	TiaohouConstraint       string              `json:"tiaohou_constraint"`
@@ -36,9 +39,6 @@ type StaticSynthesis struct {
 	PatternAdjudication     PatternAdjudication `json:"pattern_adjudication"`
 	PatternAndQingZhuo      string              `json:"pattern_and_qing_zhuo"`
 	QiShiOrCongHua          string              `json:"qishi_or_conghua"`
-	TierJudgment            string              `json:"tier_judgment"`
-	TierBasis               string              `json:"tier_basis"`
-	TierAssessment          TierAssessment      `json:"tier_assessment"`
 	ReasoningSummary        string              `json:"reasoning_summary"`
 	ReasoningSteps          []string            `json:"reasoning_steps"`
 	TopicDirectAnswer       string              `json:"topic_direct_answer,omitempty"`

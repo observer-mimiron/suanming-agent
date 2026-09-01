@@ -10,24 +10,8 @@ import (
 	"strings"
 )
 
-var baziTierStatusValues = []string{"rated", "provisional", "withheld"}
-var baziStructuredConfidenceValues = []string{"保守判断", "倾向成立", "明确成立"}
-var baziTierDimensionStateValues = []string{"missing", "limited", "mixed", "usable", "strong"}
-var baziTierDiseaseStateValues = []string{"unresolved", "light", "moderate", "heavy", "critical"}
 var baziCurrentPeriodRealizationValues = []string{"repair", "assist", "maintain", "disturb", "suppress"}
-var baziTierProseMarkers = []string{"层次", "等级", "第1级", "第2级", "第3级", "第4级", "第5级", "第6级", "第7级", "第8级", "第9级", "中格", "中上", "上格", "上上", "下等"}
 var baziStaticClaimSlots = []string{"main_axis", "strength", "tiaohou", "pattern_usage"}
-
-type baziTierBounds struct {
-	Min int
-	Max int
-}
-
-type baziNamedTierDimension struct {
-	Name    string
-	Value   baziTierDimension
-	Disease bool
-}
 
 // validateBaziStaticJudgmentPolicy enforces static eligibility before legacy projection.
 func validateBaziStaticJudgmentPolicy(state baziCharterState, judgment baziStructuredStaticSynthesis) error {
@@ -36,12 +20,8 @@ func validateBaziStaticJudgmentPolicy(state baziCharterState, judgment baziStruc
 		return err
 	}
 	judgment.Claims = claims
-	facts := buildBaziFactCapsule(state)
 	if !containsString([]string{"candidate", "established", "withheld"}, judgment.AxisStatus) {
 		return baziViolationError(baziViolationMethodContract, "static.axis_status", "", "static axis status is outside the closed contract", nil, nil)
-	}
-	if !containsString([]string{"none", "withheld"}, judgment.NatalRiskStatus) {
-		return baziViolationError(baziViolationMethodContract, "static.natal_risk_status", "", "static natal risk status is outside the closed contract", nil, nil)
 	}
 	for index, claim := range judgment.Claims {
 		if strings.TrimSpace(claim.Verdict) == "" {
@@ -60,13 +40,39 @@ func validateBaziStaticJudgmentPolicy(state baziCharterState, judgment baziStruc
 	if err := validateStaticMainAxisPattern(state, judgment); err != nil {
 		return err
 	}
-	if err := validateBaziTierAssessment(facts, judgment.AxisStatus, judgment.TierAssessment); err != nil {
+	if err := validateStaticPatternFields(state, judgment); err != nil {
 		return err
 	}
-	if !facts.OfficialVisible && judgment.NatalRiskStatus != "withheld" {
-		return baziViolationError(baziViolationFactConflict, "static.natal_risk_status", "", "natal official conflict is unavailable when official is not visible", nil, nil)
-	}
 	return nil
+}
+
+// validateStaticPatternFields keeps displayed pattern fields inside the
+// deterministic candidates for this chart without restoring the old tier gate.
+func validateStaticPatternFields(state baziCharterState, judgment baziStructuredStaticSynthesis) error {
+	name := normalizePatternCandidateName(judgment.PatternName)
+	expectedName := normalizePatternCandidateName(stringValue(state.Input.Yongshen["geju_candidate"]))
+	if expectedName != "" && name != "" && name != expectedName {
+		return baziViolationError(baziViolationFactConflict, "static.pattern_name", "", "pattern name conflicts with deterministic month-command candidate", []string{"yongshen.geju_candidate"}, []string{expectedName})
+	}
+	if name == "" {
+		return baziViolationError(baziViolationMethodContract, "static.pattern_name", "", "pattern name is required", nil, nil)
+	}
+	route := normalizePatternCandidateName(judgment.PatternRoute)
+	if route == "" {
+		return baziViolationError(baziViolationMethodContract, "static.pattern_route", "", "pattern route is required", nil, nil)
+	}
+	combination := stringValue(state.Input.Yongshen["geju_combination"])
+	if combination == "" {
+		return nil
+	}
+	for _, part := range strings.FieldsFunc(combination, func(r rune) bool {
+		return r == '；' || r == ';' || r == '，' || r == ',' || r == '\n'
+	}) {
+		if normalizePatternCandidateName(part) == route {
+			return nil
+		}
+	}
+	return baziViolationError(baziViolationFactConflict, "static.pattern_route", "", "pattern route is outside deterministic chart candidates", []string{"yongshen.geju_combination"}, nil)
 }
 
 // NormalizeStaticClaims 校验四个静态裁断槽位齐全且唯一，并返回固定业务顺序。
@@ -140,197 +146,6 @@ func validateStaticMainAxisPattern(state baziCharterState, judgment baziStructur
 	return nil
 }
 
-// validateBaziTierAssessment verifies model-selected grade bounds without
-// calculating a grade. The model chooses a level; runtime only rejects levels
-// that exceed the evidenced ceiling or contradict a fixed state.
-func validateBaziTierAssessment(facts BaziFactCapsule, axisStatus string, assessment baziTierAssessment) error {
-	if !containsString(baziTierStatusValues, assessment.Status) {
-		return baziViolationError(baziViolationMethodContract, "static.tier_assessment.status", "", "tier status is outside the closed contract", nil, baziTierStatusValues)
-	}
-	if !containsString(baziStructuredConfidenceValues, assessment.Confidence) {
-		return baziViolationError(baziViolationMethodContract, "static.tier_assessment.confidence", "", "tier confidence is outside the closed contract", nil, baziStructuredConfidenceValues)
-	}
-	for _, dimension := range baziTierDimensionEntries(assessment.Dimensions) {
-		allowed := baziTierDimensionStateValues
-		if dimension.Disease {
-			allowed = baziTierDiseaseStateValues
-		}
-		if !containsString(allowed, dimension.Value.State) {
-			return baziViolationError(baziViolationMethodContract, "static.tier_assessment.dimensions."+dimension.Name+".state", "", "tier dimension state is outside the closed contract", nil, allowed)
-		}
-		if assessment.Status != "withheld" && !tierDimensionHasGround(dimension.Value) {
-			return baziViolationError(baziViolationEvidenceTopicMissing, "static.tier_assessment.dimensions."+dimension.Name, "", "each rated tier dimension requires a fact, relation, rule or evidence reference", nil, nil)
-		}
-	}
-
-	if assessment.Status == "withheld" {
-		if assessment.Level != 0 {
-			return baziViolationError(baziViolationMethodContract, "static.tier_assessment.level", "", "withheld tier must use level 0", nil, []string{"0"})
-		}
-		if axisStatus != "withheld" && facts.CoreFactsReady {
-			return baziViolationError(baziViolationMethodContract, "static.tier_assessment.status", "", "tier may be withheld only when the static axis or core facts cannot be established", nil, []string{"rated", "provisional"})
-		}
-		return nil
-	}
-
-	if !facts.CoreFactsReady || axisStatus == "withheld" {
-		return baziViolationError(baziViolationEvidenceTopicMissing, "static.tier_assessment", "", "tier requires an established core chart and static axis", nil, nil)
-	}
-	if assessment.Level < 1 || assessment.Level > 9 {
-		return baziViolationError(baziViolationMethodContract, "static.tier_assessment.level", "", "rated tier must be in the nine-level range", nil, []string{"1-9"})
-	}
-	bounds := baziTierBoundsFor(facts, axisStatus, assessment)
-	if assessment.Level < bounds.Min || assessment.Level > bounds.Max {
-		return baziViolationError(
-			baziViolationMethodContract,
-			"static.tier_assessment.level",
-			"",
-			fmt.Sprintf("tier level %d is outside the evidenced band %d-%d", assessment.Level, bounds.Min, bounds.Max),
-			nil,
-			[]string{fmt.Sprintf("%d-%d", bounds.Min, bounds.Max)},
-		)
-	}
-	return nil
-}
-
-// baziTierBoundsFor supplies ceilings and narrow floors from the selected
-// typed dimensions. It never turns facts into a concrete level by itself.
-func baziTierBoundsFor(facts BaziFactCapsule, axisStatus string, assessment baziTierAssessment) baziTierBounds {
-	bounds := baziTierBounds{Min: 1, Max: 9}
-	if !facts.CoreFactsReady || axisStatus == "withheld" {
-		return baziTierBounds{Min: 0, Max: 0}
-	}
-	if axisStatus == "candidate" {
-		bounds.Max = minInt(bounds.Max, 6)
-	}
-	for _, dimension := range baziTierDimensionEntries(assessment.Dimensions) {
-		bounds.Max = minInt(bounds.Max, tierDimensionCap(dimension))
-	}
-	if assessment.Status == "provisional" {
-		bounds.Max = minInt(bounds.Max, 6)
-	}
-	if tierCanSupportUpperBand(assessment.Dimensions) && assessment.Status == "rated" {
-		bounds.Min = 7
-	}
-	return bounds
-}
-
-// tierDimensionCap makes core axes stricter than adjustment lenses. In
-// particular, unresolved 调候 alone cannot collapse an otherwise usable chart.
-func tierDimensionCap(dimension baziNamedTierDimension) int {
-	if dimension.Disease {
-		switch dimension.Value.State {
-		case "light":
-			return 9
-		case "moderate":
-			return 7
-		case "heavy":
-			return 5
-		case "critical":
-			return 3
-		default:
-			return 6
-		}
-	}
-	if dimension.Name == "main_axis" {
-		switch dimension.Value.State {
-		case "strong":
-			return 9
-		case "usable":
-			return 8
-		case "mixed":
-			return 6
-		case "limited":
-			return 5
-		default:
-			return 2
-		}
-	}
-	if dimension.Name == "tiaohou" || dimension.Name == "hezhizhang" {
-		switch dimension.Value.State {
-		case "strong", "usable":
-			return 9
-		case "mixed":
-			return 8
-		case "limited":
-			return 7
-		default:
-			return 6
-		}
-	}
-	switch dimension.Value.State {
-	case "strong":
-		return 9
-	case "usable":
-		return 8
-	case "mixed":
-		return 7
-	case "limited":
-		return 6
-	default:
-		return 4
-	}
-}
-
-// tierCanSupportUpperBand prevents a top-half label from contradicting an
-// otherwise uniformly strong set of model-selected dimension states.
-func tierCanSupportUpperBand(dimensions baziTierDimensions) bool {
-	for _, dimension := range baziTierDimensionEntries(dimensions) {
-		if dimension.Disease {
-			if dimension.Value.State != "light" {
-				return false
-			}
-			continue
-		}
-		if dimension.Value.State != "usable" && dimension.Value.State != "strong" {
-			return false
-		}
-	}
-	return true
-}
-
-// baziTierDimensionEntries keeps validation, bounds and reference catalog
-// projection on the same fixed nine-dimension order.
-func baziTierDimensionEntries(dimensions baziTierDimensions) []baziNamedTierDimension {
-	return []baziNamedTierDimension{
-		{Name: "main_axis", Value: dimensions.MainAxis},
-		{Name: "youqing", Value: dimensions.YouQing},
-		{Name: "youli", Value: dimensions.YouLi},
-		{Name: "qingzhuo", Value: dimensions.QingZhuo},
-		{Name: "disease", Value: dimensions.Disease, Disease: true},
-		{Name: "remedy", Value: dimensions.Remedy},
-		{Name: "rescue", Value: dimensions.Rescue},
-		{Name: "tiaohou", Value: dimensions.Tiaohou},
-		{Name: "hezhizhang", Value: dimensions.HeZhiZhang},
-	}
-}
-
-// tierDimensionHasGround prevents status-only tier scoring. Classical-search
-// labels are supplementary citations, so they cannot alone establish a dimension.
-func tierDimensionHasGround(dimension baziTierDimension) bool {
-	return len(dimension.FactRefs) > 0 || len(dimension.ClaimRefs) > 0
-}
-
-// tierDimensionAssertions adapts typed tier dimensions to the shared catalog
-// checker. Their verdict is runtime-private state, never user-facing prose.
-func tierDimensionAssertions(assessment baziTierAssessment) []baziAssertion {
-	assertions := make([]baziAssertion, 0, 9)
-	for _, dimension := range baziTierDimensionEntries(assessment.Dimensions) {
-		assertions = append(assertions, baziAssertion{
-			ID:             "static.tier." + dimension.Name,
-			Kind:           baziAssertionTier,
-			Subject:        "chart",
-			Verdict:        strings.TrimSpace(dimension.Value.State),
-			FactRefs:       append([]baziFactRef{}, dimension.Value.FactRefs...),
-			ClaimRefs:      append([]baziClaimRef{}, dimension.Value.ClaimRefs...),
-			EvidenceTopics: append([]string{}, dimension.Value.EvidenceTopics...),
-			Confidence:     assessment.Confidence,
-			Boundary:       "层次维度仅作状态投影。",
-		})
-	}
-	return assertions
-}
-
 // validateBaziDynamicJudgmentPolicy binds every dynamic model claim to the runtime-selected period.
 func validateBaziDynamicJudgmentPolicy(state baziCharterState, judgment baziStructuredDynamicSynthesis) error {
 	facts := buildBaziFactCapsule(state)
@@ -346,7 +161,7 @@ func validateBaziDynamicJudgmentPolicy(state baziCharterState, judgment baziStru
 	if !containsString(baziCurrentPeriodRealizationValues, judgment.CurrentPeriodRealization) {
 		return baziViolationError(baziViolationMethodContract, "dynamic.current_period_realization", "", "current period realization is outside the closed contract", nil, baziCurrentPeriodRealizationValues)
 	}
-	if err := validateBaziModelTextSlots(state, dynamicJudgmentTextSlots(judgment), true, false); err != nil {
+	if err := validateBaziModelTextSlots(state, dynamicJudgmentTextSlots(judgment)); err != nil {
 		return err
 	}
 	return nil
@@ -367,10 +182,9 @@ func staticJudgmentTextSlots(judgment baziStructuredStaticSynthesis) []baziModel
 	return nil
 }
 
-// dynamicJudgmentTextSlots lists dynamic prose fields. Tier language is
-// rejected here because dynamic judgment may not rewrite the natal grade.
+// dynamicJudgmentTextSlots lists dynamic prose fields.
 func dynamicJudgmentTextSlots(judgment baziStructuredDynamicSynthesis) []baziModelTextSlot {
-	slots := make([]baziModelTextSlot, 0, len(judgment.PeriodClaims)+len(judgment.Limitations)+len(judgment.ReasoningSteps)+2)
+	slots := make([]baziModelTextSlot, 0, len(judgment.PeriodClaims)+1)
 	for index, claim := range judgment.PeriodClaims {
 		slots = append(slots,
 			baziModelTextSlot{Field: fmt.Sprintf("dynamic.period_claims[%d].verdict", index), AssertionID: "dynamic.period", Value: claim.Verdict},
@@ -378,28 +192,16 @@ func dynamicJudgmentTextSlots(judgment baziStructuredDynamicSynthesis) []baziMod
 	}
 	slots = append(slots,
 		baziModelTextSlot{Field: "dynamic.liunian_claim.verdict", AssertionID: "dynamic.liunian", Value: judgment.LiunianClaim.Verdict},
-		baziModelTextSlot{Field: "dynamic.reasoning_summary", Value: judgment.ReasoningSummary},
 	)
-	for index, text := range judgment.Limitations {
-		slots = append(slots, baziModelTextSlot{Field: fmt.Sprintf("dynamic.limitations[%d]", index), Value: text})
-	}
-	for index, text := range judgment.ReasoningSteps {
-		slots = append(slots, baziModelTextSlot{Field: fmt.Sprintf("dynamic.reasoning_steps[%d]", index), Value: text})
-	}
 	return slots
 }
 
-// validateBaziModelTextSlots keeps machine identifiers and tier ownership out
-// of prose at the DTO boundary. It is catalog-derived, not a final-text filter.
-func validateBaziModelTextSlots(state baziCharterState, slots []baziModelTextSlot, forbidTier, forbidNatalOfficerRisk bool) error {
+// validateBaziModelTextSlots keeps machine identifiers out of prose at the DTO boundary.
+func validateBaziModelTextSlots(state baziCharterState, slots []baziModelTextSlot) error {
 	for _, slot := range slots {
 		if token := baziPresentationReferenceToken(state, slot.Value); token != "" {
 			return baziViolationError(baziViolationMethodContract, slot.Field, slot.AssertionID, "model prose must keep runtime identifiers in typed reference arrays", []string{token}, []string{"fact_refs", "relation_refs", "claim_refs"})
 		}
-		if forbidTier && containsAnyText([]string{slot.Value}, baziTierProseMarkers) {
-			return baziViolationError(baziViolationMethodContract, slot.Field, slot.AssertionID, "tier language belongs only in tier_assessment", nil, []string{"tier_assessment"})
-		}
-		_ = forbidNatalOfficerRisk
 	}
 	return nil
 }

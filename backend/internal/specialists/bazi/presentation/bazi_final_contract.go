@@ -44,18 +44,12 @@ func validateFinalWriterOutput(plan baziAnalysisPlan, state baziCharterState, ou
 		if err := validateOrderedHeadings(output, headings); err != nil {
 			return err
 		}
-		if strings.Count(output, "**结论：") < 6 {
-			return fmt.Errorf("full writer output must expose bold conclusion lines")
-		}
 		overviewSection := sectionContent(output, "## 总览结论", "## 强弱视角")
 		if overviewSection == "" {
 			return fmt.Errorf("full writer output missing 总览结论 section body")
 		}
 		if err := validateOrderedHeadings(overviewSection, []string{"### 本命总断"}); err != nil {
 			return fmt.Errorf("full writer output must preserve 总览结论收束格式: %w", err)
-		}
-		if !strings.Contains(overviewSection, "**格局评价**") || !strings.Contains(overviewSection, "**判断边界**") {
-			return fmt.Errorf("full writer output must expose tier and boundary in 总览结论")
 		}
 		nextHeading := "## 当前应期"
 		if plan.NeedLifetimeDayun {
@@ -65,19 +59,8 @@ func validateFinalWriterOutput(plan baziAnalysisPlan, state baziCharterState, ou
 		if gejuSection == "" {
 			return fmt.Errorf("full writer output missing 格局视角 section body")
 		}
-		if err := validateOrderedHeadings(gejuSection, []string{
-			"**规则口径**",
-			"### 格局评价",
-			"**判读口径**",
-			"断语所限",
-		}); err != nil {
-			return fmt.Errorf("full writer output must preserve 格局视角 format: %w", err)
-		}
 		if strings.TrimSpace(state.StaticSynthesis.PatternBasis) != "" && !containsAnyText([]string{gejuSection}, []string{"**依据**"}) {
 			return fmt.Errorf("full writer output must expose concise evidence in 格局视角")
-		}
-		if strings.TrimSpace(state.StaticSynthesis.TierBasis) != "" && !containsAnyText([]string{gejuSection}, []string{"**判定依据**"}) {
-			return fmt.Errorf("full writer output must expose a concise tier basis in 格局视角")
 		}
 	case "topic":
 		if err := validateOrderedHeadings(output, []string{
@@ -87,9 +70,6 @@ func validateFinalWriterOutput(plan baziAnalysisPlan, state baziCharterState, ou
 		}); err != nil {
 			return err
 		}
-		if strings.Count(output, "**结论：") < 3 {
-			return fmt.Errorf("topic writer output must expose bold conclusion lines")
-		}
 	case "year":
 		if err := validateOrderedHeadings(output, []string{
 			"## 年度判断",
@@ -98,9 +78,6 @@ func validateFinalWriterOutput(plan baziAnalysisPlan, state baziCharterState, ou
 			"## 建议",
 		}); err != nil {
 			return err
-		}
-		if strings.Count(output, "**结论：") < 1 {
-			return fmt.Errorf("year writer output must expose bold conclusion line")
 		}
 	}
 	if counterEvidence := strings.TrimSpace(state.StaticSynthesis.CounterEvidence); counterEvidence != "" &&

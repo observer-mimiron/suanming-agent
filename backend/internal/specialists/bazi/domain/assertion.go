@@ -16,8 +16,6 @@ const (
 	AssertionTiaohou AssertionKind = "tiaohou"
 	// AssertionPatternUsage 表示格局取用断言。
 	AssertionPatternUsage AssertionKind = "pattern_usage"
-	// AssertionTier 表示层次断言。
-	AssertionTier AssertionKind = "tier"
 	// AssertionDayunPeriod 表示单个大运断言。
 	AssertionDayunPeriod AssertionKind = "dayun_period"
 	// AssertionLiunian 表示流年断言。

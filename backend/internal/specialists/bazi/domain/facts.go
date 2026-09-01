@@ -115,12 +115,24 @@ func BuildPromptView(input FactInput, includeDynamic bool) map[string]any {
 		"泄耗克身信号": firstNonEmpty(strings.Join(capsule.PressureSignals, "；"), "工具未提供"),
 		"官星透藏":   OfficialDisplay(capsule),
 		"火与调候状态": FireDisplay(capsule),
+		"喜神":     usageDisplay(input.Yongshen["xi_shen"]),
+		"用神":     usageDisplay(input.Yongshen["yong_shen"]),
+		"忌神":     usageDisplay(input.Yongshen["ji_shen"]),
 	}
 	if includeDynamic {
 		view["当前大运"] = firstNonEmpty(capsule.CurrentPeriodGanZhi, "未识别")
 		view["当前大运已计算关系"] = firstNonEmpty(strings.Join(capsule.CurrentPeriodRelations, "；"), "未见已计算关系")
 	}
 	return view
+}
+
+// usageDisplay 只把确定性工具提供的喜用忌字段转成可读值，缺失时明确标为待定。
+func usageDisplay(raw any) string {
+	values := stringSlice(raw)
+	if len(values) == 0 {
+		return "待定"
+	}
+	return strings.Join(values, "、")
 }
 
 // OfficialDisplay 区分官星透干与藏支，不据此生成原局结论。
@@ -171,14 +183,15 @@ func TiaohouDisplay(capsule FactCapsule) string {
 	case !capsule.FirePresent:
 		parts = append(parts, "命局未见可直接列出的火元素条件")
 	case !capsule.FireEffectivenessKnown:
-		parts = append(parts, "命局虽见火，但现有材料尚不能确认其调候作用是否足够")
+		if capsule.FireVisible {
+			parts = append(parts, "命局见火且火透干，调候作用仍需结合全局燥湿确认")
+		} else {
+			parts = append(parts, "命局见火但未透干，调候作用仍需结合全局燥湿确认")
+		}
 	case capsule.FireEffective:
 		parts = append(parts, "现有材料确认火可参与调候")
 	default:
 		parts = append(parts, "现有材料显示火不足以单独完成调候")
-	}
-	if capsule.FirePresent && !capsule.FireVisible {
-		parts = append(parts, "火未透出，作用仍需结合位置与时令判断")
 	}
 	return strings.Join(parts, "；")
 }

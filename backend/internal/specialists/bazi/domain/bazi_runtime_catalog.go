@@ -130,7 +130,6 @@ func knownBaziFactRefs(state baziCharterState) map[string]struct{} {
 		"fact_capsule.official_visible": {}, "fact_capsule.official_hidden": {},
 		"fact_capsule.fire_present": {}, "fact_capsule.fire_visible": {}, "fact_capsule.fire_effective": {},
 		"fact_capsule.fire_effectiveness_known": {}, "fact_capsule.core_facts_ready": {},
-		"fact_capsule.tier_evidence_complete": {}, "fact_capsule.tier_evidence_missing": {},
 		"yongshen.balance_status": {}, "yongshen.balance_yong_shen": {}, "yongshen.conditional_yong_shen": {},
 		"yongshen.day_master": {}, "yongshen.day_master_wuxing": {}, "yongshen.geju": {},
 		"yongshen.geju_basis": {}, "yongshen.geju_candidate": {}, "yongshen.geju_combination": {},

@@ -66,7 +66,11 @@ var runInspectionAttrWhitelist = map[string]struct{}{
 	"artifact_present":                   {},
 	"bazi.contract.failure_class":        {},
 	"bazi.contract.finding_code":         {},
+	"bazi.contract.finding_field":        {},
 	"bazi.contract.recovery_policy":      {},
+	"bazi.contract.violation_code":       {},
+	"bazi.contract.violation_field":      {},
+	"bazi.contract.violation_message":    {},
 	"bazi.dynamic.source":                {},
 	"bazi.final.audit_result":            {},
 	"bazi.final.output_mode":             {},
@@ -267,7 +271,7 @@ func buildRunDiagnostics(t *TurnTrace, spans []RunSpan) []RunDiagnostic {
 			Stage:      "agent",
 			Code:       "contract.repaired",
 			Title:      "八字合同发生修复或恢复策略介入。",
-			Evidence:   evidenceFromAttrs(attrs, "bazi.final.audit_result", "bazi.contract.finding_code", "bazi.contract.recovery_policy", "bazi.internal_graph.recovery_state"),
+			Evidence:   evidenceFromAttrs(attrs, "bazi.final.audit_result", "bazi.contract.finding_code", "bazi.contract.finding_field", "bazi.contract.violation_code", "bazi.contract.violation_field", "bazi.contract.violation_message", "bazi.contract.recovery_policy", "bazi.internal_graph.recovery_state"),
 			NextAction: "查看八字内部 graph path，重点检查 validation 与 recovery_decision 节点。",
 		})
 	}

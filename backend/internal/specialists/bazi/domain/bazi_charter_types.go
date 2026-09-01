@@ -23,7 +23,6 @@ const (
 	baziAssertionStrength     = AssertionStrength
 	baziAssertionTiaohou      = AssertionTiaohou
 	baziAssertionPatternUsage = AssertionPatternUsage
-	baziAssertionTier         = AssertionTier
 	baziAssertionDayunPeriod  = AssertionDayunPeriod
 	baziAssertionLiunian      = AssertionLiunian
 	baziAssertionTopicAnswer  = AssertionTopicAnswer
@@ -32,9 +31,6 @@ const (
 // 以下别名保持 runtime 私有调用点稳定；结构化模型合同由八字领域拥有。
 type baziStructuredClaim = StructuredClaim
 type baziStructuredStaticClaim = StructuredStaticClaim
-type baziTierDimension = TierDimension
-type baziTierDimensions = TierDimensions
-type baziTierAssessment = TierAssessment
 type baziStructuredStaticSynthesis = StructuredStaticSynthesis
 type baziStructuredPeriodClaim = StructuredPeriodClaim
 type baziStructuredDynamicSynthesis = StructuredDynamicSynthesis

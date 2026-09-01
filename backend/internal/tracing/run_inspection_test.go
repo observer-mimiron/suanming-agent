@@ -107,6 +107,10 @@ func TestBuildRunInspection_GeneratesDeterministicDiagnostics(t *testing.T) {
 			"failure.degraded":                   false,
 			"bazi.final.audit_result":            "repaired",
 			"bazi.contract.finding_code":         "outcome_domain_mismatch",
+			"bazi.contract.finding_field":        "dynamic",
+			"bazi.contract.violation_code":       "unsupported_concrete_outcome",
+			"bazi.contract.violation_field":      "dynamic",
+			"bazi.contract.violation_message":    "dynamic synthesis includes a concrete outcome",
 			"bazi.contract.recovery_policy":      "dynamic_facts_only",
 			"bazi.internal_graph.recovery_state": "dynamic_recovered",
 			"bazi.static.source":                 "model",
@@ -169,6 +173,16 @@ func TestBuildRunInspection_GeneratesDeterministicDiagnostics(t *testing.T) {
 	}
 	if got := spanByID(inspection.Spans, "spn_retrieval").Category; got != "retriever" {
 		t.Fatalf("retriever category = %q", got)
+	}
+	rootAttrs := spanByID(inspection.Spans, "root").Attributes
+	for key, want := range map[string]any{
+		"bazi.contract.violation_code":    "unsupported_concrete_outcome",
+		"bazi.contract.violation_field":   "dynamic",
+		"bazi.contract.violation_message": "dynamic synthesis includes a concrete outcome",
+	} {
+		if rootAttrs[key] != want {
+			t.Fatalf("root attr %s = %v, want %v", key, rootAttrs[key], want)
+		}
 	}
 }
 

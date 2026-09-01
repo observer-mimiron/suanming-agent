@@ -11,9 +11,6 @@ import (
 	"github.com/observer-mimiron/suanming-agent/internal/structured"
 )
 
-//go:embed schemas/bazi-analysis-plan.schema.json
-var baziAnalysisPlanSchema []byte
-
 //go:embed schemas/bazi-evidence-plan.schema.json
 var baziEvidencePlanSchema []byte
 
@@ -27,7 +24,6 @@ var baziDynamicSynthesisSchema []byte
 var baziLifetimeDayunSynthesisSchema []byte
 
 const (
-	structuredSchemaBaziAnalysisPlan           = "bazi.analysis_plan"
 	structuredSchemaBaziEvidencePlan           = "bazi.evidence_plan"
 	structuredSchemaBaziStaticSynthesis        = "bazi.static_synthesis"
 	structuredSchemaBaziDynamicSynthesis       = "bazi.dynamic_synthesis"
@@ -39,7 +35,6 @@ func init() {
 		name string
 		raw  []byte
 	}{
-		{structuredSchemaBaziAnalysisPlan, baziAnalysisPlanSchema},
 		{structuredSchemaBaziEvidencePlan, baziEvidencePlanSchema},
 		{structuredSchemaBaziStaticSynthesis, baziStaticSynthesisSchema},
 		{structuredSchemaBaziDynamicSynthesis, baziDynamicSynthesisSchema},
@@ -69,10 +64,6 @@ func decodeStructuredOutput(name, raw string, target any) error {
 			if err := validateStructuredClaimConfidence(name, fmt.Sprintf("period_claims[%d]", index), claim.Confidence); err != nil {
 				return err
 			}
-		}
-	case *baziAnalysisPlan:
-		if value.WriterTemplate == "topic" && value.TopicMode == "" {
-			return fmt.Errorf("schema_error[%s]: topic writer requires topic_mode", name)
 		}
 	}
 	return nil

@@ -18,7 +18,6 @@ type baziValidationViolation = bazidomain.ValidationViolation
 type baziStructuredStaticSynthesis = bazidomain.StructuredStaticSynthesis
 type baziStructuredDynamicSynthesis = bazidomain.StructuredDynamicSynthesis
 type baziCanonicalUnit = bazidomain.CanonicalUnit
-type baziTierAssessment = bazidomain.TierAssessment
 type baziAssertion = bazidomain.Assertion
 type baziAssertionKind = bazidomain.AssertionKind
 type baziFactRef = bazidomain.FactRef
@@ -43,7 +42,6 @@ const (
 	baziAssertionStrength     = bazidomain.AssertionStrength
 	baziAssertionTiaohou      = bazidomain.AssertionTiaohou
 	baziAssertionPatternUsage = bazidomain.AssertionPatternUsage
-	baziAssertionTier         = bazidomain.AssertionTier
 	baziAssertionDayunPeriod  = bazidomain.AssertionDayunPeriod
 	baziAssertionLiunian      = bazidomain.AssertionLiunian
 )

@@ -78,13 +78,26 @@ func defaultBaziEvidencePlan(question string, analysisPlan baziAnalysisPlan, cha
 		return plan
 	}
 	if dayMasterForEvidenceQuery(input) != "" && bazidomain.MonthBranchForEvidenceQuery(input) != "" {
-		plan.EvidenceGaps = []string{"格局解释参考", "调候解释参考"}
-		plan.QueryPackets = []baziQueryPacket{{Topic: "geju", Query: "子平真诠 格局 月令 取格", PreferredSources: []string{"子平真诠"}, SourceTier: "A"}, {Topic: "tiaohou", Query: buildTiaohouEvidenceQuery(input), PreferredSources: []string{"穷通宝鉴"}, SourceTier: "A"}}
+		plan.EvidenceGaps = []string{"子平成格条件", "调候解释参考"}
+		plan.QueryPackets = []baziQueryPacket{{Topic: "geju", Query: buildGejuEvidenceQuery(input), PreferredSources: []string{"子平真诠"}, SourceTier: "A"}, {Topic: "tiaohou", Query: buildTiaohouEvidenceQuery(input), PreferredSources: []string{"穷通宝鉴"}, SourceTier: "A"}}
 		return plan
 	}
-	plan.EvidenceGaps = []string{"格局解释参考", "扶抑解释参考"}
-	plan.QueryPackets = []baziQueryPacket{{Topic: "geju", Query: "子平真诠 格局 月令 取格", PreferredSources: []string{"子平真诠"}, SourceTier: "A"}, {Topic: "fuyi", Query: "滴天髓 扶抑 病药 制化", PreferredSources: []string{"滴天髓"}, SourceTier: "A"}}
+	plan.EvidenceGaps = []string{"子平成格条件", "扶抑解释参考"}
+	plan.QueryPackets = []baziQueryPacket{{Topic: "geju", Query: buildGejuEvidenceQuery(input), PreferredSources: []string{"子平真诠"}, SourceTier: "A"}, {Topic: "fuyi", Query: "滴天髓 扶抑 病药 制化", PreferredSources: []string{"滴天髓"}, SourceTier: "A"}}
 	return plan
+}
+
+// buildGejuEvidenceQuery 把当前命盘的主格候选带入子平检索，查询条件而不是结论。
+func buildGejuEvidenceQuery(input baziCharterInput) string {
+	terms := []string{"子平真诠"}
+	if candidate := strings.TrimSpace(stringValue(input.Yongshen["geju_candidate"])); candidate != "" {
+		terms = append(terms, candidate)
+	}
+	if combination := strings.TrimSpace(stringValue(input.Yongshen["geju_combination"])); combination != "" {
+		terms = append(terms, combination)
+	}
+	terms = append(terms, "月令 透干 通根 制化 成格条件")
+	return strings.Join(terms, " ")
 }
 
 // normalizeBaziEvidencePlan 只接受规划器的受限初检查询；调用方对不合法计划回退为确定性查询。

@@ -138,8 +138,8 @@ func (e *Executor) baziBootstrapNode(ctx context.Context, in *baziInternalGraphS
 	return in, nil
 }
 
-// baziAnalysisPlanNode runs the model planner but preserves the existing
-// deterministic fallback when planning is unavailable.
+// baziAnalysisPlanNode selects the finite analysis template deterministically;
+// this stage owns graph state progression and performs no model call.
 func (e *Executor) baziAnalysisPlanNode(ctx context.Context, in *baziInternalGraphState) (*baziInternalGraphState, error) {
 	if err := baziMarkInternalNode(ctx, in, baziInternalNodeAnalysisPlan); err != nil {
 		return nil, err
@@ -148,11 +148,7 @@ func (e *Executor) baziAnalysisPlanNode(ctx context.Context, in *baziInternalGra
 	if err != nil {
 		return nil, err
 	}
-	analysisPlan, err := e.runBaziAnalysisPlanner(ctx, runtime.Session, in.Question, in.ChartState.Input)
-	if err != nil {
-		annotateBaziGraphError(ctx, "analysis_planner", err)
-		analysisPlan = defaultBaziAnalysisPlan(in.Question)
-	}
+	analysisPlan := deterministicBaziAnalysisPlan(in.Question)
 	analysisPlan = normalizeBaziAnalysisPlan(analysisPlan)
 	in.ChartState.AnalysisPlan = analysisPlan
 	emitBaziStageThinking(ctx, runtime.Sink, "bazi_graph", analysisPlan.StageSummary)
@@ -337,6 +333,9 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 		"bazi.contract.recovery_policy":      "",
 		"bazi.contract.finding_code":         "",
 		"bazi.contract.finding_field":        "",
+		"bazi.contract.violation_code":       "",
+		"bazi.contract.violation_field":      "",
+		"bazi.contract.violation_message":    "",
 	}
 	var currentRepairFailure repair.Failure
 	var hasCurrentRepairFailure bool
@@ -344,6 +343,9 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 		attrs["bazi.contract.recovery_code"] = recoveryCode
 	}
 	if violation, ok := baziViolationFromError(err); ok {
+		attrs["bazi.contract.violation_code"] = string(violation.Code)
+		attrs["bazi.contract.violation_field"] = violation.Field
+		attrs["bazi.contract.violation_message"] = truncateTracePreview(violation.Message, 240)
 		if len(violation.MissingRefs) > 0 {
 			attrs["bazi.contract.invalid_refs"] = strings.Join(violation.MissingRefs, ",")
 		}
@@ -404,6 +406,9 @@ func baziRecordInternalFailure(ctx context.Context, in *baziInternalGraphState, 
 		attrs["bazi.contract.failure_class"] = in.FailureClass
 		attrs["bazi.contract.recovery_policy"] = in.RecoveryPolicy
 		attrs["bazi.contract.finding_field"] = repairFailure.Field
+		attrs["bazi.contract.violation_code"] = repairFailure.Code
+		attrs["bazi.contract.violation_field"] = repairFailure.Field
+		attrs["bazi.contract.violation_message"] = truncateTracePreview(repairFailure.Message, 240)
 	}
 	// 仅在本轮已有业务 repair 且当前 policy 不再允许继续 repair 时补写终态；
 	// 复用安全投影，避免把 repair 后的候选正文或 feedback value 写入 trace。

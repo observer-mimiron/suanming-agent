@@ -277,7 +277,8 @@ def count_occurrences(text: str, phrase: str) -> int:
 def first_conclusion_in_section(text: str, heading: str) -> str:
     """Return the first bold conclusion in one markdown section."""
     section = markdown_section(text, heading)
-    match = re.search(r"\*\*结论：(.+?)\*\*", section, flags=re.S)
+    # Renderer now uses a bare bold conclusion; keep compatibility with old traces.
+    match = re.search(r"\*\*(?:结论：)?(.+?)\*\*", section, flags=re.S)
     if not match:
         return ""
     return re.sub(r"\s+", " ", match.group(1)).strip()
@@ -356,6 +357,52 @@ def validate_response_quality(case: dict[str, Any], response_text: str) -> list[
             violations.append(f"{section} section has {actual} {prefix!r} headings > {max_allowed}")
 
     return violations
+
+
+def observation_attribute_value(observation: dict[str, Any], key: str) -> Any:
+    """Read an observation attribute across Langfuse response shapes."""
+    mappings = [observation, observation.get("attributes") or {}]
+    metadata = observation.get("metadata") or {}
+    mappings.extend([metadata, metadata.get("attributes") or {}])
+    for mapping in mappings:
+        if isinstance(mapping, dict) and key in mapping and mapping[key] not in (None, ""):
+            return mapping[key]
+    raw_input = observation.get("input")
+    if isinstance(raw_input, dict) and key in raw_input:
+        return raw_input[key]
+    if isinstance(raw_input, str):
+        try:
+            parsed = json.loads(raw_input)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict) and key in parsed:
+            return parsed[key]
+    return ""
+
+
+def validate_observation_attribute_checks(case: dict[str, Any], trace_detail: dict[str, Any]) -> None:
+    """Check query/topic attributes on named observations without inspecting model text."""
+    for check in case.get("observation_attribute_checks") or []:
+        name = str(check.get("observation") or "").strip()
+        attribute = str(check.get("attribute") or "").strip()
+        if not name or not attribute:
+            continue
+        observations = [item for item in trace_detail.get("observations", []) if item.get("name") == name]
+        values = [str(observation_attribute_value(item, attribute)) for item in observations]
+        if not values:
+            raise RuntimeError(f"missing observation attribute: {name}.{attribute}")
+        expected = check.get("equals")
+        if expected is not None and not any(value == str(expected) for value in values):
+            raise RuntimeError(f"observation attribute mismatch for {name}.{attribute}: {values!r} != {expected!r}")
+        contains_all = [str(item) for item in check.get("contains_all") or []]
+        if contains_all and not any(all(term in value for term in contains_all) for value in values):
+            raise RuntimeError(f"observation attribute missing terms for {name}.{attribute}: {contains_all!r}")
+        contains_any = [str(item) for item in check.get("contains_any") or []]
+        if contains_any and not any(any(term in value for term in contains_any) for value in values):
+            raise RuntimeError(f"observation attribute missing any term for {name}.{attribute}: {contains_any!r}")
+        forbidden = [str(item) for item in check.get("must_not_contain") or []]
+        if any(term in value for value in values for term in forbidden):
+            raise RuntimeError(f"observation attribute contains forbidden term for {name}.{attribute}")
 
 
 def write_case_scores(langfuse_url, headers, trace_id, score_config_ids, passed, error=None):
@@ -563,6 +610,8 @@ def smoke_case(
             actual = get_trace_field(trace_detail, str(key))
             if actual not in (None, "") and allowed and str(actual) not in allowed:
                 raise RuntimeError(f"trace attribute mismatch for {key}: {actual!r} not in {allowed!r}")
+
+        validate_observation_attribute_checks(case, trace_detail)
 
         if write_scores:
             if not score_config_ids:

@@ -29,6 +29,12 @@ func TestYongShen(t *testing.T) {
 	t.Logf("用神: %v  喜神: %v  忌神: %v", m["yong_shen"], m["xi_shen"], m["ji_shen"])
 	t.Logf("调候: %s", m["tiao_hou"])
 	t.Logf("支撑分: 月令=%v 根=%v 同元=%v 生扶=%v 总分=%v", m["month_score"], m["root_count"], m["same_element"], m["generate_count"], m["total_support"])
+	for _, key := range []string{"yong_shen", "xi_shen", "ji_shen"} {
+		values, ok := m[key].([]string)
+		if !ok || len(values) == 0 {
+			t.Fatalf("%s must contain basic usage candidates, got %#v", key, m[key])
+		}
+	}
 }
 
 func TestYongShen_GejuQingZhuoReason_IsDeferredToProfile(t *testing.T) {

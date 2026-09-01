@@ -1,7 +1,7 @@
 // Package presentation 包含八字已验收结果的用户可见投影。
 //
 // 本文件负责生成完整报告的视角章节、总览和限制说明；
-// 不改变上游层次、主轴、岁运或证据裁断，也不读取 runtime 状态。
+// 不改变上游主轴、格局、岁运或证据裁断，也不读取 runtime 状态。
 package presentation
 
 import (
@@ -11,7 +11,7 @@ import (
 
 var classicalChapterHeadingPattern = regexp.MustCompile(`^[0-9一二三四五六七八九十百]+[、.．]\s*论`)
 
-// writeFinalOverview 在报告开头概括本命主轴、格局评价与限制。
+// writeFinalOverview 在报告开头概括本命主轴与限制。
 // 全程和当前阶段保留在各自章节展开，避免把同一结论重复成文。
 func writeFinalOverview(b *strings.Builder, state FinalReplyInput) {
 	writeHeading(b, "总览结论")
@@ -19,32 +19,28 @@ func writeFinalOverview(b *strings.Builder, state FinalReplyInput) {
 	writeSubheading(b, "本命总断")
 	writeConclusion(b, buildOverviewAxisSummary(state))
 	writeBullets(b, []string{
-		labeledBullet("格局评价", buildOverviewTierSummary(state)),
-		labeledBullet("判断边界", buildOverviewLimitationSummary(state)),
+		labeledBullet("依据", firstDisplayText(
+			state.StaticSynthesis.AxisConsistency,
+			buildOverviewLimitationSummary(state),
+		)),
 	})
 }
 
-// buildCombinedAssessmentConclusion 只并列已接受的本命格局评价、全程和当前判断，三层互不改写。
+// buildCombinedAssessmentConclusion 只并列本命、全程和当前判断，三层互不改写。
 func buildCombinedAssessmentConclusion(state FinalReplyInput) string {
-	if limitsFortuneProse(state) {
-		baseline := firstDisplayText(state.StaticSynthesis.TierJudgment, "格局暂不立评（仅作结构观察）。")
-		return "本命格局评价：" + baseline + "；全程与当前岁运仅展示已计算结构事实。"
-	}
 	if !state.AnalysisPlan.NeedLifetimeDayun {
-		baseline := firstDisplayText(state.StaticSynthesis.TierJudgment, "格局暂不立评（仅作结构观察）。")
 		if state.DynamicSynthesis.FactsOnly {
-			return baseline + "；当前岁运仅保留可复算事实，暂不纳入走势评价。"
+			return "本命主轴已形成；当前岁运仅保留可复算事实，暂不纳入走势评价。"
 		}
 		trend := withoutAxisEcho(state, firstDisplayText(state.DynamicSynthesis.CurrentTrend, "当前岁运走势暂未形成稳定裁断。"), "当前岁运按已绑定事实说明承接与扰动。")
-		return baseline + "；当前岁运走势：" + trend
+		return "本命主轴已形成；当前岁运走势：" + trend
 	}
-	baseline := firstDisplayText(state.StaticSynthesis.TierJudgment, "格局暂不立评（仅作结构观察）。")
 	lifetime := lifetimeTrajectorySummary(state.LifetimeSynthesis.Trajectory)
 	if state.DynamicSynthesis.FactsOnly {
-		return "本命格局评价：" + baseline + "；全程运路：" + lifetime + "；当前岁运仅保留可复算事实。"
+		return "本命主轴已形成；全程运路：" + lifetime + "；当前岁运仅保留可复算事实。"
 	}
 	trend := withoutAxisEcho(state, firstDisplayText(state.DynamicSynthesis.CurrentTrend, "当前岁运走势暂未形成稳定裁断。"), "当前岁运按已绑定事实说明承接与扰动。")
-	return "本命格局评价：" + baseline + "；全程运路：" + lifetime + "；当前阶段：" + trend
+	return "本命主轴已形成；全程运路：" + lifetime + "；当前阶段：" + trend
 }
 
 // buildLifetimeDayunConclusion projects only the dedicated all-life DTO.
@@ -54,9 +50,6 @@ func buildLifetimeDayunConclusion(state FinalReplyInput) string {
 	lifetime := state.LifetimeSynthesis
 	if !state.AnalysisPlan.NeedLifetimeDayun {
 		return "本轮未请求全程大运综合。"
-	}
-	if limitsFortuneProse(state) {
-		return "格局评价尚未确定，全程运路仅列各步与本命结构的关系。"
 	}
 	if lifetime.Status != "accepted" {
 		return "全程运路暂缓判定，仅保留各步可复算事实。"
@@ -173,20 +166,24 @@ func seasonalQuoteMatchesMonthCommand(monthCommand, quote string) bool {
 	return strings.ContainsAny(monthCommand, requiredBranches)
 }
 
-// buildPresentationPatternConclusion 将暂定主轴限制为候选观察，不把它写成已成立路线。
+// buildPresentationPatternConclusion 展示格局取用结论及其确定性依据。
 func buildPresentationPatternConclusion(state FinalReplyInput) string {
-	if limitsFortuneProse(state) {
-		return "候选主轴仍须完成清浊、病药与救应等条件核验；当前独立证据未全，本轮不据此定局。"
+	name := strings.TrimSpace(state.StaticSynthesis.PatternName)
+	route := strings.TrimSpace(state.StaticSynthesis.PatternRoute)
+	evaluation := strings.TrimSpace(state.StaticSynthesis.PatternEvaluation)
+	if name != "" && route != "" && evaluation != "" {
+		return "主格：" + name + "\n成局路线：" + route + "\n子平定性：" + evaluation
 	}
-	return withoutAxisEcho(state, state.StaticSynthesis.PatternOutcome, "格局取用与总览主轴一致，不再重复表述。")
+	pattern := strings.TrimSpace(state.StaticSynthesis.PatternOutcome)
+	if pattern == "" {
+		pattern = "格局取用与总览主轴一致。"
+	}
+	return withoutAxisEcho(state, pattern, "格局取用与总览主轴一致。")
 }
 
-// buildPresentationCandidateAxis 在层次证据不足时，将已验收主轴明确标为候选。
+// buildPresentationCandidateAxis 保留兼容入口，当前不再根据层次状态改写主轴。
 func buildPresentationCandidateAxis(state FinalReplyInput) string {
-	if !limitsFortuneProse(state) {
-		return ""
-	}
-	return firstDisplayText(conciseDisplayText(state.StaticSynthesis.MainAxis, 140), "本轮未形成可展示候选主轴。")
+	return ""
 }
 
 // buildUseGodSummary combines only strength and seasonal lenses. Pattern text
@@ -220,25 +217,9 @@ func ruleProfileLabel(state FinalReplyInput) string {
 
 func buildOverviewConclusion(state FinalReplyInput) string {
 	if strings.TrimSpace(state.StaticSynthesis.MainAxis) != "" {
-		return "先看本命主轴与限制，再按评判标准给出基础层次；岁运部分只说明当前承接。"
+		return "先看本命主轴与限制，再说明岁运部分的承接。"
 	}
 	return conciseDisplayText(state.StaticSynthesis.ReasoningSummary, 160)
-}
-
-// tierAssessmentStandardText explains the fixed nine-level lens before showing
-// the selected level, so the rank is not presented as an unexplained label.
-
-// tierAssessmentStandardText 说明格局评价取法，避免把内部证据量表误作古籍定级。
-func tierAssessmentStandardText() string {
-	return "按月令用神、成败救应、用神纯杂、有情有力、藏透与位置配合观察；不等同于财富、地位或人格价值。"
-}
-
-// conciseTierJudgmentText keeps the tier verdict visible without inventing a rank.
-
-// conciseTierJudgmentText keeps the tier verdict visible without inventing a rank.
-func conciseTierJudgmentText(text string, maxRunes int) string {
-	text = strings.TrimSpace(text)
-	return conciseDisplayText(text, maxRunes)
 }
 
 func buildProfilePracticalAdvice(state FinalReplyInput) string {
@@ -286,16 +267,6 @@ func buildOverviewAxisSummary(state FinalReplyInput) string {
 	return firstDisplayText(conciseDisplayText(state.StaticSynthesis.MainAxis, 140), "本轮未形成主轴裁断")
 }
 
-// buildOverviewTierSummary 去掉上游格局评价字段可能携带的标题前缀，避免总览标签重复。
-func buildOverviewTierSummary(state FinalReplyInput) string {
-	text := conciseTierJudgmentText(state.StaticSynthesis.TierJudgment, 120)
-	text = strings.TrimPrefix(text, "命格基础层次：")
-	text = strings.TrimPrefix(text, "本命命格层次：")
-	text = strings.TrimPrefix(text, "格局评价：")
-	text = strings.TrimPrefix(text, "本命格局评价：")
-	return firstDisplayText(text, "格局暂不立评（仅作结构观察）。")
-}
-
 func buildOverviewLimitationSummary(state FinalReplyInput) string {
 	return firstDisplayText(conciseDisplayText(buildPresentationLimitationText(state), 140), "本轮未形成限制裁断")
 }
@@ -324,9 +295,6 @@ func buildPresentationTiaohouConclusion(state FinalReplyInput) string {
 	if text := strings.TrimSpace(state.StaticSynthesis.TiaohouAnchor); text != "" {
 		return conciseDisplayText(text, 120)
 	}
-	if !state.Facts.FireEffectivenessKnown {
-		return "调候有效性尚待确认；当前只按月令寒暖燥湿需求与火的出现位置观察。"
-	}
 	if text := strings.TrimSpace(state.StaticSynthesis.TiaohouConstraint); text != "" {
 		return conciseDisplayText(text, 120)
 	}
@@ -353,9 +321,6 @@ func buildPresentationPatternEvidence(state FinalReplyInput) string {
 }
 
 func buildDayunConclusion(state FinalReplyInput) string {
-	if limitsFortuneProse(state) {
-		return "格局评价尚未确定，当前大运仅列已绑定事实。"
-	}
 	role := renderCurrentPeriodRealization(state.DynamicSynthesis.CurrentPeriodRealization)
 	if text := strings.TrimSpace(state.DynamicSynthesis.CurrentTrend); text != "" {
 		text = withoutAxisEcho(state, conciseDisplayText(text, 100), "当前大运只按已绑定事实说明对本命结构的承接。")
@@ -371,9 +336,6 @@ func buildDayunConclusion(state FinalReplyInput) string {
 }
 
 func buildLiunianConclusion(state FinalReplyInput) string {
-	if limitsFortuneProse(state) {
-		return "格局评价尚未确定，流年只展示干支、十神和已计算关系。"
-	}
 	if text := strings.TrimSpace(state.DynamicSynthesis.LiunianFocus); text != "" {
 		return withoutAxisEcho(state, conciseDisplayText(text, 120), "流年只按当前岁运关系说明结构触发。")
 	}
@@ -383,10 +345,7 @@ func buildLiunianConclusion(state FinalReplyInput) string {
 	return ""
 }
 
-func buildTierRealizationText(state FinalReplyInput) string {
-	if limitsFortuneProse(state) {
-		return "格局评价尚未确定，岁运仅作结构事实说明。"
-	}
+func buildRealizationText(state FinalReplyInput) string {
 	if state.DynamicSynthesis.FactsOnly {
 		return "动态裁断受授权边界限制，本轮不作岁运趋势裁断。"
 	}
@@ -402,9 +361,6 @@ func buildTierRealizationText(state FinalReplyInput) string {
 // not as an internal model failure. The facts still come from deterministic tools.
 
 func buildTopicConstraintText(state FinalReplyInput) string {
-	if limitsFortuneProse(state) {
-		return "格局评价尚未确定，岁运仅作结构事实说明。"
-	}
 	parts := []string{buildPresentationLimitationText(state)}
 	if text := strings.TrimSpace(state.DynamicSynthesis.CurrentTrend); text != "" {
 		parts = append(parts, text)
@@ -416,9 +372,6 @@ func buildTopicConstraintText(state FinalReplyInput) string {
 }
 
 func buildDynamicConstraintText(state FinalReplyInput) string {
-	if limitsFortuneProse(state) {
-		return "格局评价尚未确定，岁运仅作结构事实说明。"
-	}
 	parts := make([]string, 0, 4)
 	if len(state.DynamicSynthesis.ConsistencyFlags) > 0 {
 		parts = append(parts, strings.Join(filterNonEmpty(state.DynamicSynthesis.ConsistencyFlags), "；"))
@@ -439,23 +392,10 @@ func buildPresentationLimitationText(state FinalReplyInput) string {
 			parts = append(parts, conciseDisplayText(text, 120))
 		}
 	}
-	if text := strings.TrimSpace(state.StaticSynthesis.TierBasis); text != "" {
-		parts = append(parts, conciseDisplayText(text, 120))
-	}
 	if len(parts) == 0 {
 		return "本轮未形成反证或限制。"
 	}
 	return joinOrDefault(parts, "本轮未形成反证或限制。")
-}
-
-// limitsFortuneProse 将未定的格局评价限制为结构事实展示，避免岁运文案越过证据边界。
-func limitsFortuneProse(state FinalReplyInput) bool {
-	switch strings.TrimSpace(state.StaticSynthesis.TierStatus) {
-	case "provisional", "withheld":
-		return true
-	default:
-		return false
-	}
 }
 
 func renderWindowLevel(level string) string {
@@ -474,10 +414,10 @@ func renderWindowLevel(level string) string {
 }
 
 // renderCurrentPeriodRealization turns the dynamic enum into the separate
-// current-dayun role shown beside, never inside, the natal base tier.
+// current-dayun role is shown beside, never inside, the natal base result.
 
 // renderCurrentPeriodRealization turns the dynamic enum into the separate
-// current-dayun role shown beside, never inside, the natal base tier.
+// current-dayun role shown beside, never inside, the natal base result.
 func renderCurrentPeriodRealization(value string) string {
 	return map[string]string{
 		"repair":   "修复",

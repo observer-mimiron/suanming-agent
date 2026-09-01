@@ -42,7 +42,36 @@ func BuildCoreChartView(input ChartViewInput) map[string]any {
 		}
 		view[key] = value
 	}
+	if candidates := patternCandidates(input.Yongshen); len(candidates) > 0 {
+		view["pattern_candidates"] = candidates
+	}
 	return view
+}
+
+// patternCandidates turns deterministic tool strings into a bounded candidate list.
+// It exposes possibilities to the model without treating any candidate as a verdict.
+func patternCandidates(yongshen map[string]any) []map[string]any {
+	seen := map[string]struct{}{}
+	out := []map[string]any{}
+	add := func(name, origin string) {
+		name = normalizePatternCandidateName(name)
+		if name == "" || name == "无明显组合关系" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		out = append(out, map[string]any{"name": name, "origin": origin})
+	}
+	add(stringValue(yongshen["geju_candidate"]), "month_command")
+	for _, part := range strings.FieldsFunc(stringValue(yongshen["geju_combination"]), func(r rune) bool {
+		return r == '；' || r == ';' || r == '，' || r == ',' || r == '\n'
+	}) {
+		part = strings.TrimSpace(strings.TrimLeft(part, "[主][次]"))
+		add(part, "combination")
+	}
+	return out
 }
 
 // BuildDynamicFactsView 投影确定性工具已经计算的大运与流年事实。

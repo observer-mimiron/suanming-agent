@@ -18,12 +18,6 @@ func baziEvidencePlannerConfig() specialists.Config {
 	return cfg
 }
 
-func baziAnalysisPlannerConfig() specialists.Config {
-	cfg := newBaziCharterConfig("bazi_analysis_planner", "八字分析模式判定器", prompts.BaziAnalysisPlannerInstruction, false, true, structuredSchemaBaziAnalysisPlan)
-	cfg.UseFastModel = true
-	return cfg
-}
-
 func baziStaticSynthesisConfig() specialists.Config {
 	return newBaziCharterConfig("bazi_static_synthesis", "八字静态综合器", prompts.BaziStaticSynthesisInstruction, false, true, structuredSchemaBaziStaticSynthesis)
 }

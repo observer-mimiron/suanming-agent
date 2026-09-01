@@ -61,7 +61,7 @@ func buildLiunianFactBullets(state FinalReplyInput) []string {
 }
 
 // renderLifetimeDayunBullets 以紧凑条目展示每步大运，避免当前运覆盖全程判断。
-// 全程合同已通过时保留结构标签和边界内批语；格局暂定只限制当前应期的趋势展开。
+// 全程合同已通过时保留结构标签和边界内批语。
 func renderLifetimeDayunBullets(state FinalReplyInput) []string {
 	if state.LifetimeSynthesis.Status != "accepted" {
 		return []string{"**状态**：全程运路未通过完整合同，未以事实目录冒充综合判断。"}
@@ -212,9 +212,6 @@ func buildFactsOnlyDayunConclusion(state FinalReplyInput) string {
 // buildMinorDayunConclusion keeps child and adolescent readings on growth
 // cadence even when the dynamic model returns a full luck-cycle analysis.
 func buildMinorDayunConclusion(state FinalReplyInput) string {
-	if limitsFortuneProse(state) {
-		return buildDayunConclusion(state)
-	}
 	if state.DynamicSynthesis.FactsOnly {
 		return buildFactsOnlyDayunConclusion(state)
 	}
@@ -265,7 +262,7 @@ func buildMinorFactsOnlyDayunBullets(state FinalReplyInput) []string {
 // buildMinorDayunBullets caps child display to current and near-term periods.
 // It may show model wording already validated upstream, but never the full adult table.
 func buildMinorDayunBullets(state FinalReplyInput) []string {
-	if state.DynamicSynthesis.FactsOnly || limitsFortuneProse(state) {
+	if state.DynamicSynthesis.FactsOnly {
 		return buildMinorFactsOnlyDayunBullets(state)
 	}
 	periods := renderedDayunPeriods(state)

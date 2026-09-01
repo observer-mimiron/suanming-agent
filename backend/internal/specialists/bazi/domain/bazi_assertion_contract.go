@@ -32,7 +32,6 @@ func ensureStaticAssertions(state baziCharterState, in baziStaticSynthesis) bazi
 	claim := firstClaimRefByCategory(profile, "main_axis", "pattern_candidate")
 	strengthClaim := firstClaimRefByCategory(profile, "strength")
 	tiaohouClaim := firstVerdictRefByPrefix(profile, "qiongtong_")
-	tierClaim := firstClaimRefByCategory(profile, "tier")
 	in.Assertions = []baziAssertion{
 		{
 			ID:             "static.main_axis",
@@ -68,18 +67,6 @@ func ensureStaticAssertions(state baziCharterState, in baziStaticSynthesis) bazi
 			EvidenceStatus: evidenceStatusForTopics(state.EvidenceQuality, []string{"tiaohou"}),
 			Confidence:     in.ClaimStrength,
 			Boundary:       in.TiaohouConstraint,
-		},
-		{
-			ID:             "static.tier",
-			Kind:           baziAssertionTier,
-			Subject:        "chart",
-			Verdict:        in.TierJudgment,
-			FactRefs:       []baziFactRef{"chart.month_branch", "yongshen.strength_evidence"},
-			ClaimRefs:      tierClaim,
-			EvidenceTopics: append([]string{}, state.EvidenceQuality.RequiredTopics...),
-			EvidenceStatus: evidenceStatusForTopics(state.EvidenceQuality, state.EvidenceQuality.RequiredTopics),
-			Confidence:     in.ClaimStrength,
-			Boundary:       in.TierBasis,
 		},
 	}
 	if strings.TrimSpace(in.TopicDirectAnswer) != "" {
@@ -198,13 +185,10 @@ func validateStaticAssertions(state baziCharterState) error {
 	if err := validateMainAxisAssertionConsistency(static); err != nil {
 		return err
 	}
-	if err := validatePatternAdjudication(state, static.PatternAdjudication); err != nil {
-		return err
-	}
+	// PatternAdjudication is optional provenance. The static model contract only
+	// requires the selected name/route/evaluation; missing comparison metadata
+	// must not turn an otherwise valid reading into a hard failure.
 	if err := validateStaticAssertionEvidenceTopics(state, static.Assertions); err != nil {
-		return err
-	}
-	if err := validateStaticTierWithheldBoundary(state, static); err != nil {
 		return err
 	}
 	return validateBaziAssertions(state, static.Assertions)
@@ -355,91 +339,7 @@ func validateStaticAssertionEvidenceTopics(state baziCharterState, assertions []
 	return nil
 }
 
-// validateStaticTierWithheldBoundary keeps typed V2 state separate from the
-// legacy text-only compatibility path.
-func validateStaticTierWithheldBoundary(state baziCharterState, static baziStaticSynthesis) error {
-	if static.TierAssessment.Status != "" {
-		return validateTypedTierPresentation(static.TierAssessment)
-	}
-	if len(state.EvidenceQuality.RequiredTopics) == 0 {
-		return nil
-	}
-	for _, assertion := range static.Assertions {
-		if assertion.Kind != baziAssertionTier || assertion.EvidenceStatus != baziEvidenceWithheld {
-			continue
-		}
-		checks := []struct {
-			field string
-			text  string
-		}{
-			{field: "static.tier_judgment", text: static.TierJudgment},
-			{field: "static.tier_basis", text: static.TierBasis},
-			{field: "static.assertions.tier.verdict", text: assertion.Verdict},
-			{field: "static.assertions.tier.boundary", text: assertion.Boundary},
-		}
-		for _, check := range checks {
-			if !withheldTierTextIsSafe(check.text) {
-				return baziViolationError(
-					baziViolationEvidenceTopicMissing,
-					check.field,
-					assertion.ID,
-					"tier assertion is withheld_missing_evidence and must defer evaluation",
-					state.EvidenceQuality.MissingTopics,
-					[]string{"格局暂不立评", "仅作结构观察"},
-				)
-			}
-		}
-	}
-	return nil
-}
-
-// validateTypedTierPresentation verifies typed compatibility state without
-// scanning renderer text or recalculating a chart grade.
-func validateTypedTierPresentation(assessment baziTierAssessment) error {
-	if assessment.Status == "withheld" {
-		if assessment.Level != 0 {
-			return baziViolationError(baziViolationMethodContract, "static.tier_assessment", "", "withheld tier must render as a non-ranked boundary", nil, nil)
-		}
-		return nil
-	}
-	if assessment.Level < 1 || assessment.Level > 9 {
-		return baziViolationError(baziViolationMethodContract, "static.tier_assessment", "", "tier projection must retain the selected nine-level value", nil, nil)
-	}
-	if assessment.Status == "provisional" && (assessment.Level < 3 || assessment.Level > 6) {
-		return baziViolationError(baziViolationMethodContract, "static.tier_assessment", "", "provisional tier must remain in the 3-6 band and show its boundary", nil, nil)
-	}
-	return nil
-}
-
-// withheldTierTextIsSafe 只接受证据不足时明确不立评的用户文本。
-func withheldTierTextIsSafe(text string) bool {
-	text = strings.TrimSpace(text)
-	return strings.Contains(text, "格局暂不立评") || strings.Contains(text, "仅作结构观察")
-}
-
-// containsHighTierAssertion detects positive high-rank language while allowing
-// explicit cap wording such as “不上推中上或上等”.
-func containsHighTierAssertion(text string) bool {
-	positivePatterns := []string{
-		"命格层次上等", "命格层次中上", "命格层次中等偏上",
-		"层次上等", "层次中上", "层次中等偏上",
-		"可以拔高", "可拔高", "足以拔高",
-	}
-	if containsAnyText([]string{text}, positivePatterns) {
-		return true
-	}
-	highMarkers := []string{"上等", "中上", "中等偏上", "可以拔高", "可拔高", "拔高"}
-	capMarkers := []string{"不上推", "不拔高", "不能拔高", "不宜拔高", "不足以拔高", "不进入", "不升至", "封顶"}
-	for _, marker := range highMarkers {
-		if strings.Contains(text, marker) && !containsAnyText([]string{text}, capMarkers) {
-			return true
-		}
-	}
-	return false
-}
-
-// requiredTopicsForStaticAssertion maps methodology claims to authority topics;
-// tier judgments consume every A-tier topic because they synthesize all lenses.
+// requiredTopicsForStaticAssertion maps methodology claims to authority topics.
 func requiredTopicsForStaticAssertion(kind baziAssertionKind, requiredTopics []string) []string {
 	switch kind {
 	case baziAssertionMainAxis, baziAssertionPatternUsage, baziAssertionTopicAnswer:
@@ -469,10 +369,10 @@ func evidenceStatusForTopics(quality EvidenceQuality, topics []string) string {
 // model candidate with the deterministic month-command candidate.
 func normalizePatternCandidateName(value string) string {
 	value = strings.ReplaceAll(strings.TrimSpace(value), " ", "")
-	value = strings.TrimSuffix(value, "候选")
 	if index := strings.IndexAny(value, "(（"); index >= 0 {
 		value = value[:index]
 	}
+	value = strings.TrimSuffix(value, "候选")
 	return value
 }
 
@@ -579,13 +479,18 @@ func validateBaziAssertions(state baziCharterState, assertions []baziAssertion) 
 		}
 		// Fact-ref paths are model-authored provenance metadata. Unknown aliases are
 		// audited in the trace, while concrete period and chart contradictions are
-		// validated below by deterministic checks. A transport spelling mismatch
-		// must not discard an otherwise usable interpretation.
-		if containsUnsupportedConcreteOutcome(assertion.Verdict) || containsUnsupportedConcreteOutcome(assertion.Boundary) {
+		// validated below by deterministic checks. Dynamic trend wording is allowed;
+		// the age-scope validator remains responsible for minor-domain boundaries.
+		if !isDynamicAssertionKind(assertion.Kind) && (containsUnsupportedConcreteOutcome(assertion.Verdict) || containsUnsupportedConcreteOutcome(assertion.Boundary)) {
 			return baziViolationError(baziViolationUnsupportedConcreteOutcome, "assertions.verdict", assertion.ID, "assertion includes unsupported concrete life outcome", nil, nil)
 		}
 	}
 	return nil
+}
+
+// isDynamicAssertionKind identifies assertions whose verdict describes period trends.
+func isDynamicAssertionKind(kind baziAssertionKind) bool {
+	return kind == baziAssertionDayunPeriod || kind == baziAssertionLiunian
 }
 
 func projectStaticAssertionsToLegacy(in baziStaticSynthesis) baziStaticSynthesis {
@@ -609,10 +514,6 @@ func projectStaticAssertionsToLegacy(in baziStaticSynthesis) baziStaticSynthesis
 		case baziAssertionTiaohou:
 			if strings.TrimSpace(in.TiaohouAnchor) == "" {
 				in.TiaohouAnchor = verdict
-			}
-		case baziAssertionTier:
-			if strings.TrimSpace(in.TierJudgment) == "" {
-				in.TierJudgment = verdict
 			}
 		case baziAssertionTopicAnswer:
 			if strings.TrimSpace(in.TopicDirectAnswer) == "" {
@@ -645,7 +546,7 @@ func projectDynamicAssertionsToLegacy(in baziDynamicSynthesis) baziDynamicSynthe
 
 func allowedBaziAssertionKind(kind baziAssertionKind) bool {
 	switch kind {
-	case baziAssertionMainAxis, baziAssertionStrength, baziAssertionTiaohou, baziAssertionPatternUsage, baziAssertionTier, baziAssertionDayunPeriod, baziAssertionLiunian, baziAssertionTopicAnswer:
+	case baziAssertionMainAxis, baziAssertionStrength, baziAssertionTiaohou, baziAssertionPatternUsage, baziAssertionDayunPeriod, baziAssertionLiunian, baziAssertionTopicAnswer:
 		return true
 	default:
 		return false
@@ -683,8 +584,6 @@ func claimRefAllowsAssertionKind(profile baziRuleProfile, ref string, kind baziA
 		return kind == baziAssertionPatternUsage || kind == baziAssertionTopicAnswer
 	case "dynamic_framework":
 		return kind == baziAssertionDayunPeriod || kind == baziAssertionLiunian
-	case "tier":
-		return kind == baziAssertionTier
 	case "":
 		return true
 	default:

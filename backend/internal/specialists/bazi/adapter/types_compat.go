@@ -43,14 +43,6 @@ type baziStructuredStaticClaim = bazidomain.StructuredStaticClaim
 type baziStructuredStaticSynthesis = bazidomain.StructuredStaticSynthesis
 type baziStructuredPeriodClaim = bazidomain.StructuredPeriodClaim
 type baziStructuredDynamicSynthesis = bazidomain.StructuredDynamicSynthesis
-type baziTierAssessment = bazidomain.TierAssessment
-type baziTierDimension = bazidomain.TierDimension
-type baziTierDimensions = bazidomain.TierDimensions
-type baziNamedTierDimension struct {
-	Name    string
-	Value   baziTierDimension
-	Disease bool
-}
 type BaziFactCapsule = bazidomain.FactCapsule
 type baziRuntimeCatalog = bazidomain.ReferenceCatalog
 type baziContractAudit = bazidomain.ContractAudit
@@ -62,7 +54,6 @@ const (
 	baziAssertionStrength            = bazidomain.AssertionStrength
 	baziAssertionTiaohou             = bazidomain.AssertionTiaohou
 	baziAssertionPatternUsage        = bazidomain.AssertionPatternUsage
-	baziAssertionTier                = bazidomain.AssertionTier
 	baziAssertionDayunPeriod         = bazidomain.AssertionDayunPeriod
 	baziAssertionLiunian             = bazidomain.AssertionLiunian
 	baziViolationMethodContract      = bazidomain.ViolationMethodContract
@@ -117,9 +108,6 @@ func factRefsToStrings(refs []baziFactRef) []string {
 		}
 	}
 	return out
-}
-func baziTierDimensionEntries(dimensions baziTierDimensions) []baziNamedTierDimension {
-	return []baziNamedTierDimension{{Name: "main_axis", Value: dimensions.MainAxis}, {Name: "youqing", Value: dimensions.YouQing}, {Name: "youli", Value: dimensions.YouLi}, {Name: "qingzhuo", Value: dimensions.QingZhuo}, {Name: "disease", Value: dimensions.Disease, Disease: true}, {Name: "remedy", Value: dimensions.Remedy}, {Name: "rescue", Value: dimensions.Rescue}, {Name: "tiaohou", Value: dimensions.Tiaohou}, {Name: "hezhizhang", Value: dimensions.HeZhiZhang}}
 }
 func strengthEvidenceSummary(yongshen map[string]any) string {
 	return bazidomain.StrengthEvidenceSummary(yongshen)

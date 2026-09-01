@@ -18,9 +18,6 @@ var BaziConstitutionInstruction string
 //go:embed bazi_methodology_charter.md
 var BaziMethodologyCharterInstruction string
 
-//go:embed bazi_analysis_planner.md
-var BaziAnalysisPlannerInstruction string
-
 //go:embed bazi_evidence_planner.md
 var BaziEvidencePlannerInstruction string
 

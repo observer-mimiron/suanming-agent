@@ -80,8 +80,7 @@ func factHint(id string) string {
 		"fact_capsule.resource_support_count", "fact_capsule.support_score", "fact_capsule.pressure_score",
 		"fact_capsule.support_signals", "fact_capsule.pressure_signals", "fact_capsule.official_visible",
 		"fact_capsule.official_hidden", "fact_capsule.fire_present", "fact_capsule.fire_visible",
-		"fact_capsule.fire_effective", "fact_capsule.fire_effectiveness_known", "fact_capsule.core_facts_ready",
-		"fact_capsule.tier_evidence_complete", "fact_capsule.tier_evidence_missing":
+		"fact_capsule.fire_effective", "fact_capsule.fire_effectiveness_known", "fact_capsule.core_facts_ready":
 		return "输入 fact_capsule：已计算的裁断前提"
 	case "liunian.year", "liunian.gan_zhi", "liunian.stem", "liunian.branch", "liunian.shi_shen", "liunian.current_dayun":
 		return "输入 dynamic_facts.liunian：本轮流年计算事实"

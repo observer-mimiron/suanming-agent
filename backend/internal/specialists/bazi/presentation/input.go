@@ -38,6 +38,7 @@ type ChartFacts struct {
 	OfficialVisible        bool
 	OfficialHidden         bool
 	FireEffectivenessKnown bool
+	UsageSummary           string
 }
 
 // DayunPeriod 是最终文本需要的大运目录项；Label 只保留干支与起止年龄。
@@ -79,15 +80,15 @@ type StaticSynthesis struct {
 	MainAxis          string
 	AxisConsistency   string
 	PatternOutcome    string
+	PatternName       string
+	PatternRoute      string
+	PatternEvaluation string
 	CounterEvidence   string
 	TiaohouConstraint string
 	TiaohouAnchor     string
 	StrengthBalance   string
 	Strength          StrengthJudgment
 	Usage             UsageLayers
-	TierStatus        string
-	TierJudgment      string
-	TierBasis         string
 	ReasoningSummary  string
 	TopicDirectAnswer string
 	TopicFocusAnswer  string

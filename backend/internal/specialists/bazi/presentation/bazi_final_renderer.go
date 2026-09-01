@@ -1,6 +1,6 @@
 // package presentation 包含 Manager 拥有的八字最终渲染。
 // 本文件只把已验证的静态和动态槽位转成用户可见 Markdown；
-// 不重判命理事实、不改写层次资格，也不承担模型修复或图调度。
+// 不重判命理事实，也不承担模型修复或图调度。
 package presentation
 
 import bazidomain "github.com/observer-mimiron/suanming-agent/internal/specialists/bazi/domain"

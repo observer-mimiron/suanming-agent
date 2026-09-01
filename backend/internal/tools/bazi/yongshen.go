@@ -12,9 +12,9 @@ import (
 	solartime "github.com/observer-mimiron/suanming-agent/internal/calendar"
 )
 
-// YongShenTool 提供八字受力、月令、十神位置及冬令火参与调候的事实。
-// 强弱、用忌、格局成败和调候优先级由 runtime 的 selected rule profile 裁断，
-// 本工具不得把工程估计伪装成命理 verdict。
+// YongShenTool 提供八字受力、月令、十神位置及基础喜用忌候选。
+// 喜用忌只按可复算的强弱与五行生克生成基础结果；格局成败和调候优先级
+// 仍由上层规则材料裁断，本工具不生成具体应事。
 type YongShenTool struct{}
 
 func (t *YongShenTool) Name() string        { return "yongshen" }
@@ -175,6 +175,7 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 	default:
 		strength = "中和附近"
 	}
+	usage := deriveBasicUsage(dayWx, strength, generatedBy)
 
 	// 当前只保留季节性提示。它不是《穷通宝鉴》的逐日主、逐月令调候规则表。
 	seasonalTiaohouHint := ""
@@ -223,12 +224,12 @@ func (t *YongShenTool) Execute(_ context.Context, params map[string]any) (any, e
 		"season":                season,
 		"seasonal_tiaohou_hint": seasonalTiaohouHint,
 		"tiaohou_fire":          tiaohouFire,
-		"balance_yong_shen":     []string{},
-		"tiaohou_yong_shen":     []string{},
-		"conditional_yong_shen": []string{},
-		"yong_shen":             []string{},
-		"xi_shen":               []string{},
-		"ji_shen":               []string{},
+		"balance_yong_shen":     usage.balance,
+		"tiaohou_yong_shen":     usage.tiaohou,
+		"conditional_yong_shen": usage.conditional,
+		"yong_shen":             usage.yong,
+		"xi_shen":               usage.xi,
+		"ji_shen":               usage.ji,
 		"tiao_hou":              "待 qiongtong_tiaohou_v1 规则表实现",
 		"geju":                  gejuName + "候选",
 		"geju_candidate":        gejuName,
@@ -280,6 +281,60 @@ func winterTiaohouFireStatus(season string, allGan, allZhi []string, elements ma
 		"effectiveness": map[bool]string{true: "effective", false: "limited"}[visible],
 		"basis":         basis,
 	}
+}
+
+type basicUsage struct {
+	balance, tiaohou, conditional, yong, xi, ji []string
+}
+
+// deriveBasicUsage 依据强弱、五行生克和月令格局生成可复算的基础喜用忌。
+// 这是展示与检索使用的基础候选，不替代逐日主调候或格局 profile 的细断。
+func deriveBasicUsage(dayWx, strength string, generatedBy map[string]string) basicUsage {
+	drain := map[string]string{"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}[dayWx]
+	wealth := ke[dayWx]
+	officer := ""
+	for element, controlled := range ke {
+		if controlled == dayWx {
+			officer = element
+			break
+		}
+	}
+	same := dayWx
+	generated := generatedBy[dayWx]
+	add := func(dst *[]string, wx string) {
+		if wx != "" {
+			for _, existing := range *dst {
+				if existing == wx {
+					return
+				}
+			}
+			*dst = append(*dst, wx)
+		}
+	}
+	usage := basicUsage{}
+	switch strength {
+	case "偏弱":
+		add(&usage.yong, generated)
+		add(&usage.xi, same)
+		add(&usage.ji, drain)
+		add(&usage.ji, wealth)
+		add(&usage.ji, officer)
+	case "偏强":
+		add(&usage.yong, drain)
+		add(&usage.yong, wealth)
+		add(&usage.xi, officer)
+		add(&usage.ji, generated)
+		add(&usage.ji, same)
+	default:
+		// 中和盘以泄耗方向作为基础用神候选，其余保留为喜忌参考。
+		add(&usage.yong, drain)
+		add(&usage.xi, wealth)
+		add(&usage.ji, generated)
+		add(&usage.ji, same)
+	}
+	usage.balance = append([]string(nil), usage.yong...)
+	usage.conditional = append([]string(nil), usage.xi...)
+	return usage
 }
 
 func visibleStemWeight() int {

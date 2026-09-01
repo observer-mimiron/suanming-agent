@@ -42,7 +42,7 @@ func anyToString(value any) string {
 
 // buildProfileStaticSynthesis builds a facts-only degraded static artifact.
 // Rule profile claims are materials for the model, not a deterministic author
-// of final chart judgments, so this fallback intentionally withholds 主轴/层次.
+// of final chart judgments, so this fallback intentionally withholds 主轴.
 func buildProfileStaticSynthesis(input baziCharterInput) baziStaticSynthesis {
 	return buildFactsOnlyStaticSynthesis(input, "")
 }
@@ -99,9 +99,7 @@ func buildFactsOnlyStaticSynthesis(input baziCharterInput, reason string) baziSt
 		},
 		PatternAndQingZhuo: "静态综合未通过，本轮不输出清浊成败裁断。",
 		QiShiOrCongHua:     "静态综合未通过，本轮不输出气势从化裁断。",
-		TierJudgment:       "静态综合未通过，本轮不输出层次裁断。",
-		TierBasis:          "层次必须由模型综合事实与规则材料后给出；本轮综合未通过。",
-		ReasoningSummary:   "静态综合未通过，本轮不输出主轴、层次或用神裁断。",
+		ReasoningSummary:   "静态综合未通过，本轮不输出主轴或用神裁断。",
 		ReasoningSteps: []string{
 			"排盘、强弱证据、月令取格候选仍来自工具事实。",
 			"模型静态综合未通过，因此 runtime 不把 profile 材料拼成完整裁断。",

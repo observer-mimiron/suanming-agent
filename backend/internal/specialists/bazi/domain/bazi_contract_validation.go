@@ -43,15 +43,6 @@ func validateStaticStage(state baziCharterState) error {
 	if strings.TrimSpace(state.StaticSynthesis.PatternAndQingZhuo) == "" {
 		return projectionMismatchViolation("static.pattern_and_qing_zhuo", "missing static synthesis pattern and qingzhuo", nil)
 	}
-	if strings.TrimSpace(state.StaticSynthesis.TierJudgment) == "" {
-		return projectionMismatchViolation("static.tier_judgment", "missing static synthesis tier judgment", nil)
-	}
-	if strings.Contains(state.StaticSynthesis.TierJudgment, "层级暂不定级") {
-		return projectionMismatchViolation("static.tier_judgment", "static synthesis exposes internal no-tier state", nil)
-	}
-	if strings.TrimSpace(state.StaticSynthesis.TierBasis) == "" {
-		return projectionMismatchViolation("static.tier_basis", "missing static synthesis tier basis", nil)
-	}
 	if strings.TrimSpace(state.StaticSynthesis.ReasoningSummary) == "" {
 		return projectionMismatchViolation("static.reasoning_summary", "missing static synthesis reasoning summary", nil)
 	}
@@ -123,8 +114,8 @@ func validateFactsOnlyStaticSynthesis(state baziCharterState) error {
 func staticSynthesisUserVisibleText(output baziStaticSynthesis) string {
 	return strings.Join([]string{
 		output.MainAxis, output.PatternBasis, output.PatternOutcome, output.CounterEvidence,
-		output.AxisConsistency, output.TiaohouConstraint, output.TiaohouAnchor, output.TierJudgment,
-		output.TierBasis, output.ReasoningSummary, strings.Join(output.ReasoningSteps, "\n"),
+		output.AxisConsistency, output.TiaohouConstraint, output.TiaohouAnchor,
+		output.ReasoningSummary, strings.Join(output.ReasoningSteps, "\n"),
 		output.Strength.Conclusion, output.Strength.Reasoning, output.Strength.Boundary,
 		output.Usage.Fuyi, output.Usage.Pattern, output.Usage.Tiaohou, output.Usage.Priority,
 		strings.Join(output.Advantages, "\n"), strings.Join(output.Risks, "\n"),
@@ -133,7 +124,7 @@ func staticSynthesisUserVisibleText(output baziStaticSynthesis) string {
 
 // validateStaticOutcomeScope applies the same age-domain contract to static
 // synthesis as dynamic synthesis. Static layers own visible advantages, risks
-// and tier rationale, so minors must not receive adult-domain projections there.
+// and limitation rationale, so minors must not receive adult-domain projections there.
 func validateStaticOutcomeScope(state baziCharterState) error {
 	context := buildBaziSubjectContext(state.Input)
 	if context.AgeBand != "infant" && context.AgeBand != "child" && context.AgeBand != "adolescent" {
@@ -150,17 +141,8 @@ func validateDynamicAgainstProfileScope(state baziCharterState) error {
 	if err := validateDynamicOutcomeDomains(state); err != nil {
 		return err
 	}
-	text := strings.Join([]string{
-		state.DynamicSynthesis.CurrentTrend, strings.Join(state.DynamicSynthesis.DayunPath, "\n"),
-		strings.Join(RenderDayunJudgmentLines(state.DynamicSynthesis.DayunJudgments), "\n"),
-		state.DynamicSynthesis.LiunianFocus, strings.Join(state.DynamicSynthesis.TriggerSignals, "\n"),
-		strings.Join(state.DynamicSynthesis.KeyWindows, "\n"), strings.Join(state.DynamicSynthesis.Risks, "\n"),
-		strings.Join(state.DynamicSynthesis.ConsistencyFlags, "\n"), state.DynamicSynthesis.ReasoningSummary,
-		strings.Join(state.DynamicSynthesis.ReasoningSteps, "\n"),
-	}, "\n")
-	if hasDynamicHardBoundary(text) {
-		return baziViolationError(baziViolationUnsupportedConcreteOutcome, "dynamic", "", "dynamic synthesis overstates unsupported concrete outcome", nil, nil)
-	}
+	// 动态层可以描述用户关心的具体领域；年龄授权和确定性事实引用仍由上面的
+	// 结构合同校验，避免用词黑名单把正常的趋势描述误判为越界。
 	if err := validateDynamicConsistencyFlags(state.DynamicSynthesis.ConsistencyFlags); err != nil {
 		return err
 	}
@@ -178,11 +160,6 @@ func buildBaziSubjectContext(input baziCharterInput) SubjectContext {
 		BirthYear:  birthYear,
 		TargetYear: intValue(input.Liunian["liunian_year"]),
 	})
-}
-
-// hasDynamicHardBoundary 拒绝动态层写入高风险具体应事。
-func hasDynamicHardBoundary(text string) bool {
-	return containsUnsupportedConcreteOutcome(text) || containsAnyText(text, []string{"投资", "投资建议"})
 }
 
 // validateDynamicOutcomeDomains enforces the deterministic age-based scope
@@ -501,7 +478,6 @@ func validateStaticTiaohouEvidenceWording(state baziCharterState) error {
 		{name: "tiaohou_constraint", value: static.TiaohouConstraint},
 		{name: "tiaohou_anchor", value: static.TiaohouAnchor},
 		{name: "pattern_and_qing_zhuo", value: static.PatternAndQingZhuo},
-		{name: "tier_basis", value: static.TierBasis},
 		{name: "reasoning_summary", value: static.ReasoningSummary},
 		{name: "usage.tiaohou", value: static.Usage.Tiaohou},
 		{name: "usage.priority", value: static.Usage.Priority},
@@ -588,11 +564,11 @@ func validateStaticAxisVerdictConsistency(s baziStaticSynthesis) error {
 		return err
 	}
 	if s.AxisCeiling == "结构信号" &&
-		containsAnyText([]string{s.MainAxis, s.PatternOutcome, s.TierBasis}, []string{"主轴", "贵格", "化杀为权"}) {
+		containsAnyText([]string{s.MainAxis, s.PatternOutcome}, []string{"主轴", "贵格", "化杀为权"}) {
 		return projectionMismatchViolation("static.axis_ceiling", "static synthesis promotes structure signal beyond axis ceiling", nil)
 	}
 	if s.AxisCeiling == "受限路线" &&
-		containsAnyText([]string{s.MainAxis, s.PatternOutcome, s.TierBasis}, []string{"纯主轴贵格", "可以拔高", "化杀为权"}) {
+		containsAnyText([]string{s.MainAxis, s.PatternOutcome}, []string{"纯主轴贵格", "可以拔高", "化杀为权"}) {
 		return projectionMismatchViolation("static.axis_ceiling", "static synthesis promotes restricted route beyond axis ceiling", nil)
 	}
 	return nil
@@ -657,7 +633,7 @@ func validateStaticDecisionConsistency(s baziStaticSynthesis) error {
 		return err
 	}
 	if containsString(s.ConsistencyFlags, "方向成立但力度受限") &&
-		!containsAnyText([]string{s.PatternOutcome, s.CounterEvidence, s.TierBasis}, []string{
+		!containsAnyText([]string{s.PatternOutcome, s.CounterEvidence}, []string{
 			"力度受限",
 			"条件受限",
 			"受限",
@@ -666,23 +642,18 @@ func validateStaticDecisionConsistency(s baziStaticSynthesis) error {
 			"不够强",
 			"药力不够",
 			"药力有限",
-			"层次受限",
 			"难以拔高",
 			"不能拔高",
 			"难入上等",
 			"难以进入上等",
-			"层级暂不定级",
-			"完整层次规则尚未覆盖",
-			"不自动换算富贵层次",
-			"不自动换算富贵等级",
 		}) {
 		return projectionMismatchViolation("static.consistency_flags", "static consistency flag requires visible limitation text", nil)
 	}
-	if containsAnyText([]string{s.MainAxis, s.PatternOutcome, s.TierBasis}, []string{"一飞冲天"}) &&
+	if containsAnyText([]string{s.MainAxis, s.PatternOutcome}, []string{"一飞冲天"}) &&
 		!allowsFlourishByWordingCap(s.WordingCap, "一飞冲天") {
 		return projectionMismatchViolation("static.wording_cap", "static synthesis overstates wording beyond wording cap", nil)
 	}
-	if containsAnyText([]string{s.MainAxis, s.PatternOutcome, s.TierBasis}, []string{"可享清福", "福泽深厚", "贵人众多"}) &&
+	if containsAnyText([]string{s.MainAxis, s.PatternOutcome}, []string{"可享清福", "福泽深厚", "贵人众多"}) &&
 		!allowsFlourishByWordingCap(s.WordingCap, "positive_flourish") {
 		return projectionMismatchViolation("static.wording_cap", "static synthesis overstates wording beyond wording cap", nil)
 	}

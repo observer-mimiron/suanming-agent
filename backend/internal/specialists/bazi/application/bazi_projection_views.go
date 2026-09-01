@@ -108,8 +108,8 @@ func BuildEvidenceStageSummary(state bazidomain.CharterState) string {
 	return buildEvidenceStageSummary(state)
 }
 
-// buildAnalysisPlannerPayload 生成分析规划模型只需读取的确定性输入视图。
-func buildAnalysisPlannerPayload(question string, chartFacts baziCharterInput) map[string]any {
+// buildEvidenceBasePayload 生成证据规划器需要的确定性输入视图。
+func buildEvidenceBasePayload(question string, chartFacts baziCharterInput) map[string]any {
 	return map[string]any{
 		"input": map[string]any{
 			"core_chart":          buildCoreChartView(chartFacts),
@@ -119,18 +119,13 @@ func buildAnalysisPlannerPayload(question string, chartFacts baziCharterInput) m
 	}
 }
 
-// BuildAnalysisPlannerPayload exposes the analysis planner input to the adapter.
-func BuildAnalysisPlannerPayload(question string, input bazidomain.CharterInput) map[string]any {
-	return buildAnalysisPlannerPayload(question, input)
-}
-
 // BuildEvidencePlannerPayload 提供证据规划器所需的窄事实和典籍范围，不暴露 SessionView 或检索结果。
 func BuildEvidencePlannerPayload(question string, input bazidomain.CharterInput, plan bazidomain.AnalysisPlan) map[string]any {
 	stage := plan.RetrievalStage
 	if stage == "" {
 		stage = "static"
 	}
-	payload := buildAnalysisPlannerPayload(question, input)
+	payload := buildEvidenceBasePayload(question, input)
 	payload["analysis_plan"] = plan
 	payload["authority_sources"] = bazidomain.StageAuthoritySources(stage)
 	if stage == "dynamic" {

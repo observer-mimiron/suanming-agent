@@ -12,7 +12,6 @@ type StructuredClaim struct {
 	ClaimRefs      []ClaimRef    `json:"claim_refs"`
 	EvidenceTopics []string      `json:"evidence_topics"`
 	Confidence     string        `json:"confidence"`
-	Boundary       string        `json:"boundary"`
 }
 
 // StructuredStaticClaim 是静态节点的受限裁断槽位。
@@ -25,41 +24,13 @@ type StructuredStaticClaim struct {
 	EvidenceTopics []string   `json:"evidence_topics"`
 }
 
-// TierDimension 是层次裁断的一个固定观察面。
-type TierDimension struct {
-	State          string     `json:"state"`
-	FactRefs       []FactRef  `json:"fact_refs"`
-	ClaimRefs      []ClaimRef `json:"claim_refs"`
-	EvidenceTopics []string   `json:"evidence_topics"`
-}
-
-// TierDimensions 固定九个传统层次观察面，避免模型增删维度。
-type TierDimensions struct {
-	MainAxis   TierDimension `json:"main_axis"`
-	YouQing    TierDimension `json:"youqing"`
-	YouLi      TierDimension `json:"youli"`
-	QingZhuo   TierDimension `json:"qingzhuo"`
-	Disease    TierDimension `json:"disease"`
-	Remedy     TierDimension `json:"remedy"`
-	Rescue     TierDimension `json:"rescue"`
-	Tiaohou    TierDimension `json:"tiaohou"`
-	HeZhiZhang TierDimension `json:"hezhizhang"`
-}
-
-// TierAssessment 是静态命局的基础层次槽位，不表示财富或人格价值。
-type TierAssessment struct {
-	Status     string         `json:"status"`
-	Level      int            `json:"level"`
-	Confidence string         `json:"confidence"`
-	Dimensions TierDimensions `json:"dimensions"`
-}
-
 // StructuredStaticSynthesis 是静态节点的原始模型输出。
 type StructuredStaticSynthesis struct {
-	Claims          []StructuredStaticClaim `json:"claims"`
-	AxisStatus      string                  `json:"axis_status"`
-	TierAssessment  TierAssessment          `json:"tier_assessment"`
-	NatalRiskStatus string                  `json:"natal_risk_status"`
+	Claims            []StructuredStaticClaim `json:"claims"`
+	AxisStatus        string                  `json:"axis_status"`
+	PatternName       string                  `json:"pattern_name"`
+	PatternRoute      string                  `json:"pattern_route"`
+	PatternEvaluation string                  `json:"pattern_evaluation"`
 }
 
 // StructuredPeriodClaim 是模型选择的重点大运结论。
@@ -71,7 +42,6 @@ type StructuredPeriodClaim struct {
 	ClaimRefs      []ClaimRef    `json:"claim_refs"`
 	EvidenceTopics []string      `json:"evidence_topics"`
 	Confidence     string        `json:"confidence"`
-	Boundary       string        `json:"boundary"`
 }
 
 // StructuredDynamicSynthesis 是动态节点的原始模型输出。
@@ -80,10 +50,6 @@ type StructuredDynamicSynthesis struct {
 	CurrentPeriodRealization string                  `json:"current_period_realization"`
 	PeriodClaims             []StructuredPeriodClaim `json:"period_claims"`
 	LiunianClaim             StructuredClaim         `json:"liunian_claim"`
-	Limitations              []string                `json:"limitations"`
-	ReasoningSummary         string                  `json:"reasoning_summary"`
-	ReasoningSteps           []string                `json:"reasoning_steps"`
-	OutcomeDomains           []string                `json:"outcome_domains"`
 }
 
 // PatternCandidate 是一条待比较的静态格局路线。

@@ -113,8 +113,7 @@
 - **And** `contract_check` 只校验并写入 failure；模型候选的 `parse_error`、`schema_error`、`projection_mismatch`、`method_contract`、`evidence_overclaim`、`domain_unauthorized` 和 `fact_conflict` 都携带有界反馈进入 repair，单字段和单轮均最多 2 次；工具、持久资产或确定性规则互相冲突时标记 `deterministic_conflict` 并直接停止
 - **And** outer `orchestration` trace 记录 `orchestration.loop_step`、`orchestration.next_action`、`orchestration.termination_reason`，编译上限为 16 步；`final_guard` 在 Graph `Invoke` 后执行，最终 `text` 只发送一次
 - **And** 2026 流年只引用 runtime 绑定的甲午运，不得引用 `dayun[0]`；完整大运目录只展示确定性事实
-- **And** 本命层次固定为九级：核心命盘和主轴已成立但独立主证未闭合时，必须输出 `provisional` 的第 3-6 级；清浊、病药、救应、破格风险和何知章五项证据齐全时才可输出 `rated` 的第 1-9 级；只有核心事实或主轴无法建立时才允许 `withheld` 的 0 级
-- **And** 当前大运只能输出 `repair|assist|maintain|disturb|suppress` 承接状态，不得改写本命基础等级
+- **And** 当前大运只能输出 `repair|assist|maintain|disturb|suppress` 承接状态，不得改写本命结构
 - **And** 官星未透时，静态原局风险必须为 `withheld`；岁运风险仅能在当前大运和流年关系已绑定时表达为条件风险
 - **And** 用户可见依据不得包含 `dayun[0].gan_zhi` 等内部路径，主轴只在总览结论中出现一次
 
@@ -237,7 +236,7 @@
 ### AC-7.6 节点输出职责不重叠
 - **Given** BaZi static、dynamic JSON Mode 节点
 - **When** 生成或校验各自 DTO
-- **Then** static 固定输出主轴、强弱、调候、格局四个 claim 与结构化九级层次；dynamic 只输出 runtime 已绑定当前大运及流年，不输出完整大运吉凶标签
+- **Then** static 固定输出主轴、强弱、调候、格局四个 claim；dynamic 只输出 runtime 已绑定当前大运及流年，不输出完整大运吉凶标签
 - **And** static/dynamic 的引用失败只重跑其所属节点，动态不得重跑静态或 canonical；调候 verdict 不以自然语言短语表作第二份合同
 
 ## AC-6：上下文工程

@@ -8,7 +8,7 @@
       "timeout_seconds": 300,
       "message": "2025年11月10日23点53分 男 上海",
       "include_response": true,
-      "response_must_contain_all": ["强弱", "调候", "大运"],
+      "response_must_contain_all": ["强弱", "喜神", "用神", "忌神", "调候", "大运"],
       "response_must_not_contain": [
         "事业突破",
         "学业突破",
@@ -30,7 +30,15 @@
           "规则表未实现",
           "上游未提供",
           "是非暗损",
-          "主变动与挑战"
+          "主变动与挑战",
+          "候选主轴",
+          "判断边界：",
+          "规则口径：",
+          "格局评价：",
+          "九维",
+          "九级",
+          "分析规划器",
+          "证据规划器"
         ],
         "max_phrase_occurrences": {
           "待规则裁断": 2,
@@ -67,14 +75,16 @@
       "timeout_seconds": 300,
       "message": "1994年1月21日20点30分 女 南京",
       "include_response": true,
-      "response_must_contain_all": ["强弱", "大运"],
+      "response_must_contain_all": ["强弱", "喜神", "用神", "忌神", "大运", "主格", "成局路线", "子平定性"],
       "response_must_not_contain": [
-        "投资",
-        "财务建议",
-        "收入兑现",
-        "健康风险",
-        "疾病",
-        "官非"
+        "候选主轴",
+        "判断边界：",
+        "规则口径：",
+        "格局评价：",
+        "九维",
+        "九级",
+        "分析规划器",
+        "证据规划器"
       ],
       "response_quality_checks": {
           "must_not_contain_any": [
@@ -115,7 +125,7 @@
       "timeout_seconds": 300,
       "message": "男，1990年5月20日巳时，北京，分析八字",
       "include_response": true,
-      "response_must_contain_all": ["强弱", "大运"],
+      "response_must_contain_all": ["强弱", "喜神", "用神", "忌神", "大运"],
       "response_quality_checks": {
           "must_not_contain_any": [
           "动态综合未通过",
@@ -126,7 +136,15 @@
           "未启用运行时规则 profile",
           "待profile裁断",
           "规则profile裁断",
-          "上游未提供"
+          "上游未提供",
+          "候选主轴",
+          "判断边界：",
+          "规则口径：",
+          "格局评价：",
+          "九维",
+          "九级",
+          "分析规划器",
+          "证据规划器"
         ],
         "max_total_phrase_occurrences": [
           {

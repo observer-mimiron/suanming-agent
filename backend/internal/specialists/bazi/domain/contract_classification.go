@@ -27,7 +27,8 @@ func ClassifyContractFinding(stage string, finding ContractAuditFinding) Contrac
 
 // ClassifyViolation 将确定性领域校验错误映射为固定失败分类。
 func ClassifyViolation(stage string, violation ValidationViolation) ContractFailure {
-	failure := ContractFailure{Class: "unknown", FindingCode: strings.TrimSpace(violation.ContractFindingCode), Field: strings.TrimSpace(violation.Field), DetectedDomain: strings.TrimSpace(violation.DetectedDomain), Excerpt: strings.TrimSpace(violation.Excerpt), Reason: strings.TrimSpace(violation.Message), MissingRefs: append([]string(nil), violation.MissingRefs...), AllowedRefs: append([]string(nil), violation.AllowedRefs...)}
+	findingCode := strings.TrimSpace(violation.ContractFindingCode)
+	failure := ContractFailure{Class: "unknown", FindingCode: findingCode, Field: strings.TrimSpace(violation.Field), DetectedDomain: strings.TrimSpace(violation.DetectedDomain), Excerpt: strings.TrimSpace(violation.Excerpt), Reason: strings.TrimSpace(violation.Message), MissingRefs: append([]string(nil), violation.MissingRefs...), AllowedRefs: append([]string(nil), violation.AllowedRefs...)}
 	if failure.FindingCode != "" {
 		fromFinding := ClassifyContractFinding(stage, ContractAuditFinding{Code: failure.FindingCode, Field: failure.Field, Excerpt: failure.Excerpt, DetectedDomain: failure.DetectedDomain, Reason: failure.Reason})
 		fromFinding.Reason = failure.Reason
@@ -50,6 +51,9 @@ func ClassifyViolation(stage string, violation ValidationViolation) ContractFail
 		}
 	case ViolationScopeEscalation, ViolationDayunCoverageMissing, ViolationSemanticContract:
 		failure.Class = ContractFailureProjectionMismatch
+	}
+	if failure.FindingCode == "" {
+		failure.FindingCode = string(violation.Code)
 	}
 	failure.RecoveryPolicy = RecoveryPolicyForFailure(stage, failure.Class)
 	return WithStaticFallback(stage, failure)

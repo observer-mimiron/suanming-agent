@@ -15,62 +15,14 @@
         "verdict": {"type": "string", "minLength": 4, "maxLength": 80}
       },
 		"required": ["slot", "verdict", "status", "fact_refs", "evidence_topics"]
-    },
-    "tier_dimension": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "state": {"type": "string", "enum": ["missing", "limited", "mixed", "usable", "strong"]},
-        "fact_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "claim_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "evidence_topics": {"type": "array", "items": {"type": "string", "minLength": 1}}
-      },
-      "required": ["state", "evidence_topics"]
-    },
-    "disease_dimension": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "state": {"type": "string", "enum": ["unresolved", "light", "moderate", "heavy", "critical"]},
-        "fact_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "claim_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "evidence_topics": {"type": "array", "items": {"type": "string", "minLength": 1}}
-      },
-      "required": ["state", "evidence_topics"]
-    },
-    "tier_dimensions": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "main_axis": {"$ref": "#/definitions/tier_dimension"},
-        "youqing": {"$ref": "#/definitions/tier_dimension"},
-        "youli": {"$ref": "#/definitions/tier_dimension"},
-        "qingzhuo": {"$ref": "#/definitions/tier_dimension"},
-        "disease": {"$ref": "#/definitions/disease_dimension"},
-        "remedy": {"$ref": "#/definitions/tier_dimension"},
-        "rescue": {"$ref": "#/definitions/tier_dimension"},
-        "tiaohou": {"$ref": "#/definitions/tier_dimension"},
-        "hezhizhang": {"$ref": "#/definitions/tier_dimension"}
-      },
-      "required": ["main_axis", "youqing", "youli", "qingzhuo", "disease", "remedy", "rescue", "tiaohou", "hezhizhang"]
-    },
-    "tier_assessment": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "status": {"type": "string", "enum": ["rated", "provisional", "withheld"]},
-        "level": {"type": "integer", "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]},
-        "confidence": {"type": "string", "enum": ["保守判断", "倾向成立", "明确成立"]},
-        "dimensions": {"$ref": "#/definitions/tier_dimensions"}
-      },
-      "required": ["status", "level", "confidence", "dimensions"]
-    }
+	    }
   },
   "properties": {
     "axis_status": {"type": "string", "enum": ["candidate", "established", "withheld"]},
     "claims": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/definitions/claim"}},
-    "tier_assessment": {"$ref": "#/definitions/tier_assessment"},
-    "natal_risk_status": {"type": "string", "enum": ["none", "withheld"]}
+    "pattern_name": {"type": "string", "minLength": 2, "maxLength": 24},
+    "pattern_route": {"type": "string", "minLength": 2, "maxLength": 32},
+    "pattern_evaluation": {"type": "string", "enum": ["成格", "成格有破", "成格受限", "有成有败", "破格", "暂不定评"]}
   },
-  "required": ["claims", "axis_status", "tier_assessment", "natal_risk_status"]
+  "required": ["claims", "axis_status", "pattern_name", "pattern_route", "pattern_evaluation"]
 }

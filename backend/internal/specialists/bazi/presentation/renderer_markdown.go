@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-var baziInternalReferencePath = regexp.MustCompile(`(?:dayun\[[0-9]+\](?:\.[A-Za-z0-9_]+)+|(?:liunian|yongshen|evidence_quality)(?:\.[A-Za-z0-9_]+)+|\b(?:support_score|pressure_score|tier_status)\b)`)
+var baziInternalReferencePath = regexp.MustCompile(`(?:dayun\[[0-9]+\](?:\.[A-Za-z0-9_]+)+|(?:liunian|yongshen|evidence_quality)(?:\.[A-Za-z0-9_]+)+|\b(?:support_score|pressure_score)\b)`)
 
 func ensureSteps(src []string, fallback []string) []string {
 	if len(filterNonEmpty(src)) > 0 {
@@ -174,7 +174,7 @@ func writeConclusion(b *strings.Builder, text string) {
 	if text == "" {
 		text = "本轮未形成可展示结论。"
 	}
-	b.WriteString("**结论：")
+	b.WriteString("**")
 	b.WriteString(strings.TrimSpace(text))
 	b.WriteString("**\n")
 }
