@@ -6,6 +6,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -26,6 +27,43 @@ func TestOrchestrationGraphTopology(t *testing.T) {
 	}
 	if r == nil {
 		t.Fatal("expected non-nil Runnable")
+	}
+}
+
+// TestOrchestrationGraphStateKeepsRuntimeReferencesOutsideCheckpoint protects
+// the state boundary: graph-local state may be serialized, while SessionState
+// and runtime services stay in request context.
+func TestOrchestrationGraphStateKeepsRuntimeReferencesOutsideCheckpoint(t *testing.T) {
+	graphType := reflect.TypeOf(orchestrationGraphState{})
+	forbidden := map[reflect.Type]struct{}{
+		reflect.TypeOf((*state.SessionState)(nil)):   {},
+		reflect.TypeOf((*Executor)(nil)):             {},
+		reflect.TypeOf((*orchestrationInit)(nil)):    {},
+		reflect.TypeOf((*orchestrationRuntime)(nil)): {},
+	}
+	for index := 0; index < graphType.NumField(); index++ {
+		field := graphType.Field(index)
+		if _, ok := forbidden[field.Type]; ok {
+			t.Fatalf("graph state field %q carries request/runtime reference %v", field.Name, field.Type)
+		}
+	}
+}
+
+// TestGenOrchestrationStateCopiesPendingSteps protects the graph-local slice
+// from mutating the Manager-owned ExecutionPlan after graph initialization.
+func TestGenOrchestrationStateCopiesPendingSteps(t *testing.T) {
+	plan := ExecutionPlan{DomainSteps: []contracts.DomainStep{{Domain: "bazi", Role: "primary"}}}
+	ctx := withOrchestrationInit(context.Background(), &orchestrationInit{
+		Session: state.NewSession("session-state-boundary"),
+		Plan:    plan,
+	})
+	graphState := genOrchestrationState(ctx)
+	if graphState == nil || len(graphState.PendingDomainSteps) != 1 {
+		t.Fatalf("graph state pending steps = %#v, want one copied step", graphState)
+	}
+	graphState.PendingDomainSteps[0].Domain = "qimen"
+	if plan.DomainSteps[0].Domain != "bazi" {
+		t.Fatalf("graph state mutation changed plan domain to %q", plan.DomainSteps[0].Domain)
 	}
 }
 

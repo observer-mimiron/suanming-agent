@@ -96,11 +96,11 @@ func (e *Executor) Execute(ctx context.Context, sink EventSink, st *state.Sessio
 	// 注入 init + runtime + result 到 ctx
 	// Graph state（PreflightResult/Route）由 WithGenLocalState 管理，节点 Lambda 用 ProcessState 读写
 	ctx = withOrchestrationInit(ctx, &orchestrationInit{
-		St:      st,
-		Route:   route,
-		Plan:    plan,
-		UserMsg: message,
-		Vals:    vals,
+		Session:       st,
+		Route:         route,
+		Plan:          plan,
+		UserMessage:   message,
+		SessionValues: vals,
 	})
 	ctx = withOrchestrationRuntime(ctx, &orchestrationRuntime{
 		Sink:     sink,

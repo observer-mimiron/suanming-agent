@@ -220,7 +220,7 @@ func dispatchBatchNode(ctx context.Context, in string) (string, error) {
 	if len(steps) == 0 {
 		return in, nil
 	}
-	outcomes, runErr := oc.RT.Executor.dispatchExecutionSteps(ctx, oc.RT.Sink, oc.Init.St, oc.GS.Plan, oc.Init.UserMsg, steps)
+	outcomes, runErr := oc.RT.Executor.dispatchExecutionSteps(ctx, oc.RT.Sink, oc.Init.Session, oc.GS.Plan, oc.Init.UserMessage, steps)
 	if runErr != nil {
 		if err := recordGraphFailure(ctx, &oc.GS.Failure, oc.GS.Route.PrimaryDomain, failureStageAgent, runErr); err != nil {
 			return "", err
@@ -266,7 +266,7 @@ func aggregateNode(ctx context.Context, in string) (string, error) {
 	// TimeScope 是本轮唯一的动态展示授权；没有明确时间范围时，静态追问
 	// 不应被 Prefill 缺口说明打断。
 	result.DomainContextPatch[dynamicFactsNoticeRequiredKey] = strings.TrimSpace(oc.GS.Plan.Route.Slots.TimeScope) != ""
-	result.Summary = oc.RT.Executor.manager.ComposeFinalReply(oc.Init.UserMsg, result)
+	result.Summary = oc.RT.Executor.manager.ComposeFinalReply(oc.Init.UserMessage, result)
 	oc.GS.AggregatedResult = result
 	oc.GS.RawFinalText = result.NormalizedSummary()
 	if result.Domain == "" {

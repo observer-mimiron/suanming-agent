@@ -58,3 +58,13 @@ func anyToString(value any) string {
 	}
 	return fmt.Sprint(value)
 }
+
+// firstNonEmpty returns the first non-empty value in order.
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}

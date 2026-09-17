@@ -59,7 +59,7 @@ func preflightNode(ctx context.Context, in string) (string, error) {
 		preflightSpan.SetAttribute("followup_mode", oc.Init.Plan.FollowupMode)
 	}
 
-	result := preflightWithPlan(oc.Init.St, oc.Init.Plan, oc.Init.UserMsg, oc.RT.Router)
+	result := preflightWithPlan(oc.Init.Session, oc.Init.Plan, oc.Init.UserMessage, oc.RT.Router)
 	preflightSpan.SetAttribute("short_circuit", result.ShortCircuit)
 	if result.TurnType != "" {
 		preflightSpan.SetAttribute("turn_type", result.TurnType)
@@ -83,18 +83,18 @@ func prefillNode(ctx context.Context, in string) (string, error) {
 	plan := oc.GS.Plan
 	if oc.GS.PreflightResult.ForcedRoute != nil {
 		route = *oc.GS.PreflightResult.ForcedRoute
-		plan = oc.RT.Executor.manager.BuildExecutionPlanForTurn(oc.Init.St, route, oc.Init.UserMsg, oc.Init.Plan.TurnContext)
+		plan = oc.RT.Executor.manager.BuildExecutionPlanForTurn(oc.Init.Session, route, oc.Init.UserMessage, oc.Init.Plan.TurnContext)
 		oc.GS.Plan = plan
 		oc.GS.Route = route
 		// 强制路由会重建计划；待执行步骤必须同时替换，否则 dispatch 会按旧领域
 		// 调度，令当前计划的资产合同与 worker 领域发生错配。
 		oc.GS.PendingDomainSteps = append([]contracts.DomainStep(nil), plan.DomainSteps...)
-		oc.RT.Executor.syncExecutionRoute(ctx, oc.Init.St, route, plan)
+		oc.RT.Executor.syncExecutionRoute(ctx, oc.Init.Session, route, plan)
 	}
 	oc.GS.PrefillAttempts++
 	oc.GS.Failure = graphFailure{}
-	oc.RT.Executor.prefill(ctx, oc.RT.Sink, oc.Init.St, plan, oc.Init.Vals)
-	if err := validatePlanArtifacts(oc.Init.St, plan); err != nil {
+	oc.RT.Executor.prefill(ctx, oc.RT.Sink, oc.Init.Session, plan, oc.Init.SessionValues)
+	if err := validatePlanArtifacts(oc.Init.Session, plan); err != nil {
 		if recordErr := recordGraphFailure(ctx, &oc.GS.Failure, route.PrimaryDomain, failureStagePrefill, err); recordErr != nil {
 			return "", recordErr
 		}
@@ -102,7 +102,7 @@ func prefillNode(ctx context.Context, in string) (string, error) {
 		return in, nil
 	}
 	oc.GS.PrefillCompleted = true
-	oc.GS.DynamicFacts = dynamicFactsForPlan(oc.Init.St, plan)
+	oc.GS.DynamicFacts = dynamicFactsForPlan(oc.Init.Session, plan)
 	tracing.SetTraceAttributes(ctx, map[string]any{"dynamic_facts": oc.GS.DynamicFacts})
 	return in, nil
 }

@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/cloudwego/eino/adk"
@@ -190,6 +191,23 @@ func TestAgentEventBridge_NoXMLTags_Fallback(t *testing.T) {
 	}
 	if len(sink.events) != 0 {
 		t.Fatalf("events = %d, want 0 (no thinking for untagged text)", len(sink.events))
+	}
+}
+
+func TestAgentEventBridge_PropagatesIteratorError(t *testing.T) {
+	iter, gen := adk.NewAsyncIteratorPair[*adk.AgentEvent]()
+	wantErr := errors.New("upstream canceled")
+	go func() {
+		gen.Send(&adk.AgentEvent{Err: wantErr})
+		gen.Close()
+	}()
+
+	finalText, err := agentEventBridge(context.Background(), &captureSink{}, iter, nil, func(name string) string { return name }, true)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("agentEventBridge error = %v, want %v", err, wantErr)
+	}
+	if finalText != "" {
+		t.Fatalf("finalText = %q, want empty text on iterator error", finalText)
 	}
 }
 
