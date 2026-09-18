@@ -1,14 +1,13 @@
 // Package runtime 包含 Manager 所有的执行主链。
 //
-// 本文件负责 ADK 事件到 EventSink 的桥接和 chart component 事件；
-// 不负责路由、Graph、领域裁断。
+// 本文件负责消费 ADK 事件、按角色和工具分类，并桥接到 EventSink；
+// chart component 与 analysis/response 文本投影分别位于 event_chart.go 和 event_output.go。
+// 本文件不负责路由、Graph、领域裁断或最终合同。
 package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"log"
-
 	"strings"
 
 	"github.com/cloudwego/eino/adk"
@@ -307,51 +306,4 @@ func specialistEventBridge(ctx context.Context, sink EventSink, iter *adk.AsyncI
 
 func isAssistantPlanningMessage(msg *schema.Message) bool {
 	return msg != nil && len(msg.ToolCalls) > 0
-}
-
-// emitChartFromToolResult detects chart payload in tool results and emits component events.
-func emitChartFromToolResult(ctx context.Context, sink EventSink, toolName, resultJSON string) {
-	var chartType string
-	switch toolName {
-	case "bazi_calc":
-		chartType = "bazi-chart"
-	case "qimen_dunjia":
-		chartType = "qimen-chart"
-	case "ziwei_calc":
-		chartType = "ziwei-chart"
-	case "ziwei_liunian":
-		chartType = "ziwei-chart"
-	default:
-		return
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(resultJSON), &payload); err != nil || payload == nil {
-		return
-	}
-	_ = emitEventWithTrace(ctx, sink, Event{Type: "component", Data: map[string]any{
-		"type": chartType, "payload": payload,
-	}}, map[string]any{
-		"component_type": chartType,
-		"tool_name":      toolName,
-	})
-}
-
-// parseXMLSections 解析 LLM 输出中的 <analysis> 和 <response> XML 标记段。
-//
-// 返回 (analysisText, responseText, hasTags)。hasTags 为 false 时表示输入不含标记，
-// 此时整个 input 视为 responseText（降级行为）。
-func parseXMLSections(input string) (analysis, response string, hasTags bool) {
-	analysisStart := strings.Index(input, "<analysis>")
-	analysisEnd := strings.Index(input, "</analysis>")
-	responseStart := strings.Index(input, "<response>")
-	responseEnd := strings.Index(input, "</response>")
-
-	if analysisStart == -1 || analysisEnd == -1 || responseStart == -1 || responseEnd == -1 {
-		return "", strings.TrimSpace(input), false
-	}
-
-	analysis = strings.TrimSpace(input[analysisStart+len("<analysis>") : analysisEnd])
-	response = strings.TrimSpace(input[responseStart+len("<response>") : responseEnd])
-	return analysis, response, true
 }
